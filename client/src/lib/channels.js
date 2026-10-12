@@ -1,5 +1,5 @@
 // Per-channel accent colours (by parsing profile, then by stable hash for unknown channels).
-const BY_PROFILE = { natgeo: '#ffcc00', asharq: '#38bdf8', dw: '#5b8def', aljazeera: '#f6a21d' };
+const BY_PROFILE = { natgeo: '#ffcc00', asharq: '#38bdf8', dw: '#5b8def', aljazeera: '#f6a21d', myflixer: '#06b6d4' };
 const PALETTE = ['#7ab87a', '#d66fa0', '#8b7fd6', '#4aa89a', '#d97a4a', '#c9a24a'];
 
 export function channelColor(channel) {

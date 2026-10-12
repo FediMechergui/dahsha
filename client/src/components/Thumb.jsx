@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 const CHAIN = ['custom', 'max', 'sd', 'hq', 'mq'];
 
 export default function Thumb({ thumbs, videoId, alt = '', className = '', start = 'max', eager = false }) {
-  const urls = thumbs || (videoId ? {
+  const urls = thumbs || (videoId && !videoId.startsWith('mf:') ? {
     max: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
     sd: `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`,
     hq: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,

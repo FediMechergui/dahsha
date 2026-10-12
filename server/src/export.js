@@ -14,7 +14,18 @@ if (!c.catalog) { console.error('no catalogue on disk - run "npm run rebuild" fi
 c.rebuild();
 const cat = c.catalog;
 
-const liteEpisode = (e) => ({ id: e.id, title: e.title, number: e.number, season: e.season, durationSec: e.durationSec, publishedAt: e.publishedAt, views: e.views });
+const liteEpisode = (e) => ({
+  id: e.id,
+  title: e.title,
+  number: e.number,
+  season: e.season,
+  durationSec: e.durationSec,
+  publishedAt: e.publishedAt,
+  views: e.views,
+  thumbs: e.thumbs?.custom ? e.thumbs : undefined,
+  sourceUrl: e.sourceUrl || undefined,
+  embedUrl: e.embedUrl || undefined,
+});
 const liteShow = (s) => ({
   id: s.id, title: s.title, kind: s.kind, channelId: s.channel?.id, lang: s.lang, contentLang: s.contentLang, tags: s.tags, primaryTag: s.primaryTag,
   episodeCount: s.episodeCount, posterId: s.posterVideoId, latestAt: s.latestAt, firstAt: s.firstAt, totalViews: s.totalViews,

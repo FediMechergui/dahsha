@@ -24,7 +24,7 @@ export default function Home() {
     const shows = catalog.shows;
     const perChannel = new Map();
     for (const s of [...shows].filter((x) => x.kind === 'series' && x.episodeCount >= 2 && !x.synopsisGenerated).sort(byLatest)) {
-      if (!perChannel.has(s.channel.id)) perChannel.set(s.channel.id, s);
+      if (s.channel?.id && !perChannel.has(s.channel.id)) perChannel.set(s.channel.id, s);
     }
     let featured = [...perChannel.values()].slice(0, 6);
     if (featured.length < 3) featured = [...featured, ...shows.filter((x) => !featured.includes(x) && !x.synopsisGenerated).sort(byLatest).slice(0, 6 - featured.length)];
@@ -32,7 +32,7 @@ export default function Home() {
     const filmsList = [...shows].filter((s) => s.kind === 'film').sort(byLatest).slice(0, ROW);
     const popular = [...shows].sort((a, b) => (b.totalViews || 0) - (a.totalViews || 0)).slice(0, ROW);
     const byChannel = (catalog.channels || [])
-      .map((c) => ({ channel: c, shows: shows.filter((s) => s.channel.id === c.id).sort(byLatest).slice(0, ROW) }))
+      .map((c) => ({ channel: c, shows: shows.filter((s) => s.channel?.id === c.id).sort(byLatest).slice(0, ROW) }))
       .filter((x) => x.shows.length >= 2);
     const byTag = catalog.tags
       .map((x) => ({ tag: x, shows: shows.filter((s) => s.tags.includes(x.id)).sort(byLatest).slice(0, ROW) }))

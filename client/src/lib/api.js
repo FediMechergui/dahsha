@@ -6,8 +6,11 @@ export const STATIC = import.meta.env.VITE_STATIC === '1';
 export const DATA_BASE = (import.meta.env.VITE_DATA_BASE || '').replace(/\/$/, '');
 export const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 
-async function req(url, opts) {
-  const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+async function req(url, opts = {}) {
+  // Only send a Content-Type when there is a body: a plain GET stays a "simple" request and needs
+  // no CORS preflight (the mobile app reads the data files cross-origin).
+  const headers = opts.body ? { 'Content-Type': 'application/json', ...(opts.headers || {}) } : (opts.headers || {});
+  const res = await fetch(url, { ...opts, headers });
   const text = await res.text();
   let body = {};
   let isJson = false;

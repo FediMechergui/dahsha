@@ -7,7 +7,7 @@ import { useLang, channelName } from '../lib/i18n.jsx';
 
 const Ctx = createContext(null);
 
-export const thumbsOf = (videoId) => (videoId ? {
+export const thumbsOf = (videoId) => (videoId && !videoId.startsWith('mf:') ? {
   max: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
   sd: `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`,
   hq: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,

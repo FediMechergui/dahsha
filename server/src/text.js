@@ -394,10 +394,28 @@ function parseEnglish(title, ctx) {
   const brands = ctx.brands || [];
   const parts = splitPipes(raw).filter((p) => !isBrandingEn(p, brands));
   if (ctx.profile === 'dash-show') {
-    // "Why do we die if we don't breathe? - C'est pas sorcier": the show is the LAST dash segment.
-    const segs = (parts[0] || raw).split(DASH).map((s) => s.trim()).filter(Boolean);
-    if (segs.length >= 2) return { showTitle: segs[segs.length - 1], episodeTitle: segs.slice(0, -1).join(' - '), kind: 'series' };
-    return { showTitle: ctx.playlistTitle && !ctx.playlistGeneric ? englishPlaylistShow(ctx.playlistTitle, brands).name : (parts[0] || raw), episodeTitle: parts[0] || raw, kind: 'series' };
+    // Single-show channels ("Why do we die if we don't breathe? - C'est pas sorcier"): every video
+    // is an episode of the channel's show, unless a segment names another known show (e.g. the
+    // English dub "It's Not Rocket Science"). Variants like "[Intégrale]", "(Best of)", "Repost"
+    // and a trailing brand mention without a dash are stripped from the episode title.
+    const shows = [...brands, "It's Not Rocket Science"].filter(Boolean);
+    const canon = (s) => norm(s).replace(/\s*[\[\(][^\]\)]*[\]\)]\s*/g, ' ').replace(/\b(repost|intégrale|integrale|compilation|best of)\b/gi, ' ').replace(/[!?.]+$/, '').replace(/\s+/g, ' ').trim();
+    const isShow = (s) => shows.find((b) => canon(b).toLowerCase() === canon(s).toLowerCase());
+    const text = splitPipes(raw).join(' - ');
+    const segs = text.split(DASH).map((s) => s.trim()).filter(Boolean);
+    let show = null;
+    const rest = [];
+    for (const s of segs) { const b = isShow(s); if (b && !show) show = b; else rest.push(s); }
+    if (!show) {
+      // "Comment devenir skieur ? C'est pas sorcier" (brand glued to the question, no dash)
+      for (const b of shows) {
+        const re = new RegExp(`\\s*${b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*!?\\s*(?:[\\[\\(][^\\]\\)]*[\\]\\)])?\\s*$`, 'i');
+        if (rest.length && re.test(rest[rest.length - 1])) { rest[rest.length - 1] = rest[rest.length - 1].replace(re, '').trim(); show = b; break; }
+      }
+    }
+    show = show || shows[0] || raw;
+    const ep = rest.map((s) => s.replace(/\s*[\[\(](intégrale|integrale|compilation|best of|repost)[\]\)]\s*/gi, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' - ') || 'Full episode';
+    return { showTitle: show, episodeTitle: ep, kind: 'series' };
   }
   const generic = !ctx.playlistTitle || ctx.playlistGeneric;
   const pl = !generic ? englishPlaylistShow(ctx.playlistTitle, brands) : null;

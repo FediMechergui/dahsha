@@ -7,6 +7,7 @@ import {
 } from './youtube.js';
 import { buildCatalog, diffCatalog } from './catalog.js';
 import { enrichArtwork, getArtwork, artworkEnabled } from './artwork.js';
+import { fetchMyflixerCatalog } from './myflixer.js';
 
 const REFRESH_MINUTES = Number(process.env.REFRESH_MINUTES || 15);
 const FEED_MINUTES = Number(process.env.FEED_MINUTES || 3);
@@ -14,6 +15,17 @@ const uploadsKey = (channelId) => `UPLOADS:${channelId}`;
 
 // Fill in fields that older sources.json files did not have.
 function normalizeSource(s) {
+  if (s.type === 'myflixer') {
+    return {
+      scanUploads: false,
+      maxUploads: 0,
+      profile: 'myflixer',
+      lang: 'en',
+      short: s.short || 'Myflixer',
+      brands: s.brands || ['Myflixer'],
+      ...s,
+    };
+  }
   const det = detectProfile(s.id, s.title, s.url);
   return {
     scanUploads: s.type === 'channel',
@@ -111,6 +123,7 @@ export class Catalogue extends EventEmitter {
     try {
       const toFetch = [];
       const uploadJobs = [];
+      const myflixerJobs = [];
       for (const src of this.sources) {
         if (src.type === 'channel') {
           const listed = await listChannelPlaylists(src.id).catch((e) => { console.warn(`[catalogue] playlists of ${src.title}: ${e.message}`); return null; });
@@ -128,12 +141,14 @@ export class Catalogue extends EventEmitter {
           if (src.scanUploads) uploadJobs.push(src);
         } else if (src.type === 'playlist') {
           toFetch.push({ id: src.id, title: src.title, signature: null, sourceId: src.id });
+        } else if (src.type === 'myflixer') {
+          myflixerJobs.push(src);
         }
       }
 
-      this._setStatus({ stage: 'playlists', progress: { done: 0, total: toFetch.length + uploadJobs.length } });
+      this._setStatus({ stage: 'playlists', progress: { done: 0, total: toFetch.length + uploadJobs.length + myflixerJobs.length } });
       let done = 0;
-      const tick = () => this._setStatus({ progress: { done: ++done, total: toFetch.length + uploadJobs.length } });
+      const tick = () => this._setStatus({ progress: { done: ++done, total: toFetch.length + uploadJobs.length + myflixerJobs.length } });
       await pool(toFetch, async (p) => {
         const data = await getPlaylistVideos(p.id);
         this.playlists[p.id] = { ...data, title: data.title || p.title, signature: p.signature, sourceId: p.sourceId, fetchedAt: new Date().toISOString() };
@@ -154,7 +169,97 @@ export class Catalogue extends EventEmitter {
         };
         tick();
       }, 2);
-      if (toFetch.length || uploadJobs.length) writeJson('playlists.json', this.playlists);
+
+      // Myflixer documentary catalog (WordPress REST API)
+      for (const src of myflixerJobs) {
+        try {
+          const key = `MYFLIXER:${src.id}`;
+          const cached = this.playlists[key];
+          if (!full && cached && cached.videos?.length && (Date.now() - new Date(cached.fetchedAt || 0).getTime() < 3 * 3600e3)) {
+            tick();
+            continue;
+          }
+          const { films, series } = await fetchMyflixerCatalog(src, { maxPages: src.maxPages || 3 });
+          const videos = [];
+          for (const f of films) {
+            const v = {
+              id: f.id,
+              title: f.title,
+              showTitle: f.title,
+              episodeTitle: 'Full film',
+              parsed: { showTitle: f.title, episodeTitle: 'Full film', kind: 'film', number: null, season: null },
+              durationSec: f.durationSec,
+              durationText: '1:30:00',
+              views: f.views,
+              thumb: f.thumb,
+              tags: f.tags,
+              sourceUrl: f.sourceUrl,
+              embedUrl: f.sourceUrl,
+            };
+            videos.push(v);
+            this.details[f.id] = {
+              id: f.id,
+              title: f.title,
+              description: f.synopsis,
+              durationSec: f.durationSec,
+              viewCount: f.views,
+              publishedAt: f.publishedAt,
+              sourceUrl: f.sourceUrl,
+              embedUrl: f.sourceUrl,
+              thumb: f.thumb,
+              playable: true,
+              fetchedAt: new Date().toISOString(),
+            };
+          }
+          for (const s of series) {
+            for (const ep of s.episodes) {
+              const epId = `mf:e:${ep.slug}`;
+              const epUrl = `https://myflixerz.day/episodes/${ep.slug}/`;
+              const v = {
+                id: epId,
+                title: `${s.title} - S${ep.season}E${ep.episode}: ${ep.title}`,
+                showTitle: s.title,
+                episodeTitle: ep.title,
+                parsed: { showTitle: s.title, episodeTitle: ep.title, kind: 'series', number: ep.episode, season: ep.season },
+                durationSec: 3000,
+                durationText: '50:00',
+                views: 50000,
+                thumb: s.thumb,
+                tags: s.tags,
+                sourceUrl: epUrl,
+                embedUrl: epUrl,
+              };
+              videos.push(v);
+              this.details[epId] = {
+                id: epId,
+                title: ep.title,
+                description: s.synopsis,
+                durationSec: 3000,
+                viewCount: 50000,
+                publishedAt: s.publishedAt,
+                sourceUrl: epUrl,
+                embedUrl: epUrl,
+                thumb: s.thumb,
+                playable: true,
+                fetchedAt: new Date().toISOString(),
+              };
+            }
+          }
+          this.playlists[key] = {
+            id: key,
+            title: src.title,
+            sourceId: src.id,
+            signature: `${videos.length}`,
+            videos,
+            fetchedAt: new Date().toISOString(),
+          };
+          tick();
+        } catch (err) {
+          console.warn(`[catalogue] myflixer fetch error: ${err.message}`);
+          tick();
+        }
+      }
+      if (toFetch.length || uploadJobs.length || myflixerJobs.length) writeJson('playlists.json', this.playlists);
 
       // Details for videos we have not seen yet. Full episodes first so the catalogue grows fastest.
       const minSec = this.overrides.minEpisodeSeconds ?? 420;
@@ -163,7 +268,7 @@ export class Catalogue extends EventEmitter {
       for (const pl of Object.values(this.playlists)) {
         for (const v of pl.videos || []) {
           if (!this.seen[v.id]) this.seen[v.id] = nowIso;
-          if (!this.details[v.id]) pending.push(v);
+          if (!this.details[v.id] && !v.id.startsWith('mf:')) pending.push(v);
         }
       }
       const uniq = [...new Map(pending.map((v) => [v.id, v])).values()].sort((a, b) => (b.durationSec >= minSec) - (a.durationSec >= minSec));

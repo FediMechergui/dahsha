@@ -81,8 +81,9 @@ function finalizeShow(show, art) {
   // Poster = override → TMDB backdrop (16:9, matches the cards) → most-viewed episode's thumbnail.
   const cover = [...episodes].sort((a, b) => (b.views || 0) - (a.views || 0))[0];
   show.posterVideoId = cover.id;
-  show.poster = ov.poster ? { custom: ov.poster } : art?.backdrop ? { custom: art.backdrop, hq: thumbUrls(cover.id).hq } : thumbUrls(cover.id);
-  show.portrait = ov.portrait || art?.poster || null; // 2:3 poster for the show page
+  const customCover = cover.thumbs?.custom || (cover.thumb?.startsWith('http') ? cover.thumb : null);
+  show.poster = ov.poster ? { custom: ov.poster } : art?.backdrop ? { custom: art.backdrop, hq: customCover || thumbUrls(cover.id).hq } : customCover ? { custom: customCover } : thumbUrls(cover.id);
+  show.portrait = ov.portrait || art?.poster || customCover || null; // 2:3 poster for the show page
   if (art?.tmdbId) show.tmdbId = art.tmdbId;
   show.latestAt = episodes.reduce((m, e) => (e.publishedAt && (!m || e.publishedAt > m) ? e.publishedAt : m), null);
   show.firstAt = episodes.reduce((m, e) => (e.publishedAt && (!m || e.publishedAt < m) ? e.publishedAt : m), null);
@@ -90,8 +91,10 @@ function finalizeShow(show, art) {
   show.totalDurationSec = episodes.reduce((a, e) => a + e.durationSec, 0);
 
   const tagged = tagShow(show);
-  show.tags = ov.tags?.length ? ov.tags : tagged.tags;
-  show.primaryTag = ov.tags?.length ? ov.tags[0] : tagged.primaryTag;
+  const extraTags = (show._extraTags || []).filter(Boolean);
+  show.tags = ov.tags?.length ? ov.tags : [...new Set([...tagged.tags, ...extraTags])];
+  show.primaryTag = ov.tags?.length ? ov.tags[0] : (tagged.primaryTag || show.tags[0]);
+  delete show._extraTags;
   // Content in another language than its section (e.g. French shows in the English section) gets a language tag.
   if (show.contentLang && show.contentLang !== show.lang) show.tags = [...show.tags.filter((t) => !t.startsWith('lang-')), `lang-${show.contentLang}`];
   return show;
@@ -144,8 +147,8 @@ export function buildCatalog({ playlists, details, seen, overrides, sources, art
     const ctx = { profile, lang, brands: src.brands || [src.title, src.short].filter(Boolean), playlistTitle: generic ? null : pl.title, playlistGeneric: generic, playlistSize: (pl.videos || []).length, playlistSeries };
     for (const v of pl.videos || []) {
       scanned++;
-      const parsed = parseTitle(v.title, ctx);
-      const showName = parsed.showTitle || (generic ? null : pl.title) || parsed.episodeTitle;
+      const parsed = (v.parsed && v.parsed.showTitle) ? v.parsed : parseTitle(v.title, ctx);
+      const showName = v.showTitle || parsed.showTitle || (generic ? null : pl.title) || parsed.episodeTitle;
       let key = normalizeArabic(showName);
       if (aliasMap.has(key)) key = aliasMap.get(key);
       const cand = { v, parsed, showName, key, pl, generic, src, playlistIds: new Set([pl.id]) };
@@ -282,15 +285,18 @@ export function buildCatalog({ playlists, details, seen, overrides, sources, art
         publishedApprox: approx,
         addedAt: seen[c.v.id] || null,
         synopsis: q > 0 ? cleaned : '',
-        thumbs: thumbUrls(c.v.id),
+        thumbs: c.v.thumb?.startsWith('http') ? { custom: c.v.thumb } : thumbUrls(c.v.id),
+        sourceUrl: d?.sourceUrl || c.v.sourceUrl || null,
+        embedUrl: d?.embedUrl || c.v.embedUrl || null,
         playlistIds: [...c.playlistIds],
       });
     }
     if (!episodes.length) continue;
+    const extraTags = [...new Set(Array.from(s.videos.values()).flatMap((cand) => cand.v.tags || []))];
     shows.push({
       id, key: s.key, title: ov.title || title, rawTitle: title, altTitles, episodes, promos,
       channel: channelInfo(s.src), lang: s.src.lang || 'ar', contentLang: s.src.contentLang || s.src.lang || 'ar', profile: s.src.profile || 'generic',
-      playlistIds: [...s.playlistIds], _ov: ov, _syn: synopsisCandidates,
+      playlistIds: [...s.playlistIds], _ov: ov, _syn: synopsisCandidates, _extraTags: extraTags,
     });
   }
 

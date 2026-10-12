@@ -17,14 +17,15 @@
   --font-body: 'IBM Plex Sans Arabic', 'Tajawal', system-ui, sans-serif;
   --radius: 10px;
   --radius-lg: 16px;
-  --hdr-h: 68px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --hdr-h: calc(68px + var(--safe-top));
   --gutter: 24px;
   --card-w: 300px;
   --shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.7);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   color-scheme: dark;
 }
-@media (max-width: 720px) { :root { --gutter: 16px; --hdr-h: 60px; --card-w: 220px; } }
+@media (max-width: 720px) { :root { --gutter: 16px; --hdr-h: calc(60px + var(--safe-top)); --card-w: 220px; } }
 
 /* ───────────────────────── base ───────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
@@ -95,8 +96,9 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .switch input { accent-color: var(--accent); width: 16px; height: 16px; }
 
 /* ───────────────────────── header ───────────────────────── */
+/* Notches / status bars (PWA standalone, Android edge-to-edge): --hdr-h already includes the inset. */
 .hdr {
-  position: fixed; inset-inline: 0; top: 0; z-index: 50; height: var(--hdr-h);
+  position: fixed; inset-inline: 0; top: 0; z-index: 50; height: var(--hdr-h); padding-top: var(--safe-top); box-sizing: border-box;
   background: linear-gradient(to bottom, rgba(10, 11, 13, 0.92), rgba(10, 11, 13, 0));
   transition: background 0.3s, backdrop-filter 0.3s;
 }

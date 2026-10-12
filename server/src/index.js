@@ -42,11 +42,24 @@ app.get('/api/events', (req, res) => {
 // ---- REST -----------------------------------------------------------------------------------
 app.get('/api/status', (_req, res) => res.json(catalogue.getStatus()));
 
+import { resolveMyflixerStream } from './myflixer.js';
+
 // The catalogue list is served in a lean form (thumbnail URLs are derived from ids on the client,
 // synopses are truncated, per-episode synopses omitted). /api/shows/:id returns everything.
 const slimEpisode = ({ fullTitle, playlistIds, viewsText, publishedApprox, addedAt, ...e }) => e;
 const slimShow = ({ key, promos, playlistIds, posterVideoId, ...s }) => ({ ...s, episodes: s.episodes.map(slimEpisode) });
-const liteEpisode = (e) => ({ id: e.id, title: e.title, number: e.number, season: e.season, durationSec: e.durationSec, publishedAt: e.publishedAt, views: e.views });
+const liteEpisode = (e) => ({
+  id: e.id,
+  title: e.title,
+  number: e.number,
+  season: e.season,
+  durationSec: e.durationSec,
+  publishedAt: e.publishedAt,
+  views: e.views,
+  thumbs: e.thumbs?.custom ? e.thumbs : undefined,
+  sourceUrl: e.sourceUrl || undefined,
+  embedUrl: e.embedUrl || undefined,
+});
 const liteShow = (s) => ({
   id: s.id, title: s.title, kind: s.kind, channelId: s.channel?.id, lang: s.lang, contentLang: s.contentLang, tags: s.tags, primaryTag: s.primaryTag,
   episodeCount: s.episodeCount, posterId: s.posterVideoId, latestAt: s.latestAt, firstAt: s.firstAt, totalViews: s.totalViews,
@@ -87,6 +100,19 @@ app.get('/api/shows/:id', (req, res) => {
   const s = catalogue.getShow(req.params.id);
   if (!s) return res.status(404).json({ error: 'not found' });
   res.json(slimShow(s));
+});
+
+app.get('/api/stream/:id', async (req, res) => {
+  const id = req.params.id;
+  if (id.startsWith('mf:')) {
+    try {
+      const data = await resolveMyflixerStream(id);
+      return res.json(data);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+  res.status(404).json({ error: 'not supported' });
 });
 
 app.post('/api/refresh', async (req, res) => {

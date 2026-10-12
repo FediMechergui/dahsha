@@ -1,0 +1,19 @@
+# Vercel only needs the web client, the exporter and the build scripts.
+mobile
+.github
+.claude
+node_modules
+server/node_modules
+client/node_modules
+server/data/playlists.json
+server/data/details.json
+server/data/seen.json
+server/data/catalog.json
+server/data/artwork.json
+server/data/*.tmp
+client/dist
+client/dist-*
+emulator-*.png
+*.log
+data-snapshot.tar.gz
+.git

@@ -56,7 +56,7 @@ export default function Watch() {
       <div className="watch">
         <div className="watch__main">
           <div className="watch__player">
-            <Player key={episode.id} videoId={episode.id} startAt={startAt} onProgress={onProgress} onEnded={onEnded} />
+            <Player key={episode.id} videoId={episode.id} episode={episode} startAt={startAt} onProgress={onProgress} onEnded={onEnded} />
             {countdown != null && next && (
               <div className="watch__next">
                 <p>{t('next_in')} <b>{countdown}</b> {t('seconds')}</p>
@@ -93,7 +93,11 @@ export default function Watch() {
                   <span>{t('autoplay_next')}</span>
                 </label>
               )}
-              <a className="btn btn--text" href={`https://www.youtube.com/watch?v=${episode.id}`} target="_blank" rel="noreferrer">{t('open_youtube')} ↗</a>
+              {episode.id?.startsWith('mf:') ? (
+                <a className="btn btn--text" href={episode.sourceUrl || `https://myflixerz.day/${episode.id.replace(/^mf:[me]:/, '')}/`} target="_blank" rel="noreferrer">{t('open_myflixer')} ↗</a>
+              ) : (
+                <a className="btn btn--text" href={`https://www.youtube.com/watch?v=${episode.id}`} target="_blank" rel="noreferrer">{t('open_youtube')} ↗</a>
+              )}
             </div>
           </div>
         </div>

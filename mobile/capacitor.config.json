@@ -5,7 +5,8 @@
   "backgroundColor": "#0a0b0d",
   "android": {
     "allowMixedContent": false,
-    "backgroundColor": "#0a0b0d"
+    "backgroundColor": "#0a0b0d",
+    "adjustMarginsForEdgeToEdge": "force"
   },
   "server": {
     "androidScheme": "https"

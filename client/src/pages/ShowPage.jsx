@@ -28,7 +28,7 @@ export default function ShowPage() {
   const related = useMemo(() => {
     if (!catalog || !show) return [];
     const sameTag = catalog.shows.filter((s) => s.id !== show.id && s.tags.some((x) => show.tags.includes(x)));
-    return [...sameTag.filter((s) => s.channel.id === show.channel.id), ...sameTag.filter((s) => s.channel.id !== show.channel.id)].slice(0, 14);
+    return [...sameTag.filter((s) => s.channel?.id === show.channel?.id), ...sameTag.filter((s) => s.channel?.id !== show.channel?.id)].slice(0, 14);
   }, [catalog, show]);
 
   if (!catalog) return null;
