@@ -107,13 +107,13 @@ export class Catalogue extends EventEmitter {
     return diff;
   }
 
-  /** TMDB posters/synopses for shows that have none yet (no-op without TMDB_API_KEY). */
+  /** Posters/synopses from TMDB (with key), TVmaze and Wikipedia for shows that have none yet. */
   async enrich() {
     if (!artworkEnabled() || !this.catalog) return;
-    const before = Object.values(getArtwork()).filter((a) => a.tmdbId).length;
+    const count = () => Object.values(getArtwork()).filter((a) => a.source).length;
+    const before = count();
     await enrichArtwork(this.catalog.shows);
-    const after = Object.values(getArtwork()).filter((a) => a.tmdbId).length;
-    if (after !== before) this.rebuild();
+    if (count() !== before) this.rebuild();
   }
 
   async refresh({ full = false } = {}) {
