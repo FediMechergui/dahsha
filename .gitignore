@@ -21,3 +21,6 @@ build.log
 .vercel/
 .DS_Store
 *.log
+
+.vercel
+.env*

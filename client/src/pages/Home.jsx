@@ -42,6 +42,17 @@ export default function Home() {
   }, [catalog]);
 
   if (!catalog) return null;
+  if (!catalog.shows.length) {
+    return (
+      <div className="page container">
+        <div className="empty" style={{ paddingTop: 120 }}>
+          <div className="empty__icon" aria-hidden>◌</div>
+          <h3 className="empty__title">{lang === 'en' ? 'The English section is still being built' : 'القسم العربي قيد البناء'}</h3>
+          <p className="empty__body">{lang === 'en' ? 'Come back in a little while, or switch the language from the top bar.' : 'عد بعد قليل، أو بدّل اللغة من الشريط العلوي.'}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page page--home">
