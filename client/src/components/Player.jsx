@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { useLang } from '../lib/i18n.jsx';
-import { api } from '../lib/api.js';
+import { api, API_BASE } from '../lib/api.js';
 
 let apiPromise = null;
 function loadApi() {
@@ -55,11 +55,20 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       .then((data) => {
         if (cancelled) return;
         setLoading(false);
-        const directHls = data?.streamUrl || data?.streams?.[0]?.uri;
+        const toAbsolute = (url) => {
+          if (!url) return null;
+          if (url.startsWith('http://') || url.startsWith('https://')) return url;
+          return `${API_BASE}${url}`;
+        };
+
+        const directHls = toAbsolute(data?.streamUrl);
+        const embed = toAbsolute(data?.embedUrl);
+
         if (directHls) {
           setStreamUrl(directHls);
-        } else if (data?.embedUrl && !data.embedUrl.includes('myflixerz.day')) {
-          setEmbedSrc(data.embedUrl);
+          if (embed) setEmbedSrc(embed);
+        } else if (embed) {
+          setEmbedSrc(embed);
         } else {
           setStreamFailed(true);
         }

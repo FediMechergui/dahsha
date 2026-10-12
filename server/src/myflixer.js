@@ -259,10 +259,152 @@ export async function fetchMyflixerCatalog(source, { maxPages = 60 } = {}) {
   return { films, series };
 }
 
+export function rewriteM3u8(content, baseUrl, proxyPrefix) {
+  const lines = content.split('\n');
+  const rewritten = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (trimmed.startsWith('#')) {
+      if (trimmed.includes('URI="')) {
+        return trimmed.replace(/URI="([^"]+)"/g, (_, uri) => {
+          const full = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
+          return `URI="${proxyPrefix}?proxy=1&url=${encodeURIComponent(full)}"`;
+        });
+      }
+      return line;
+    }
+    const full = trimmed.startsWith('http') ? trimmed : new URL(trimmed, baseUrl).href;
+    return `${proxyPrefix}?proxy=1&url=${encodeURIComponent(full)}`;
+  });
+  return rewritten.join('\n');
+}
+
+export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api/stream') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (!targetUrl || !targetUrl.startsWith('http')) {
+    return res.status(400).send('Invalid url parameter');
+  }
+
+  const upstreamHeaders = {
+    'User-Agent': DESKTOP_UA,
+    Referer: 'https://sv4.nontongo.day/',
+  };
+  if (req.headers?.range) {
+    upstreamHeaders.Range = req.headers.range;
+  }
+
+  try {
+    const upstream = await fetch(targetUrl, { headers: upstreamHeaders });
+    const cType = upstream.headers.get('content-type') || '';
+    const status = upstream.status;
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    if (cType.includes('mpegurl') || targetUrl.includes('.m3u8') || targetUrl.includes('file.m3u8')) {
+      const text = await upstream.text();
+      const rewritten = rewriteM3u8(text, targetUrl, proxyPrefix);
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+      return res.status(200).send(rewritten);
+    }
+
+    res.status(status);
+    if (cType) res.setHeader('Content-Type', cType);
+    const contentLen = upstream.headers.get('content-length');
+    if (contentLen) res.setHeader('Content-Length', contentLen);
+    const contentRange = upstream.headers.get('content-range');
+    if (contentRange) res.setHeader('Content-Range', contentRange);
+    const acceptRanges = upstream.headers.get('accept-ranges');
+    if (acceptRanges) res.setHeader('Accept-Ranges', acceptRanges);
+
+    if (!upstream.body) {
+      return res.end();
+    }
+
+    const reader = upstream.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+    return res.end();
+  } catch (err) {
+    return res.status(500).send(err.message || 'Stream proxy error');
+  }
+}
+
+export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream') {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('X-Frame-Options', 'ALLOWALL');
+  res.setHeader('Content-Security-Policy', 'frame-ancestors *');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+
+  try {
+    const data = await resolveMyflixerStream(id, proxyPrefix);
+    const streamSrc = data.streamUrl || '';
+    const title = id.replace(/^mf:[me]:/, '').replace(/-/g, ' ');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>${title}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .msg { color: #aaa; text-align: center; padding: 20px; font-family: sans-serif; font-size: 14px; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.11/dist/hls.min.js"></script>
+</head>
+<body>
+  <video id="player" controls playsinline preload="auto"></video>
+  <script>
+    (function() {
+      var v = document.getElementById('player');
+      var src = ${JSON.stringify(streamSrc)};
+      if (!src) {
+        document.body.innerHTML = '<div class="msg">Video stream not available</div>';
+        return;
+      }
+      if (v.canPlayType('application/vnd.apple.mpegurl')) {
+        v.src = src;
+        v.play().catch(function() {});
+      } else if (window.Hls && Hls.isSupported()) {
+        var hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+        hls.loadSource(src);
+        hls.attachMedia(v);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          v.play().catch(function() {});
+        });
+        hls.on(Hls.Events.ERROR, function(e, data) {
+          if (data.fatal) {
+            console.warn('[embed] HLS fatal error', data);
+          }
+        });
+      } else {
+        v.src = src;
+        v.play().catch(function() {});
+      }
+    })();
+  </script>
+</body>
+</html>`;
+    return res.status(200).send(html);
+  } catch (err) {
+    return res.status(500).send(`<div style="color:#fff;background:#000;padding:20px;font-family:sans-serif;">Embed resolution failed: ${err.message}</div>`);
+  }
+}
+
 /**
  * Resolve playback streams and player embed for an episode or film.
  */
-export async function resolveMyflixerStream(id) {
+export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
   const isMovie = id.startsWith('mf:m:');
   const slug = id.replace(/^mf:[mse]:/, '');
   const url = isMovie ? `${BASE}/${slug}/` : `${BASE}/episodes/${slug}/`;
@@ -305,18 +447,30 @@ export async function resolveMyflixerStream(id) {
       }
     }
 
+    const rawStream = hlsStreams[0]?.uri || null;
+    const streamUrl = rawStream ? `${proxyPrefix}?proxy=1&url=${encodeURIComponent(rawStream)}` : null;
+    const embedUrl = `${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`;
+
     return {
       id,
       sourceUrl: url,
-      embedUrl: playerUrl || url,
-      streamUrl: hlsStreams[0]?.uri || null,
-      streams: hlsStreams,
+      embedUrl,
+      rawEmbedUrl: playerUrl || url,
+      streamUrl,
+      rawStreamUrl: rawStream,
+      streams: hlsStreams.map((s) => ({
+        ...s,
+        proxyUri: `${proxyPrefix}?proxy=1&url=${encodeURIComponent(s.uri)}`,
+      })),
     };
   } catch (e) {
     return {
       id,
       sourceUrl: url,
-      embedUrl: url,
+      embedUrl: `${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`,
+      rawEmbedUrl: url,
+      streamUrl: null,
+      rawStreamUrl: null,
       streams: [],
       error: e.message,
     };

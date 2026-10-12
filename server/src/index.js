@@ -6,6 +6,7 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { Catalogue } from './scheduler.js';
 import { readJson, writeJson } from './store.js';
+import { resolveMyflixerStream, handleStreamProxy, handleEmbedPlayer } from './myflixer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4545);
@@ -103,10 +104,23 @@ app.get('/api/shows/:id', (req, res) => {
 });
 
 app.get('/api/stream/:id?', async (req, res) => {
+  if (req.query?.proxy === '1') {
+    const targetUrl = req.query?.url ? decodeURIComponent(req.query.url) : '';
+    return handleStreamProxy(targetUrl, req, res, '/api/stream');
+  }
+
+  if (req.query?.embed === '1') {
+    const embedId = decodeURIComponent(req.query?.id || req.params?.id || '');
+    if (!embedId || !embedId.startsWith('mf:')) {
+      return res.status(400).send('Invalid or missing stream ID');
+    }
+    return handleEmbedPlayer(embedId, req, res, '/api/stream');
+  }
+
   const id = req.query.id || req.params.id;
   if (id && id.startsWith('mf:')) {
     try {
-      const data = await resolveMyflixerStream(id);
+      const data = await resolveMyflixerStream(id, '/api/stream');
       return res.json(data);
     } catch (e) {
       return res.status(500).json({ error: e.message });
