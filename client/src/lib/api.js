@@ -22,7 +22,8 @@ const notAvailable = () => Promise.reject(Object.assign(new Error('static'), { s
 
 export const api = STATIC ? {
   static: true,
-  catalog: () => req(`${DATA_BASE}/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`),
+  // One file per language section; the client only loads the section it displays.
+  catalog: (lang = 'ar') => req(`${DATA_BASE}/data/catalog.${lang}.json?v=${Math.floor(Date.now() / 600000)}`),
   status: () => req(`${DATA_BASE}/data/status.json?v=${Math.floor(Date.now() / 600000)}`),
   show: (id) => req(`${DATA_BASE}/data/shows/${encodeURIComponent(id)}.json`),
   refresh: notAvailable,
@@ -32,7 +33,7 @@ export const api = STATIC ? {
   overrideShow: notAvailable,
 } : {
   static: false,
-  catalog: () => req(`${API_BASE}/api/catalog`),
+  catalog: (lang = 'ar') => req(`${API_BASE}/api/catalog?lang=${lang}`),
   status: () => req(`${API_BASE}/api/status`),
   show: (id) => req(`${API_BASE}/api/shows/${encodeURIComponent(id)}`),
   refresh: (full = false) => req(`${API_BASE}/api/refresh${full ? '?full=1' : ''}`, { method: 'POST' }),

@@ -4,12 +4,13 @@ import { Badge, PlayIcon } from './Bits.jsx';
 import { useCatalog } from '../hooks/useCatalog.jsx';
 import { useLang, channelName } from '../lib/i18n.jsx';
 import { episodesLabel, isNew, fmtDuration } from '../lib/format.js';
-import { channelColor } from '../lib/channels.js';
+import { channelColor, contentLangBadge } from '../lib/channels.js';
 
 export default function ShowCard({ show, size = 'md', index, hideChannel = false }) {
   const { tagMap } = useCatalog();
   const { t, lang } = useLang();
   const tag = tagMap.get(show.primaryTag);
+  const cl = contentLangBadge(show, lang);
   const fresh = isNew(show.latestAt);
   const film = show.kind === 'film';
   return (
@@ -20,6 +21,7 @@ export default function ShowCard({ show, size = 'md', index, hideChannel = false
         <div className="card__badges">
           {fresh && <Badge tone="new">{t('badge_new')}</Badge>}
           {film ? <Badge tone="film">{t('badge_film')} • {fmtDuration(show.totalDurationSec, lang)}</Badge> : <Badge>{episodesLabel(show.episodeCount, lang)}</Badge>}
+          {cl && <Badge tone="lang" title={cl.label}>{cl.short}</Badge>}
         </div>
         {!hideChannel && show.channel && <span className="card__channel"><i />{channelName(show.channel, lang)}</span>}
         <span className="card__play" aria-hidden><PlayIcon size={26} /></span>

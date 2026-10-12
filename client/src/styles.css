@@ -216,6 +216,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .card__channel { position: absolute; bottom: 8px; inset-inline-start: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.62); backdrop-filter: blur(6px); font-family: var(--font-display); font-weight: 700; font-size: 11.5px; color: #fff; }
 .card__channel i { width: 7px; height: 7px; border-radius: 2px; background: var(--ch); }
 .badge--film { background: rgba(255, 255, 255, 0.92); color: #111; }
+.badge--lang { background: #6c8cff; color: #fff; letter-spacing: 0.08em; }
 .filterbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
 .chips--inline { position: static; margin: 0; padding: 0; background: none; flex: 1; min-width: 0; }
 .segmented { display: inline-flex; background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; padding: 3px; flex: none; }
@@ -283,6 +284,8 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .show__head { position: relative; z-index: 1; padding-top: calc(var(--hdr-h) + min(28vh, 260px)); display: grid; grid-template-columns: 340px 1fr; gap: 36px; align-items: end; }
 .show__poster { border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line-2); aspect-ratio: 16 / 9; background: var(--surface-2); }
 .show__poster img { width: 100%; height: 100%; object-fit: cover; }
+.show__poster--portrait { aspect-ratio: 2 / 3; max-width: 260px; }
+@media (max-width: 900px) { .show__poster--portrait { max-width: 200px; } }
 .show__kicker { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-family: var(--font-display); font-size: 14px; }
 .show__title { font-size: clamp(30px, 4.6vw, 56px); font-weight: 900; margin-top: 8px; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.5); }
 .show__meta { display: flex; gap: 16px; flex-wrap: wrap; color: var(--text-2); margin-top: 12px; font-size: 14.5px; }

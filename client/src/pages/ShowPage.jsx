@@ -9,6 +9,7 @@ import { useCatalog, useFullShow } from '../hooks/useCatalog.jsx';
 import { useFavorites, favoritesStore, useProgress } from '../hooks/useProgress.js';
 import { useLang } from '../lib/i18n.jsx';
 import { episodesLabel, fmtDuration, fmtDate, fmtCompact, yearOf } from '../lib/format.js';
+import { contentLangBadge } from '../lib/channels.js';
 
 export default function ShowPage() {
   const { id } = useParams();
@@ -49,11 +50,15 @@ export default function ShowPage() {
         <div className="show__shade" />
       </div>
       <div className="container show__head">
-        <div className="show__poster">
-          <Thumb thumbs={show.poster} alt={show.title} start="sd" eager />
+        <div className={`show__poster ${show.portrait ? 'show__poster--portrait' : ''}`}>
+          {show.portrait ? <img src={show.portrait} alt={show.title} loading="eager" /> : <Thumb thumbs={show.poster} alt={show.title} start="sd" eager />}
         </div>
         <div className="show__info">
-          <p className="show__kicker"><ChannelPill channel={show.channel} small /><span className="show__kind">{film ? t('kind_film_label') : t('kind_series_label')}</span></p>
+          <p className="show__kicker">
+            <ChannelPill channel={show.channel} small />
+            <span className="show__kind">{film ? t('kind_film_label') : t('kind_series_label')}</span>
+            {contentLangBadge(show, lang) && <span className="badge badge--lang">{contentLangBadge(show, lang).label}</span>}
+          </p>
           <h1 className="show__title">{show.title}</h1>
           <p className="show__meta">
             {film ? <span>{fmtDuration(show.totalDurationSec, lang)}</span> : <span>{episodesLabel(show.episodeCount, lang)}{seasons.length > 1 ? ` • ${seasons.length} ${t('seasons')}` : ''}</span>}

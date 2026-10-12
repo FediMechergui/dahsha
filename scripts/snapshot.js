@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dataDir = path.join(root, 'server', 'data');
 const TAG = 'data-snapshot';
-const FILES = ['playlists.json', 'details.json', 'seen.json', 'catalog.json'];
+const FILES = ['playlists.json', 'details.json', 'seen.json', 'catalog.json', 'artwork.json'];
 const archive = path.join(root, 'data-snapshot.tar.gz');
 const sh = (cmd, args, opts = {}) => spawnSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32', ...opts });
 const mode = process.argv[2];

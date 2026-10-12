@@ -6,6 +6,7 @@ import {
   listChannelPlaylists, listChannelUploads, getPlaylistVideos, getVideoDetails, fetchChannelFeed, pool, resolveSource, detectProfile,
 } from './youtube.js';
 import { buildCatalog, diffCatalog } from './catalog.js';
+import { enrichArtwork, getArtwork, artworkEnabled } from './artwork.js';
 
 const REFRESH_MINUTES = Number(process.env.REFRESH_MINUTES || 15);
 const FEED_MINUTES = Number(process.env.FEED_MINUTES || 3);
@@ -86,12 +87,21 @@ export class Catalogue extends EventEmitter {
   /** Rebuild the catalogue from cached data only (no network). */
   rebuild() {
     this.overrides = { ...DEFAULT_OVERRIDES, ...readJson('overrides.json', DEFAULT_OVERRIDES) };
-    const next = buildCatalog({ playlists: this.playlists, details: this.details, seen: this.seen, overrides: this.overrides, sources: this.sources });
+    const next = buildCatalog({ playlists: this.playlists, details: this.details, seen: this.seen, overrides: this.overrides, sources: this.sources, artwork: getArtwork() });
     const diff = diffCatalog(this.catalog, next);
     this.catalog = next;
     writeJson('catalog.json', next);
     this.emit('update', { diff, generatedAt: next.generatedAt, stats: next.stats });
     return diff;
+  }
+
+  /** TMDB posters/synopses for shows that have none yet (no-op without TMDB_API_KEY). */
+  async enrich() {
+    if (!artworkEnabled() || !this.catalog) return;
+    const before = Object.values(getArtwork()).filter((a) => a.tmdbId).length;
+    await enrichArtwork(this.catalog.shows);
+    const after = Object.values(getArtwork()).filter((a) => a.tmdbId).length;
+    if (after !== before) this.rebuild();
   }
 
   async refresh({ full = false } = {}) {
@@ -170,6 +180,7 @@ export class Catalogue extends EventEmitter {
 
       this._setStatus({ stage: 'building', progress: null });
       const diff = this.rebuild();
+      await this.enrich().catch((e) => console.warn('[artwork]', e.message));
       const ms = Date.now() - t0;
       console.log(`[catalogue] refresh done in ${(ms / 1000).toFixed(1)}s - playlists fetched ${toFetch.length}, uploads scanned ${uploadJobs.length}, details ${uniq.length}, new episodes ${diff.newEpisodes.length}, new shows ${diff.newShows.length}`);
       this._scheduleNext();

@@ -15,3 +15,18 @@ export function channelColor(channel) {
 }
 
 export const kindLabel = (kind) => (kind === 'film' ? 'فيلم وثائقي' : 'مسلسل وثائقي');
+
+// Spoken language of the content when it differs from its section (e.g. French shows in the English section).
+const LANG_NAMES = {
+  fr: { ar: 'بالفرنسية', en: 'In French', short: 'FR' },
+  en: { ar: 'بالإنجليزية', en: 'In English', short: 'EN' },
+  ar: { ar: 'بالعربية', en: 'In Arabic', short: 'AR' },
+  de: { ar: 'بالألمانية', en: 'In German', short: 'DE' },
+  es: { ar: 'بالإسبانية', en: 'In Spanish', short: 'ES' },
+};
+export function contentLangBadge(show, uiLang) {
+  const cl = show?.contentLang;
+  if (!cl || cl === (show.lang || 'ar')) return null;
+  const n = LANG_NAMES[cl] || { ar: cl.toUpperCase(), en: cl.toUpperCase(), short: cl.toUpperCase() };
+  return { short: n.short, label: n[uiLang] || n.en };
+}

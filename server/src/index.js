@@ -48,26 +48,33 @@ const slimEpisode = ({ fullTitle, playlistIds, viewsText, publishedApprox, added
 const slimShow = ({ key, promos, playlistIds, posterVideoId, ...s }) => ({ ...s, episodes: s.episodes.map(slimEpisode) });
 const liteEpisode = (e) => ({ id: e.id, title: e.title, number: e.number, season: e.season, durationSec: e.durationSec, publishedAt: e.publishedAt, views: e.views });
 const liteShow = (s) => ({
-  id: s.id, title: s.title, kind: s.kind, channelId: s.channel?.id, lang: s.lang, tags: s.tags, primaryTag: s.primaryTag,
+  id: s.id, title: s.title, kind: s.kind, channelId: s.channel?.id, lang: s.lang, contentLang: s.contentLang, tags: s.tags, primaryTag: s.primaryTag,
   episodeCount: s.episodeCount, posterId: s.posterVideoId, latestAt: s.latestAt, firstAt: s.firstAt, totalViews: s.totalViews,
   totalDurationSec: s.totalDurationSec, seasons: s.seasons, synopsisGenerated: s.synopsisGenerated,
+  poster: s.poster?.custom ? s.poster : undefined, portrait: s.portrait || undefined, tmdbId: s.tmdbId || undefined,
   blurb: (s.synopsis || '').length > 220 ? `${s.synopsis.slice(0, 220).replace(/\s+\S*$/, '')}…` : s.synopsis,
   altTitles: (s.altTitles || []).slice(0, 3), episodes: s.episodes.map(liteEpisode),
 });
 
-let liteCache = { generatedAt: null, json: null, gz: null };
-function liteCatalog() {
+// One cached (and gzipped) lean payload per language section, plus "all".
+const liteCache = new Map(); // key → { generatedAt, json, gz }
+function liteCatalog(lang) {
   const c = catalogue.getCatalog();
   if (!c) return null;
-  if (liteCache.generatedAt !== c.generatedAt) {
-    const json = Buffer.from(JSON.stringify({ ...c, lite: true, shows: c.shows.map(liteShow) }));
-    liteCache = { generatedAt: c.generatedAt, json, gz: zlib.gzipSync(json, { level: 6 }) };
-  }
-  return liteCache;
+  const key = lang || 'all';
+  const hit = liteCache.get(key);
+  if (hit && hit.generatedAt === c.generatedAt) return hit;
+  const shows = lang ? c.shows.filter((s) => (s.lang || 'ar') === lang) : c.shows;
+  const channels = lang ? c.channels.filter((ch) => (ch.lang || 'ar') === lang) : c.channels;
+  const json = Buffer.from(JSON.stringify({ ...c, lite: true, lang: lang || null, channels, shows: shows.map(liteShow) }));
+  const entry = { generatedAt: c.generatedAt, json, gz: zlib.gzipSync(json, { level: 6 }) };
+  liteCache.set(key, entry);
+  return entry;
 }
 
 app.get('/api/catalog', (req, res) => {
-  const lc = liteCatalog();
+  const lang = /^(ar|en)$/.test(req.query.lang || '') ? req.query.lang : null;
+  const lc = liteCatalog(lang);
   if (!lc) return res.status(503).json({ building: true, status: catalogue.getStatus() });
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');

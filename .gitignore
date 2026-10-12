@@ -15,6 +15,7 @@ server/data/playlists.json
 server/data/details.json
 server/data/seen.json
 server/data/catalog.json
+server/data/artwork.json
 server/data/*.tmp
 data-snapshot.tar.gz
 build.log

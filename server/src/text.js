@@ -344,6 +344,8 @@ const EN_BRANDS = [
   /^(free documentary( -)?( history| nature)?|fd history|fd nature|free documentary history)$/i,
   /^(vice( news)?|vice news tonight)$/i,
   /^(kurzgesagt( – in a nutshell)?|veritasium|fern|hoog|jcs(\s*-\s*criminal psychology)?)$/i,
+  /^(nat ?geo (animals|wild)|curiosity ?stream(ing)?|discovery( channel)?|(season \d+\s+)?i?\s*welt( hd)?( documentary)?|welt)$/i,
+  /^(c'est pas sorcier|it'?s not rocket science)$/i,
   /^(documentary special|documentary|full documentary|full episode|official series playlist|all episodes|all parts|official trailer)$/i,
 ];
 const norm = (s) => String(s).replace(/[’'"“”]/g, "'").replace(/\s+/g, ' ').trim();
@@ -380,11 +382,23 @@ export function englishPlaylistShow(playlistTitle = '', brands = []) {
   return { name, season };
 }
 
+// Discovery writes "Episode 🤔⛏️ Show | Discovery": an emoji run between words works like a pipe.
+const EMOJI_RUN = /\s*(?:[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}‍️]+\s*)+/gu;
+function emojiToPipes(s) {
+  return s.replace(EMOJI_RUN, (m, offset, str) => (offset > 0 && offset + m.length < str.length ? ' | ' : ' ')).replace(/\s+/g, ' ').trim();
+}
+
 /** Generic English: "Episode | Show | Brand" or film. Sub-variants tweak the details. */
 function parseEnglish(title, ctx) {
-  const raw = norm(title);
+  const raw = emojiToPipes(norm(title));
   const brands = ctx.brands || [];
   const parts = splitPipes(raw).filter((p) => !isBrandingEn(p, brands));
+  if (ctx.profile === 'dash-show') {
+    // "Why do we die if we don't breathe? - C'est pas sorcier": the show is the LAST dash segment.
+    const segs = (parts[0] || raw).split(DASH).map((s) => s.trim()).filter(Boolean);
+    if (segs.length >= 2) return { showTitle: segs[segs.length - 1], episodeTitle: segs.slice(0, -1).join(' - '), kind: 'series' };
+    return { showTitle: ctx.playlistTitle && !ctx.playlistGeneric ? englishPlaylistShow(ctx.playlistTitle, brands).name : (parts[0] || raw), episodeTitle: parts[0] || raw, kind: 'series' };
+  }
   const generic = !ctx.playlistTitle || ctx.playlistGeneric;
   const pl = !generic ? englishPlaylistShow(ctx.playlistTitle, brands) : null;
   const profile = ctx.profile;
@@ -457,9 +471,9 @@ function parseEnglish(title, ctx) {
 
 const PROFILES = {
   natgeo: parseNatGeo, asharq: parseAsharq, dw: parseDW, aljazeera: parseAlJazeera, generic: parseGeneric,
-  'natgeo-en': parseEnglish, 'dw-en': parseEnglish, frontline: parseEnglish, history: parseEnglish, freedoc: parseEnglish, creator: parseEnglish, 'generic-en': parseEnglish,
+  'natgeo-en': parseEnglish, 'dw-en': parseEnglish, frontline: parseEnglish, history: parseEnglish, freedoc: parseEnglish, creator: parseEnglish, 'generic-en': parseEnglish, 'dash-show': parseEnglish,
 };
-export const EN_PROFILES = new Set(['natgeo-en', 'dw-en', 'frontline', 'history', 'freedoc', 'creator', 'generic-en']);
+export const EN_PROFILES = new Set(['natgeo-en', 'dw-en', 'frontline', 'history', 'freedoc', 'creator', 'generic-en', 'dash-show']);
 export const FILM_EPISODE_TITLE_EN = FILM_EN;
 
 /**

@@ -1,5 +1,6 @@
-// Loads the catalogue, keeps it fresh (SSE in server mode, periodic re-fetch in static mode) and
-// exposes a language-scoped view: only the shows of the active UI language, with localised labels.
+// Loads the catalogue section of the active language, keeps it fresh (SSE in server mode, periodic
+// re-fetch in static mode) and exposes a language-scoped view with localised labels. Sections that
+// were loaded earlier stay cached so switching back is instant.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useLang, channelName } from '../lib/i18n.jsx';
@@ -22,7 +23,7 @@ function normalizeCatalog(raw) {
     const show = {
       ...s,
       channel,
-      lang: s.lang || channel?.lang || 'ar',
+      lang: s.lang || channel?.lang || raw.lang || 'ar',
       poster: s.poster || thumbsOf(s.posterId),
       synopsis: s.synopsis || s.blurb || '',
       altTitles: s.altTitles || [],
@@ -54,14 +55,14 @@ function scopeCatalog(all, lang) {
 
 export function CatalogProvider({ children }) {
   const { lang, t } = useLang();
-  const [all, setAll] = useState(null);
+  const [sections, setSections] = useState({}); // lang → normalized payload
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
   const [connected, setConnected] = useState(false);
   const [toasts, setToasts] = useState([]);
-  const [loading, setLoading] = useState(true);   // first request still in flight
+  const [loading, setLoading] = useState(true);   // active section's first request in flight
   const [building, setBuilding] = useState(false); // server answered 503: catalogue being built
-  const loadingRef = useRef(false);
+  const inflight = useRef(new Set());
 
   const pushToast = useCallback((tt) => {
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -70,32 +71,37 @@ export function CatalogProvider({ children }) {
   }, []);
   const dismissToast = useCallback((id) => setToasts((ts) => ts.filter((x) => x.id !== id)), []);
 
-  const load = useCallback(async () => {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
+  const load = useCallback(async (l = lang) => {
+    if (inflight.current.has(l)) return;
+    inflight.current.add(l);
     try {
-      const c = await api.catalog();
-      setAll(normalizeCatalog(c));
+      const c = await api.catalog(l);
+      setSections((prev) => ({ ...prev, [l]: normalizeCatalog(c) }));
       setError(null);
       setBuilding(false);
     } catch (e) {
       if (e.status === 503) { setStatus(e.body?.status || null); setError(null); setBuilding(true); }
+      else if (e.status === 404 && api.static) { setSections((prev) => ({ ...prev, [l]: { shows: [], channels: [], tags: [], stats: {}, lang: l, generatedAt: null } })); }
       else setError(e.message);
-    } finally { loadingRef.current = false; setLoading(false); }
-  }, []);
+    } finally { inflight.current.delete(l); setLoading(false); }
+  }, [lang]);
 
-  useEffect(() => { load(); }, [load]);
+  // Load the active section whenever the language changes (cached sections are kept).
+  useEffect(() => { if (!sections[lang]) { setLoading(true); load(lang); } }, [lang, sections, load]);
+
+  const reloadAll = useCallback(() => { for (const l of Object.keys(sections).length ? Object.keys(sections) : [lang]) load(l); }, [sections, lang, load]);
 
   // Server mode: SSE for status + catalogue updates. Static mode: poll status.json every 10 min.
+  const generatedAt = sections[lang]?.generatedAt;
   useEffect(() => {
     if (api.static) {
       let stop = false;
       const tick = async () => {
         try {
           const s = await api.status();
-          setStatus((prev) => ({ ...s, refreshing: false, static: true }));
+          setStatus({ ...s, refreshing: false, static: true });
           setConnected(true);
-          if (s.generatedAt && all?.generatedAt && s.generatedAt !== all.generatedAt) load();
+          if (s.generatedAt && generatedAt && s.generatedAt !== generatedAt) reloadAll();
         } catch { setConnected(false); }
       };
       tick();
@@ -111,7 +117,7 @@ export function CatalogProvider({ children }) {
       es.addEventListener('status', (ev) => setStatus(JSON.parse(ev.data)));
       es.addEventListener('update', (ev) => {
         const u = JSON.parse(ev.data);
-        load();
+        reloadAll();
         const n = u.diff?.newEpisodes?.length || 0;
         if (n && !u.diff.initial) {
           const first = u.diff.newEpisodes[0];
@@ -135,14 +141,27 @@ export function CatalogProvider({ children }) {
     connect();
     return () => { closed = true; es?.close(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load, pushToast, all?.generatedAt]);
+  }, [reloadAll, pushToast, generatedAt]);
 
   const refresh = useCallback(async (full = false) => {
     try { await api.refresh(full); pushToast({ kind: 'info', title: t('toast_refreshing'), body: t('toast_refreshing_body'), ttl: 5000 }); }
     catch (e) { pushToast({ kind: 'error', title: t('toast_refresh_failed'), body: e.message }); }
   }, [pushToast, t]);
 
-  const catalog = useMemo(() => scopeCatalog(all, lang), [all, lang]);
+  // "all" = every section loaded so far (used for cross-language show links and global stats).
+  const all = useMemo(() => {
+    const loaded = Object.values(sections).filter(Boolean);
+    if (!loaded.length) return null;
+    const base = sections[lang] || loaded[0];
+    const seen = new Set();
+    const shows = [];
+    for (const s of loaded) for (const x of s.shows) if (!seen.has(x.id)) { seen.add(x.id); shows.push(x); }
+    const channels = []; const cseen = new Set();
+    for (const s of loaded) for (const c of s.channels || []) if (!cseen.has(c.id)) { cseen.add(c.id); channels.push(c); }
+    return { ...base, shows, channels };
+  }, [sections, lang]);
+
+  const catalog = useMemo(() => scopeCatalog(sections[lang] ? all : null, lang), [all, sections, lang]);
 
   const derived = useMemo(() => {
     if (!catalog) return { tagMap: new Map(), channelMap: new Map(), showMap: new Map(), episodeIndex: new Map(), recentEpisodes: [] };
@@ -159,12 +178,11 @@ export function CatalogProvider({ children }) {
     return { tagMap, channelMap, showMap, episodeIndex, recentEpisodes };
   }, [catalog]);
 
-  // Shows of the other language are still reachable by id (shared links), via allShowMap.
   const allShowMap = useMemo(() => new Map((all?.shows || []).map((s) => [s.id, s])), [all]);
 
   const value = useMemo(() => ({
-    catalog, all, allShowMap, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, reload: load, ...derived,
-  }), [catalog, all, allShowMap, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, load, derived]);
+    catalog, all, allShowMap, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, reload: reloadAll, ...derived,
+  }), [catalog, all, allShowMap, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, reloadAll, derived]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -177,7 +195,8 @@ export function useCatalog() {
 
 /**
  * Full show record (complete synopsis, per-episode synopses). Returns the lite show immediately
- * and swaps in the full one once fetched. Works for shows of either language.
+ * (when its section is loaded) and swaps in the full one once fetched; works for shows of either
+ * language, even when their section is not loaded (shared links).
  */
 export function useFullShow(id) {
   const { allShowMap, all } = useCatalog();

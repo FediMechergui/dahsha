@@ -22,6 +22,9 @@ jobs:
     timeout-minutes: 60
     env:
       DATA_BASE: ${{ vars.DATA_BASE || 'https://dahsha.vercel.app' }}
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      APP_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
+      APP_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,10 +43,10 @@ jobs:
         working-directory: mobile
         run: npx cap sync android
       - name: Decode keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_B64 != '' }}
+        if: env.KEYSTORE_B64 != ''
         working-directory: mobile
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > release.keystore
+          echo "$KEYSTORE_B64" | base64 -d > release.keystore
           cat > keystore.properties <<EOF
           storeFile=../../release.keystore
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

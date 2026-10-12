@@ -43,11 +43,13 @@ function templatedSynopsis(show) {
 }
 
 // Sort episodes, pick synopsis + poster, compute aggregates and tags. Mutates the show.
-function finalizeShow(show) {
+// `art` is an optional TMDB match ({ poster, backdrop, overview, overviewLang }).
+function finalizeShow(show, art) {
   const ov = show._ov || {};
   const synopsisCandidates = show._syn || [];
   delete show._ov; delete show._syn; delete show.rawTitle;
   const episodes = show.episodes;
+  if (ov.contentLang) show.contentLang = ov.contentLang;
 
   episodes.sort((a, b) => {
     const sa = a.season ?? 0, sb = b.season ?? 0;
@@ -72,12 +74,16 @@ function finalizeShow(show) {
   }
   show.synopsis = synopsis || null;
   show.synopsisGenerated = false;
+  // TMDB overview (in the section's language) beats a templated fallback.
+  if (!show.synopsis && art?.overview && art.overviewLang === (show.lang === 'en' ? 'en' : 'ar')) show.synopsis = art.overview;
   if (!show.synopsis) { show.synopsis = templatedSynopsis(show); show.synopsisGenerated = true; }
 
-  // Poster = most-viewed episode's thumbnail (or override).
+  // Poster = override → TMDB backdrop (16:9, matches the cards) → most-viewed episode's thumbnail.
   const cover = [...episodes].sort((a, b) => (b.views || 0) - (a.views || 0))[0];
   show.posterVideoId = cover.id;
-  show.poster = ov.poster ? { custom: ov.poster } : thumbUrls(cover.id);
+  show.poster = ov.poster ? { custom: ov.poster } : art?.backdrop ? { custom: art.backdrop, hq: thumbUrls(cover.id).hq } : thumbUrls(cover.id);
+  show.portrait = ov.portrait || art?.poster || null; // 2:3 poster for the show page
+  if (art?.tmdbId) show.tmdbId = art.tmdbId;
   show.latestAt = episodes.reduce((m, e) => (e.publishedAt && (!m || e.publishedAt > m) ? e.publishedAt : m), null);
   show.firstAt = episodes.reduce((m, e) => (e.publishedAt && (!m || e.publishedAt < m) ? e.publishedAt : m), null);
   show.totalViews = episodes.reduce((a, e) => a + (e.views || 0), 0);
@@ -86,8 +92,18 @@ function finalizeShow(show) {
   const tagged = tagShow(show);
   show.tags = ov.tags?.length ? ov.tags : tagged.tags;
   show.primaryTag = ov.tags?.length ? ov.tags[0] : tagged.primaryTag;
+  // Content in another language than its section (e.g. French shows in the English section) gets a language tag.
+  if (show.contentLang && show.contentLang !== show.lang) show.tags = [...show.tags.filter((t) => !t.startsWith('lang-')), `lang-${show.contentLang}`];
   return show;
 }
+
+const LANG_TAGS = {
+  fr: { label: 'بالفرنسية', labelEn: 'In French', color: '#6c8cff' },
+  en: { label: 'بالإنجليزية', labelEn: 'In English', color: '#6c8cff' },
+  ar: { label: 'بالعربية', labelEn: 'In Arabic', color: '#6c8cff' },
+  de: { label: 'بالألمانية', labelEn: 'In German', color: '#6c8cff' },
+  es: { label: 'بالإسبانية', labelEn: 'In Spanish', color: '#6c8cff' },
+};
 
 /**
  * @param {object} args
@@ -97,13 +113,13 @@ function finalizeShow(show) {
  * @param {object} args.overrides
  * @param {object[]} args.sources
  */
-export function buildCatalog({ playlists, details, seen, overrides, sources }) {
+export function buildCatalog({ playlists, details, seen, overrides, sources, artwork = {} }) {
   const minSec = overrides?.minEpisodeSeconds ?? 420;
   const aliasMap = new Map(Object.entries(overrides?.aliases || {}).map(([a, b]) => [normalizeArabic(a), normalizeArabic(b)]));
   const aliasDisplay = new Map(Object.values(overrides?.aliases || {}).map((b) => [normalizeArabic(b), b]));
   const now = Date.now();
   const sourceById = new Map(sources.map((s) => [s.id, s]));
-  const channelInfo = (src) => src ? { id: src.id, title: src.title, short: src.short || src.title, lang: src.lang || 'ar', profile: src.profile || 'generic', url: src.url } : null;
+  const channelInfo = (src) => src ? { id: src.id, title: src.title, short: src.short || src.title, lang: src.lang || 'ar', contentLang: src.contentLang || src.lang || 'ar', profile: src.profile || 'generic', url: src.url } : null;
 
   // 1) Candidates: every video of every playlist, parsed with its channel profile.
   //    A video can sit in several playlists; keep ONE candidate per video, preferring a dedicated
@@ -116,7 +132,7 @@ export function buildCatalog({ playlists, details, seen, overrides, sources }) {
     if (!src) continue;
     const profile = src.profile || 'generic';
     const lang = src.lang || 'ar';
-    let generic = pl.isUploads || isGenericPlaylist(pl.title) || profile === 'creator'
+    let generic = pl.isUploads || isGenericPlaylist(pl.title) || profile === 'creator' || src.playlistsGeneric === true
       || (lang === 'en' && /\b(shorts|trailers?|clips?|best of|top \d+|compilation|playlist of the week|most (watched|popular|streamed)|interviews?)\b/i.test(pl.title));
     let playlistSeries;
     if (!generic && profile === 'aljazeera') {
@@ -273,7 +289,7 @@ export function buildCatalog({ playlists, details, seen, overrides, sources }) {
     if (!episodes.length) continue;
     shows.push({
       id, key: s.key, title: ov.title || title, rawTitle: title, altTitles, episodes, promos,
-      channel: channelInfo(s.src), lang: s.src.lang || 'ar', profile: s.src.profile || 'generic',
+      channel: channelInfo(s.src), lang: s.src.lang || 'ar', contentLang: s.src.contentLang || s.src.lang || 'ar', profile: s.src.profile || 'generic',
       playlistIds: [...s.playlistIds], _ov: ov, _syn: synopsisCandidates,
     });
   }
@@ -321,7 +337,7 @@ export function buildCatalog({ playlists, details, seen, overrides, sources }) {
   }
   for (const show of [...shows]) if (!show.episodes.length) { shows.splice(shows.indexOf(show), 1); }
 
-  for (const show of shows) finalizeShow(show);
+  for (const show of shows) finalizeShow(show, artwork[show.id]);
 
   shows.sort((a, b) => (b.latestAt || '').localeCompare(a.latestAt || '') || a.title.localeCompare(b.title, 'ar'));
 
@@ -329,7 +345,8 @@ export function buildCatalog({ playlists, details, seen, overrides, sources }) {
   for (const s of shows) for (const t of s.tags) tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
   const tagCountsByLang = { ar: new Map(), en: new Map() };
   for (const s of shows) for (const t of s.tags) { const m = tagCountsByLang[s.lang === 'en' ? 'en' : 'ar']; m.set(t, (m.get(t) || 0) + 1); }
-  const tags = allTagDefs()
+  const langTagDefs = Object.entries(LANG_TAGS).map(([code, d]) => ({ id: `lang-${code}`, ...d }));
+  const tags = [...allTagDefs(), ...langTagDefs]
     .map((t) => ({ id: t.id, label: t.label, labelEn: t.labelEn || t.label, color: t.color, count: tagCounts.get(t.id) || 0, countAr: tagCountsByLang.ar.get(t.id) || 0, countEn: tagCountsByLang.en.get(t.id) || 0 }))
     .filter((t) => t.count > 0);
 

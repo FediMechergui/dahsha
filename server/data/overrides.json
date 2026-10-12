@@ -31,6 +31,8 @@
  },
  "shows": {
   "خاص القطط الكبيرة": { "tags": ["wildlife"] },
-  "ثعابين في المدينة": { "tags": ["wildlife"] }
+  "ثعابين في المدينة": { "tags": ["wildlife"] },
+  "It's Not Rocket Science": { "contentLang": "en", "tags": ["science-space", "health"] },
+  "C'est pas sorcier": { "tags": ["science-space", "health", "engineering"] }
  }
 }

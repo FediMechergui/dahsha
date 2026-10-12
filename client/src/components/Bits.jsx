@@ -30,8 +30,8 @@ export function EmptyState({ icon = '◌', title, body, action }) {
   );
 }
 
-export function Badge({ children, tone = 'default' }) {
-  return <span className={`badge badge--${tone}`}>{children}</span>;
+export function Badge({ children, tone = 'default', title }) {
+  return <span className={`badge badge--${tone}`} title={title}>{children}</span>;
 }
 
 export function SectionTitle({ children, sub, to, linkLabel }) {

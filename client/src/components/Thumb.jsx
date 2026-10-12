@@ -1,7 +1,7 @@
-// YouTube thumbnail with a graceful fallback chain (maxres → sd → hq → mq).
+// Image with a graceful fallback chain: custom artwork → maxres → sd → hq → mq YouTube thumbnails.
 import { useEffect, useState } from 'react';
 
-const CHAIN = ['max', 'sd', 'hq', 'mq'];
+const CHAIN = ['custom', 'max', 'sd', 'hq', 'mq'];
 
 export default function Thumb({ thumbs, videoId, alt = '', className = '', start = 'max', eager = false }) {
   const urls = thumbs || (videoId ? {
@@ -10,11 +10,18 @@ export default function Thumb({ thumbs, videoId, alt = '', className = '', start
     hq: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     mq: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
   } : null);
-  const [idx, setIdx] = useState(Math.max(0, CHAIN.indexOf(start)));
+  const firstIdx = (u, s) => {
+    if (!u) return 0;
+    if (u.custom) return 0;
+    const i = CHAIN.indexOf(s);
+    return Math.max(1, i);
+  };
+  const [idx, setIdx] = useState(() => firstIdx(urls, start));
   const [loaded, setLoaded] = useState(false);
-  useEffect(() => { setIdx(Math.max(0, CHAIN.indexOf(start))); setLoaded(false); }, [urls?.hq, start]);
+  useEffect(() => { setIdx(firstIdx(urls, start)); setLoaded(false); }, [urls?.hq, urls?.custom, start]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!urls) return <div className={`thumb thumb--empty ${className}`} />;
-  const src = urls.custom || urls[CHAIN[idx]] || urls.hq;
+  const next = () => { let i = idx + 1; while (i < CHAIN.length && !urls[CHAIN[i]]) i++; if (i < CHAIN.length) setIdx(i); };
+  const src = urls[CHAIN[idx]] || urls.hq;
   return (
     <img
       className={`thumb ${loaded ? 'is-loaded' : ''} ${className}`}
@@ -24,10 +31,10 @@ export default function Thumb({ thumbs, videoId, alt = '', className = '', start
       decoding="async"
       onLoad={(e) => {
         // YouTube serves a 120x90 placeholder (with 404) when maxres is missing; some CDNs return it with 200.
-        if (e.currentTarget.naturalWidth <= 120 && idx < CHAIN.length - 1) setIdx(idx + 1);
+        if (e.currentTarget.naturalWidth <= 120 && idx < CHAIN.length - 1) next();
         else setLoaded(true);
       }}
-      onError={() => { if (idx < CHAIN.length - 1) setIdx(idx + 1); }}
+      onError={next}
     />
   );
 }

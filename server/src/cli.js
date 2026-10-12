@@ -13,7 +13,7 @@ if (cmd === 'build') {
   console.log(`built: ${c.catalog.stats.shows} shows, ${c.catalog.stats.episodes} episodes (new episodes ${diff.newEpisodes.length})`);
 } else {
   const full = cmd === 'rebuild';
-  const diff = await c.refresh({ full });
+  const diff = await c.refresh({ full }); // includes TMDB artwork enrichment when TMDB_API_KEY is set
   console.log(`\nrefreshed: ${c.catalog.stats.shows} shows, ${c.catalog.stats.episodes} episodes, ${c.catalog.stats.totalHours}h (new episodes ${diff.newEpisodes.length})`);
 }
 process.exit(0);
