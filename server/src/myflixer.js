@@ -309,6 +309,7 @@ export async function resolveMyflixerStream(id) {
       id,
       sourceUrl: url,
       embedUrl: playerUrl || url,
+      streamUrl: hlsStreams[0]?.uri || null,
       streams: hlsStreams,
     };
   } catch (e) {

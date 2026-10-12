@@ -310,7 +310,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .page--watch { padding-top: calc(var(--hdr-h) + 16px); }
 .watch { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 28px; align-items: start; }
 .watch__player { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line); }
-.player, .player iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+.player, .player iframe, .player video { position: absolute; inset: 0; width: 100%; height: 100%; }
 .player__error { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; background: rgba(10, 11, 13, 0.92); color: var(--text-2); font-size: 15px; line-height: 1.7; }
 .player__error p { max-width: 520px; }
 .watch__next { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(0, 0, 0, 0.82); text-align: center; animation: rise 0.3s var(--ease); }

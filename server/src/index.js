@@ -102,9 +102,9 @@ app.get('/api/shows/:id', (req, res) => {
   res.json(slimShow(s));
 });
 
-app.get('/api/stream/:id', async (req, res) => {
-  const id = req.params.id;
-  if (id.startsWith('mf:')) {
+app.get('/api/stream/:id?', async (req, res) => {
+  const id = req.query.id || req.params.id;
+  if (id && id.startsWith('mf:')) {
     try {
       const data = await resolveMyflixerStream(id);
       return res.json(data);

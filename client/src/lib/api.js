@@ -4,7 +4,9 @@
 //    from VITE_DATA_BASE (defaults to the site origin) under /data/.
 export const STATIC = import.meta.env.VITE_STATIC === '1';
 export const DATA_BASE = (import.meta.env.VITE_DATA_BASE || '').replace(/\/$/, '');
-export const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const isMobileApp = typeof window !== 'undefined' && (window.location.protocol === 'capacitor:' || (window.location.hostname === 'localhost' && window.Capacitor));
+const defaultBase = isMobileApp ? 'https://dahsha.vercel.app' : '';
+export const API_BASE = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
 
 async function req(url, opts = {}) {
   // Only send a Content-Type when there is a body: a plain GET stays a "simple" request and needs
@@ -33,6 +35,7 @@ export const api = STATIC ? {
   catalog: (lang = 'ar') => req(`${DATA_BASE}/data/catalog.${lang}.json?v=${Math.floor(Date.now() / 600000)}`),
   status: () => req(`${DATA_BASE}/data/status.json?v=${Math.floor(Date.now() / 600000)}`),
   show: (id) => req(`${DATA_BASE}/data/shows/${encodeURIComponent(id)}.json`),
+  stream: (id) => req(`${API_BASE}/api/stream?id=${encodeURIComponent(id)}`),
   refresh: notAvailable,
   sources: () => req(`${DATA_BASE}/data/sources.json`),
   addSource: notAvailable,
@@ -43,6 +46,7 @@ export const api = STATIC ? {
   catalog: (lang = 'ar') => req(`${API_BASE}/api/catalog?lang=${lang}`),
   status: () => req(`${API_BASE}/api/status`),
   show: (id) => req(`${API_BASE}/api/shows/${encodeURIComponent(id)}`),
+  stream: (id) => req(`${API_BASE}/api/stream?id=${encodeURIComponent(id)}`),
   refresh: (full = false) => req(`${API_BASE}/api/refresh${full ? '?full=1' : ''}`, { method: 'POST' }),
   sources: () => req(`${API_BASE}/api/sources`),
   addSource: (url) => req(`${API_BASE}/api/sources`, { method: 'POST', body: JSON.stringify({ url }) }),
