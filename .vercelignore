@@ -10,7 +10,9 @@ server/data/details.json
 server/data/seen.json
 server/data/catalog.json
 server/data/artwork.json
+server/data/shows
 server/data/*.tmp
+client/public/data
 client/dist
 client/dist-*
 emulator-*.png
