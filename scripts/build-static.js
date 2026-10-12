@@ -20,5 +20,7 @@ if (!dataBase && !fs.existsSync(data)) {
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const env = { ...process.env, VITE_STATIC: '1', VITE_DATA_BASE: dataBase, VITE_MOBILE: mobile ? '1' : '' };
-const r = spawnSync(npm, ['run', 'build', '--', '--outDir', outDir, ...(mobile ? ['--base', './'] : [])], { cwd: path.join(root, 'client'), stdio: 'inherit', env, shell: process.platform === 'win32' });
+// --emptyOutDir: Vite refuses to clear an outDir outside its root (mobile/www) unless told to,
+// which otherwise lets old hashed bundles pile up inside the APK.
+const r = spawnSync(npm, ['run', 'build', '--', '--outDir', outDir, '--emptyOutDir', ...(mobile ? ['--base', './'] : [])], { cwd: path.join(root, 'client'), stdio: 'inherit', env, shell: process.platform === 'win32' });
 process.exit(r.status ?? 1);
