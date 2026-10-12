@@ -73,31 +73,34 @@ export default function Browse() {
         </p>
       </header>
 
+      {/* Line 1: kind toggle + name filter + sort */}
       <div className="filterbar">
-        <div className="chips chips--inline" role="tablist">
-          <button role="tab" aria-selected={!channel} className={`chip ${!channel ? 'is-active' : ''}`} onClick={() => update({ channel: null })}>{t('all_channels')}<span className="chip__count">{catalog.stats.shows}</span></button>
-          {(catalog.channels || []).map((c) => (
-            <button key={c.id} role="tab" aria-selected={channel === c.id} className={`chip ${channel === c.id ? 'is-active' : ''}`} style={{ '--tag': channelColor(c) }} onClick={() => update({ channel: channel === c.id ? null : c.id })}>
-              <i className="chip__dot" />{c.name}<span className="chip__count">{c.shows}</span>
-            </button>
-          ))}
-        </div>
         <div className="segmented" role="tablist">
           {KINDS.map((k) => <button key={k.id} role="tab" aria-selected={kind === k.id} className={kind === k.id ? 'is-active' : ''} onClick={() => update({ kind: k.id || null })}>{k.label}</button>)}
         </div>
+        <div className="filterbar__tools">
+          <input className="input input--inline" value={q} onChange={(e) => update({ q: e.target.value })} placeholder={t('filter_name')} aria-label={t('filter_name')} />
+          <label className="select">
+            <span>{t('sort')}</span>
+            <select value={sort} onChange={(e) => update({ sort: e.target.value })}>
+              {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
 
+      {/* Line 2: channels (wrap on wide screens, scroll on phones) */}
+      <div className="chips chips--channels" role="tablist">
+        <button role="tab" aria-selected={!channel} className={`chip ${!channel ? 'is-active' : ''}`} onClick={() => update({ channel: null })}>{t('all_channels')}<span className="chip__count">{catalog.stats.shows}</span></button>
+        {(catalog.channels || []).map((c) => (
+          <button key={c.id} role="tab" aria-selected={channel === c.id} className={`chip ${channel === c.id ? 'is-active' : ''}`} style={{ '--tag': channelColor(c) }} onClick={() => update({ channel: channel === c.id ? null : c.id })}>
+            <i className="chip__dot" />{c.name}<span className="chip__count">{c.shows}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Line 3: topics */}
       <TagChips tags={tagsForChips} active={tag} onChange={(x) => update({ tag: x })} total={base.length} />
-
-      <div className="toolbar">
-        <input className="input input--inline" value={q} onChange={(e) => update({ q: e.target.value })} placeholder={t('filter_name')} aria-label={t('filter_name')} />
-        <label className="select">
-          <span>{t('sort')}</span>
-          <select value={sort} onChange={(e) => update({ sort: e.target.value })}>
-            {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-        </label>
-      </div>
 
       {shows.length ? (
         <div className="grid">

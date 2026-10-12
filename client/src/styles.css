@@ -219,8 +219,11 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .card__channel i { width: 7px; height: 7px; border-radius: 2px; background: var(--ch); }
 .badge--film { background: rgba(255, 255, 255, 0.92); color: #111; }
 .badge--lang { background: #6c8cff; color: #fff; letter-spacing: 0.08em; }
-.filterbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
-.chips--inline { position: static; margin: 0; padding: 0; background: none; flex: 1; min-width: 0; }
+.filterbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 4px 0 14px; }
+.filterbar__tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* Channel chips: a wrapping block on wide screens (17+ channels), a scroll strip on phones. */
+.chips.chips--channels { position: static; margin: 0 0 10px; padding: 0; background: none; flex-wrap: wrap; overflow: visible; }
+@media (max-width: 720px) { .chips.chips--channels { flex-wrap: nowrap; overflow-x: auto; margin-inline: calc(var(--gutter) * -1); padding-inline: var(--gutter); } }
 .segmented { display: inline-flex; background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; padding: 3px; flex: none; }
 .segmented button { padding: 6px 14px; border-radius: 999px; color: var(--text-2); font-family: var(--font-display); font-weight: 700; font-size: 13.5px; transition: 0.2s; }
 .segmented button.is-active { background: var(--accent); color: var(--accent-ink); }
