@@ -31,7 +31,7 @@ const STRINGS = {
     loading: 'جارٍ التحميل…', building_first: 'نجهّز الفهرس للمرة الأولى…', building_listing: 'نقرأ قوائم تشغيل القنوات…', building_playlists: 'نجلب قوائم التشغيل…', building_details: 'نجلب تفاصيل الحلقات…', building_building: 'نرتّب الفهرس…', building_hint: 'يستغرق البناء الأول بضع دقائق لأننا نفحص مئات قوائم التشغيل. ستظهر الصفحة تلقائياً عند الانتهاء.', server_error: 'تعذّر الوصول إلى الخادم:', retry: 'إعادة المحاولة', not_found: 'الصفحة غير موجودة',
     footer: 'فهرس غير رسمي للوثائقيات المتاحة علناً على يوتيوب. التشغيل يتم عبر مشغّل يوتيوب الرسمي، وكل الحقوق لأصحابها.',
     player_err_2: 'معرّف الفيديو غير صالح.', player_err_5: 'تعذّر تشغيل الفيديو في هذا المتصفح.', player_err_100: 'الفيديو غير متاح (حُذف أو أصبح خاصاً).', player_err_101: 'لا يسمح صاحب القناة بتضمين هذا الفيديو.', player_err_153: 'منع المتصفح إرسال مرجع الصفحة إلى يوتيوب (خطأ 153). جرّب متصفحاً آخر أو افتح الحلقة على يوتيوب.', player_err_other: 'تعذّر تشغيل الفيديو (رمز {code}).',
-    unit_h: 'س', unit_m: 'د', ep_one: 'حلقة واحدة', ep_two: 'حلقتان', ep_few: '{n} حلقات', ep_many: '{n} حلقة', titles_one: 'عنوان واحد',
+    load_more: 'عرض المزيد', unit_h: 'س', unit_m: 'د', ep_one: 'حلقة واحدة', ep_two: 'حلقتان', ep_few: '{n} حلقات', ep_many: '{n} حلقة', titles_one: 'عنوان واحد',
   },
   en: {
     nav_home: 'Home', nav_browse: 'Catalogue', nav_films: 'Films', nav_latest: 'Latest', nav_my: 'My list', nav_sources: 'Sources',
@@ -58,7 +58,7 @@ const STRINGS = {
     loading: 'Loading…', building_first: 'Building the catalogue for the first time…', building_listing: 'Reading channel playlists…', building_playlists: 'Fetching playlists…', building_details: 'Fetching episode details…', building_building: 'Organising the catalogue…', building_hint: 'The first build takes a few minutes because hundreds of playlists are scanned. The page appears automatically when done.', server_error: 'Cannot reach the server:', retry: 'Retry', not_found: 'Page not found',
     footer: 'An unofficial index of documentaries publicly available on YouTube. Playback uses the official YouTube player; all rights belong to their owners.',
     player_err_2: 'Invalid video id.', player_err_5: 'This video cannot be played in this browser.', player_err_100: 'Video unavailable (removed or private).', player_err_101: 'The channel does not allow embedding this video.', player_err_153: 'The browser blocked the page referrer to YouTube (error 153). Try another browser or open on YouTube.', player_err_other: 'Playback failed (code {code}).',
-    unit_h: 'h', unit_m: 'min', ep_one: '1 episode', ep_two: '2 episodes', ep_few: '{n} episodes', ep_many: '{n} episodes', titles_one: '1 title',
+    load_more: 'Load more', unit_h: 'h', unit_m: 'min', ep_one: '1 episode', ep_two: '2 episodes', ep_few: '{n} episodes', ep_many: '{n} episodes', titles_one: '1 title',
   },
 };
 

@@ -223,7 +223,10 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .filterbar__tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 /* Channel chips: a wrapping block on wide screens (17+ channels), a scroll strip on phones. */
 .chips.chips--channels { position: static; margin: 0 0 10px; padding: 0; background: none; flex-wrap: wrap; overflow: visible; }
+/* Topic chips: wrap on wide screens too (a mouse cannot scroll a horizontal strip); phones keep the strip. */
+@media (min-width: 721px) { .chips { position: static; margin: 0 0 8px; padding: 4px 0; background: none; flex-wrap: wrap; overflow: visible; } }
 @media (max-width: 720px) { .chips.chips--channels { flex-wrap: nowrap; overflow-x: auto; margin-inline: calc(var(--gutter) * -1); padding-inline: var(--gutter); } }
+.loadmore { display: flex; justify-content: center; padding: 28px 0 8px; }
 .segmented { display: inline-flex; background: var(--surface); border: 1px solid var(--line-2); border-radius: 999px; padding: 3px; flex: none; }
 .segmented button { padding: 6px 14px; border-radius: 999px; color: var(--text-2); font-family: var(--font-display); font-weight: 700; font-size: 13.5px; transition: 0.2s; }
 .segmented button.is-active { background: var(--accent); color: var(--accent-ink); }

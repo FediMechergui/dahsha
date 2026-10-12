@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+
+const PAGE = 72; // cards rendered per batch; the rest stream in as you scroll
 import ShowCard from '../components/ShowCard.jsx';
 import TagChips from '../components/TagChips.jsx';
 import { EmptyState } from '../components/Bits.jsx';
@@ -52,6 +54,18 @@ export default function Browse() {
     return [...list].sort(by);
   }, [base, tag, sort, q, lang]);
 
+  // Progressive rendering: a few dozen cards first, more as the sentinel scrolls into view.
+  const [limit, setLimit] = useState(PAGE);
+  const sentinel = useRef(null);
+  useEffect(() => { setLimit(PAGE); }, [tag, channel, kind, sort, q, lang]);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !('IntersectionObserver' in window)) return undefined;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) setLimit((l) => l + PAGE); }, { rootMargin: '600px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [limit, shows.length]);
+
   const tagsForChips = useMemo(() => {
     if (!catalog) return [];
     const counts = new Map();
@@ -103,9 +117,16 @@ export default function Browse() {
       <TagChips tags={tagsForChips} active={tag} onChange={(x) => update({ tag: x })} total={base.length} />
 
       {shows.length ? (
-        <div className="grid">
-          {shows.map((s, i) => <ShowCard key={s.id} show={s} index={i} hideChannel={!!activeChannel} />)}
-        </div>
+        <>
+          <div className="grid">
+            {shows.slice(0, limit).map((s, i) => <ShowCard key={s.id} show={s} index={i} hideChannel={!!activeChannel} />)}
+          </div>
+          {limit < shows.length && (
+            <div className="loadmore" ref={sentinel}>
+              <button className="btn btn--ghost btn--lg" onClick={() => setLimit((l) => l + PAGE)}>{t('load_more')} ({shows.length - limit})</button>
+            </div>
+          )}
+        </>
       ) : (
         <EmptyState title={t('empty_results')} body={t('empty_results_body')} />
       )}
