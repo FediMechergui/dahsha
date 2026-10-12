@@ -18,21 +18,35 @@ function decodeXml(s = '') {
 
 const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-// Category IDs -> Dahsha topics
+// Comprehensive Category IDs -> Dahsha topics
 export const CATEGORY_TAG_MAP = {
   236: 'history',            // History
   150: 'history',            // War
+  220: 'history',            // Western
   2924983: 'politics',       // War & Politics
+  241303: 'politics',        // News
   160: 'crime',              // Crime
+  40: 'crime',               // Mystery
+  45: 'crime',               // Thriller
+  237: 'crime',              // Horror
   2343589: 'people-culture', // Biography
   238: 'people-culture',     // Music
   252374: 'people-culture',  // Musical
+  46: 'people-culture',      // Comedy
+  56: 'people-culture',      // Drama
+  99: 'people-culture',      // Family
+  130: 'people-culture',     // Romance
+  97: 'people-culture',      // Animation
+  2347584: 'people-culture', // Reality-TV
+  2613490: 'people-culture', // Short
+  2652335: 'people-culture', // Game-Show
+  2647311: 'people-culture', // Talk-Show
   2340416: 'survival',       // Sport
+  42: 'survival',            // Adventure
   2716699: 'science-space',  // Sci-Fi
   2924281: 'science-space',  // Science Fiction
-  42: 'survival',            // Adventure
-  40: 'crime',               // Mystery
-  241303: 'politics',        // News
+  241300: 'science-space',   // Sci-Fi & Fantasy
+  48: 'science-space',       // Fantasy
   212: 'documentary',        // Documentary
 };
 
@@ -48,6 +62,23 @@ function posterFor(postId) {
 
 let yearCache = null;
 
+async function pool(items, fn, concurrency = 10) {
+  const results = [];
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index++;
+      try {
+        results[i] = await fn(items[i], i);
+      } catch {
+        results[i] = null;
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 /**
  * Fetch and cache the release-year taxonomy.
  */
@@ -55,9 +86,10 @@ export async function loadYearTerms() {
   if (yearCache) return yearCache;
   const map = new Map();
   try {
-    for (let page = 1; page <= 6; page++) {
+    for (let page = 1; page <= 8; page++) {
       const res = await fetch(`${API}/release-year?per_page=100&page=${page}&_fields=id,name`, {
         headers: { 'User-Agent': DESKTOP_UA },
+        signal: AbortSignal.timeout(6000),
       });
       if (!res.ok) break;
       const rows = await res.json();
@@ -80,7 +112,10 @@ export async function loadYearTerms() {
 export async function fetchSeriesEpisodes(slug) {
   const url = `${BASE}/series/${slug}/`;
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_UA, Referer: BASE } });
+    const res = await fetch(url, {
+      headers: { 'User-Agent': DESKTOP_UA, Referer: BASE },
+      signal: AbortSignal.timeout(6000),
+    });
     if (!res.ok) return [];
     const doc = await res.text();
     const out = [];
@@ -102,8 +137,7 @@ export async function fetchSeriesEpisodes(slug) {
       });
     }
     return out;
-  } catch (e) {
-    console.warn(`[myflixer] failed to parse episodes for ${slug}:`, e.message);
+  } catch {
     return [];
   }
 }
@@ -111,24 +145,35 @@ export async function fetchSeriesEpisodes(slug) {
 /**
  * Fetch documentary posts (films) and tvshows (docuseries) from WordPress REST API.
  */
-export async function fetchMyflixerCatalog(source, { maxPages = 3 } = {}) {
+export async function fetchMyflixerCatalog(source, { maxPages = 60 } = {}) {
   const years = await loadYearTerms();
   const films = [];
   const series = [];
 
   const LIST_FIELDS = 'id,slug,title,modified,date_gmt,categories,release-year,excerpt';
 
-  // 1. Documentary Films (posts)
-  for (let page = 1; page <= maxPages; page++) {
-    try {
-      const res = await fetch(
-        `${API}/posts?categories=${DOCUMENTARY_CAT}&per_page=100&page=${page}&orderby=modified&order=desc&_fields=${LIST_FIELDS}`,
-        { headers: { 'User-Agent': DESKTOP_UA } }
-      );
-      if (!res.ok) break;
-      const rows = await res.json();
-      if (!Array.isArray(rows) || !rows.length) break;
-      for (const row of rows) {
+  // 1. Documentary Films (posts) - batched 6 pages concurrently
+  console.log('[myflixer] paging documentary films (posts)...');
+  for (let first = 1; first <= maxPages; first += 6) {
+    const pages = Array.from({ length: Math.min(6, maxPages - first + 1) }, (_, i) => first + i);
+    const outcomes = await Promise.all(pages.map(async (page) => {
+      try {
+        const res = await fetch(
+          `${API}/posts?categories=${DOCUMENTARY_CAT}&per_page=100&page=${page}&orderby=modified&order=desc&_fields=${LIST_FIELDS}`,
+          { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) }
+        );
+        if (!res.ok) return { ok: false, page, status: res.status };
+        const rows = await res.json();
+        return { ok: true, rows, page };
+      } catch (e) {
+        return { ok: false, page, err: e.message };
+      }
+    }));
+
+    let ended = false;
+    for (const out of outcomes) {
+      if (!out.ok) { ended = true; break; }
+      for (const row of out.rows) {
         const year = (row['release-year'] || []).map((id) => years.get(id)).find(Boolean);
         const tags = (row.categories || []).map((id) => CATEGORY_TAG_MAP[id]).filter(Boolean);
         const id = `mf:m:${row.slug}`;
@@ -148,59 +193,68 @@ export async function fetchMyflixerCatalog(source, { maxPages = 3 } = {}) {
           durationSec: 5400, // 90 min default film length
           views: 75000,
           publishedAt,
-          tags,
+          tags: tags.length ? tags : ['documentary'],
           sourceUrl: `${BASE}/${row.slug}/`,
         });
       }
-      if (rows.length < 100) break;
-    } catch (e) {
-      console.warn(`[myflixer] page ${page} posts error:`, e.message);
-      break;
+      if (out.rows.length < 100) ended = true;
     }
+    if (ended) break;
   }
+  console.log(`[myflixer] fetched ${films.length} documentary films.`);
 
-  // 2. Documentary Series (tvshows)
-  for (let page = 1; page <= Math.min(maxPages, 2); page++) {
+  // 2. Documentary Series (tvshows) - all pages
+  console.log('[myflixer] paging documentary series (tvshows)...');
+  const seriesRows = [];
+  for (let page = 1; page <= Math.min(maxPages, 20); page++) {
     try {
       const res = await fetch(
         `${API}/tvshows?categories=${DOCUMENTARY_CAT}&per_page=100&page=${page}&orderby=modified&order=desc&_fields=${LIST_FIELDS}`,
-        { headers: { 'User-Agent': DESKTOP_UA } }
+        { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) }
       );
       if (!res.ok) break;
       const rows = await res.json();
       if (!Array.isArray(rows) || !rows.length) break;
-      for (const row of rows) {
-        const year = (row['release-year'] || []).map((id) => years.get(id)).find(Boolean);
-        const tags = (row.categories || []).map((id) => CATEGORY_TAG_MAP[id]).filter(Boolean);
-        const id = `mf:s:${row.slug}`;
-        const title = plain(row.title?.rendered);
-        const synopsis = plain(row.excerpt?.rendered);
-        const thumb = posterFor(row.id);
-        const publishedAt = row.date_gmt ? `${row.date_gmt}Z` : (row.modified || null);
-
-        // Fetch episodes for docuseries
-        const episodes = await fetchSeriesEpisodes(row.slug);
-
-        series.push({
-          id,
-          slug: row.slug,
-          kind: 'series',
-          title,
-          synopsis,
-          thumb,
-          year: year ? Number(year) : null,
-          publishedAt,
-          tags,
-          sourceUrl: `${BASE}/series/${row.slug}/`,
-          episodes: episodes.length ? episodes : [{ slug: row.slug, title: 'Full Series', season: 1, episode: 1 }],
-        });
-      }
+      seriesRows.push(...rows);
       if (rows.length < 100) break;
     } catch (e) {
-      console.warn(`[myflixer] page ${page} tvshows error:`, e.message);
+      console.warn(`[myflixer] series page ${page} error:`, e.message);
       break;
     }
   }
+  console.log(`[myflixer] found ${seriesRows.length} docuseries rows. Resolving episodes with concurrency...`);
+
+  // Concurrent episode resolution (12 workers)
+  const resolvedSeries = await pool(seriesRows, async (row, idx) => {
+    if (idx > 0 && idx % 100 === 0) console.log(`[myflixer] resolved episodes for ${idx}/${seriesRows.length} series...`);
+    const year = (row['release-year'] || []).map((id) => years.get(id)).find(Boolean);
+    const tags = (row.categories || []).map((id) => CATEGORY_TAG_MAP[id]).filter(Boolean);
+    const id = `mf:s:${row.slug}`;
+    const title = plain(row.title?.rendered);
+    const synopsis = plain(row.excerpt?.rendered);
+    const thumb = posterFor(row.id);
+    const publishedAt = row.date_gmt ? `${row.date_gmt}Z` : (row.modified || null);
+
+    const episodes = await fetchSeriesEpisodes(row.slug);
+    return {
+      id,
+      slug: row.slug,
+      kind: 'series',
+      title,
+      synopsis,
+      thumb,
+      year: year ? Number(year) : null,
+      publishedAt,
+      tags: tags.length ? tags : ['documentary'],
+      sourceUrl: `${BASE}/series/${row.slug}/`,
+      episodes: episodes.length ? episodes : [{ slug: row.slug, title: 'Full Series', season: 1, episode: 1 }],
+    };
+  }, 12);
+
+  for (const s of resolvedSeries) {
+    if (s) series.push(s);
+  }
+  console.log(`[myflixer] fetched ${series.length} docuseries.`);
 
   return { films, series };
 }

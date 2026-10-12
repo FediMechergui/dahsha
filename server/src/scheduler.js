@@ -179,7 +179,7 @@ export class Catalogue extends EventEmitter {
             tick();
             continue;
           }
-          const { films, series } = await fetchMyflixerCatalog(src, { maxPages: src.maxPages || 3 });
+          const { films, series } = await fetchMyflixerCatalog(src, { maxPages: src.maxPages || 60 });
           const videos = [];
           for (const f of films) {
             const v = {

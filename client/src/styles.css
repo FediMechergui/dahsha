@@ -382,7 +382,21 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .hdr__lang:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.35); }
 .hdr__lang--mobile { display: none; }
 .hdr__lang-globe { display: inline-flex; color: var(--accent); }
-@media (max-width: 960px) { .hdr__lang { display: none; } .hdr__lang--mobile { display: inline-flex; width: fit-content; margin-top: 8px; } }
+.hdr__lang-short { display: none; }
+/* Phones: the header must never overflow (the burger and pills were pushed off-screen). The
+   language switch stays visible as a compact chip; the search box shrinks; the brand text goes. */
+@media (max-width: 960px) {
+  .hdr__inner { gap: 8px; }
+  .hdr__search { min-width: 0; flex: 1 1 0; }
+  .hdr__search input { width: 100%; }
+  .hdr__lang { padding: 6px 9px; border-color: rgba(255, 204, 0, 0.5); color: var(--accent); }
+  .hdr__lang-full { display: none; }
+  .hdr__lang-short { display: inline; }
+  .hdr__lang--mobile { display: inline-flex; width: fit-content; margin-top: 8px; }
+  .hdr__lang--mobile .hdr__lang-full { display: inline; }
+  .hdr__lang--mobile .hdr__lang-short { display: none; }
+}
+@media (max-width: 480px) { .hdr__brand { display: none; } }
 
 /* chevrons that follow reading direction */
 .chev { display: inline-block; width: 0.55em; height: 0.55em; border-inline-end: 2px solid currentColor; border-top: 2px solid currentColor; transform: rotate(-135deg); margin-inline-start: 2px; vertical-align: middle; }
@@ -410,5 +424,17 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
 /* Mixed-direction content (a show from the other section) keeps its own direction */
 .page[dir="ltr"] { text-align: left; }
 .page[dir="rtl"] { text-align: right; }
+
+/* ───────────────────────── phone bottom tab bar ───────────────────────── */
+.bnav { display: none; }
+@media (max-width: 720px) {
+  :root { --bnav-h: calc(60px + env(safe-area-inset-bottom, 0px)); }
+  .bnav { position: fixed; bottom: 0; inset-inline: 0; z-index: 60; height: var(--bnav-h); padding-bottom: env(safe-area-inset-bottom, 0px); display: grid; grid-template-columns: repeat(4, 1fr); background: rgba(13, 15, 19, 0.96); backdrop-filter: blur(14px); border-top: 1px solid var(--line); }
+  .bnav a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--text-3); font-family: var(--font-display); font-weight: 700; font-size: 11px; transition: color 0.2s; }
+  .bnav a.active { color: var(--accent); }
+  .page, .footer { padding-bottom: calc(var(--bnav-h) + 24px); }
+  .toasts { bottom: calc(var(--bnav-h) + 12px); }
+  .hdr__nav a[href='/'], .hdr__nav a[href='/browse'], .hdr__nav a[href='/browse?kind=film'], .hdr__nav a[href='/my'] { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

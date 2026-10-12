@@ -61,7 +61,7 @@ export default function Header() {
           <NavLink to="/browse?sort=latest" className={({ isActive }) => (isActive && params.get('sort') === 'latest' && !params.get('kind') ? 'active' : '')}>{t('nav_latest')}</NavLink>
           <NavLink to="/my">{t('nav_my')}</NavLink>
           <NavLink to="/sources">{t('nav_sources')}</NavLink>
-          <button className="hdr__lang hdr__lang--mobile" onClick={switchLang}>{t('lang_switch')}</button>
+          <button className="hdr__lang hdr__lang--mobile" onClick={switchLang}><span className="hdr__lang-full">{t('lang_switch')}</span></button>
         </nav>
         <form className="hdr__search" onSubmit={submit} role="search">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('search_placeholder')} aria-label={t('search')} />
@@ -73,7 +73,8 @@ export default function Header() {
           <span className="hdr__lang-globe" aria-hidden>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" /></svg>
           </span>
-          {t('lang_switch')}
+          <span className="hdr__lang-full">{t('lang_switch')}</span>
+          <span className="hdr__lang-short">{lang === 'ar' ? 'EN' : 'ع'}</span>
         </button>
         <StatusPill />
         <button className="hdr__burger" onClick={() => setOpen((o) => !o)} aria-label={t('menu')} aria-expanded={open}>

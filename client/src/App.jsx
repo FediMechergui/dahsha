@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Routes, Route, useLocation, Link } from 'react-router-dom';
 import Header from './components/Header.jsx';
+import BottomNav from './components/BottomNav.jsx';
 import Toasts from './components/Toasts.jsx';
 import { Logo, Spinner } from './components/Bits.jsx';
 import { useCatalog } from './hooks/useCatalog.jsx';
@@ -72,6 +73,7 @@ export default function App() {
         <Logo size={20} />
         <span>{t('footer')}</span>
       </footer>
+      {catalog && <BottomNav />}
       <Toasts />
     </>
   );
