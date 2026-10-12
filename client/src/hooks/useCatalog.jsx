@@ -24,7 +24,8 @@ function normalizeCatalog(raw) {
       ...s,
       channel,
       lang: s.lang || channel?.lang || raw.lang || 'ar',
-      poster: s.poster || thumbsOf(s.posterId),
+      // Keep the plain YouTube thumbnail set as fallbacks even when a custom poster is present.
+      poster: s.poster ? { ...(thumbsOf(s.posterId) || {}), ...s.poster } : thumbsOf(s.posterId),
       synopsis: s.synopsis || s.blurb || '',
       altTitles: s.altTitles || [],
       seasons: s.seasons || [],

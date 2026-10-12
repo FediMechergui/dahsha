@@ -81,8 +81,11 @@ function finalizeShow(show, art) {
   // Poster = override → TMDB backdrop (16:9, matches the cards) → most-viewed episode's thumbnail.
   const cover = [...episodes].sort((a, b) => (b.views || 0) - (a.views || 0))[0];
   show.posterVideoId = cover.id;
-  const customCover = cover.thumbs?.custom || (cover.thumb?.startsWith('http') ? cover.thumb : null);
-  show.poster = ov.poster ? { custom: ov.poster } : art?.backdrop ? { custom: art.backdrop, hq: customCover || thumbUrls(cover.id).hq } : customCover ? { custom: customCover } : thumbUrls(cover.id);
+  // Only non-YouTube items (ids that are not 11-char video ids) carry their own absolute poster URL;
+  // YouTube listing thumbnails are signed and expire, so YouTube shows always use the plain CDN set.
+  const isYouTube = /^[\w-]{11}$/.test(cover.id);
+  const customCover = !isYouTube ? (cover.thumbs?.custom || (cover.thumb?.startsWith('http') ? cover.thumb : null)) : null;
+  show.poster = ov.poster ? { custom: ov.poster } : art?.backdrop ? { custom: art.backdrop, ...(isYouTube ? thumbUrls(cover.id) : {}) } : customCover ? { custom: customCover } : thumbUrls(cover.id);
   show.portrait = ov.portrait || art?.poster || customCover || null; // 2:3 poster for the show page
   if (art?.tmdbId) show.tmdbId = art.tmdbId;
   show.latestAt = episodes.reduce((m, e) => (e.publishedAt && (!m || e.publishedAt > m) ? e.publishedAt : m), null);
@@ -285,7 +288,7 @@ export function buildCatalog({ playlists, details, seen, overrides, sources, art
         publishedApprox: approx,
         addedAt: seen[c.v.id] || null,
         synopsis: q > 0 ? cleaned : '',
-        thumbs: c.v.thumb?.startsWith('http') ? { custom: c.v.thumb } : thumbUrls(c.v.id),
+        thumbs: /^[\w-]{11}$/.test(c.v.id) ? thumbUrls(c.v.id) : (c.v.thumb?.startsWith('http') ? { custom: c.v.thumb } : thumbUrls(c.v.id)),
         sourceUrl: d?.sourceUrl || c.v.sourceUrl || null,
         embedUrl: d?.embedUrl || c.v.embedUrl || null,
         playlistIds: [...c.playlistIds],
