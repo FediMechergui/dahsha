@@ -1,0 +1,20 @@
+{
+  "name": "dahsha",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dahsha (دهشة): full-length documentaries in Arabic and English from YouTube, grouped by show and topic, refreshed automatically.",
+  "scripts": {
+    "setup": "npm install --prefix server && npm install --prefix client",
+    "dev": "node scripts/dev.js",
+    "build": "npm run build --prefix client",
+    "start": "npm run build --prefix client && npm start --prefix server",
+    "rebuild-catalog": "npm run rebuild --prefix server",
+    "refresh-data": "node server/src/cli.js refresh",
+    "export": "node server/src/export.js",
+    "build:static": "node scripts/build-static.js",
+    "publish": "npm run refresh-data && npm run export && npm run build:static && vercel deploy --prod --yes",
+    "snapshot:save": "node scripts/snapshot.js save",
+    "snapshot:restore": "node scripts/snapshot.js restore"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "appId": "app.dahsha.docs",
+  "appName": "Dahsha",
+  "webDir": "www",
+  "backgroundColor": "#0a0b0d",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0a0b0d"
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "StatusBar": { "style": "DARK", "backgroundColor": "#0a0b0d", "overlaysWebView": false },
+    "SplashScreen": { "launchShowDuration": 0 }
+  }
+}

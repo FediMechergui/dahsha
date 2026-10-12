@@ -1,0 +1,58 @@
+# Refreshes the catalogue from YouTube, exports static data, redeploys the site to Vercel and
+# stores the metadata cache as a release asset so the next run is incremental.
+name: Refresh catalogue & deploy
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full rebuild (re-fetch every playlist)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --prefix server && npm install --prefix client
+      - name: Restore data snapshot
+        run: node scripts/snapshot.js restore
+      - name: Refresh from YouTube
+        run: node server/src/cli.js ${{ inputs.full && 'rebuild' || 'refresh' }}
+      - name: Export static data
+        run: node server/src/export.js
+      # "vercel build" runs the buildCommand from vercel.json (static build with the exported data);
+      # the prebuilt deploy then uploads the result, including the data files that git ignores.
+      - name: Build & deploy to Vercel
+        if: env.VERCEL_TOKEN != ''
+        run: |
+          npm install -g vercel@latest
+          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          vercel build --prod --token "$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN"
+      - name: Build site (no Vercel token configured)
+        if: env.VERCEL_TOKEN == ''
+        run: node scripts/build-static.js
+      - name: Save data snapshot
+        if: always()
+        run: node scripts/snapshot.js save

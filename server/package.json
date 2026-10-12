@@ -1,0 +1,16 @@
+{
+  "name": "natgeo-ar-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "rebuild": "node src/cli.js rebuild"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "youtubei.js": "^15.0.1"
+  }
+}
