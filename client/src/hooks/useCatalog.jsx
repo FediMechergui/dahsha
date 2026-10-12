@@ -16,7 +16,7 @@ export const thumbsOf = (videoId) => (videoId ? {
 
 /** Turn the lean list payload into the full-looking objects the pages use. */
 function normalizeCatalog(raw) {
-  if (!raw) return raw;
+  if (!raw || !Array.isArray(raw.shows)) return { shows: [], channels: [], tags: [], stats: {}, generatedAt: null, ...(raw || {}), shows: [] };
   const channelMap = new Map((raw.channels || []).map((c) => [c.id, c]));
   const shows = raw.shows.map((s) => {
     const channel = s.channel || channelMap.get(s.channelId) || null;

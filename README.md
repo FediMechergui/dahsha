@@ -11,9 +11,13 @@
 | Section | Channels |
 |---|---|
 | العربية | Nat Geo Abu Dhabi, Asharq Discovery, Asharq Discovery Wildlife, DW Documentary Arabic, Al Jazeera Documentary |
-| English | National Geographic, DW Documentary, FRONTLINE PBS, HISTORY, Free Documentary – History, VICE News, fern, Hoog, JCS – Criminal Psychology, Kurzgesagt, Veritasium |
+| English | National Geographic, Nat Geo Animals, DW Documentary, FRONTLINE PBS, HISTORY, Discovery, Curiosity Stream, WELT Documentary, Free Documentary – History, VICE News, fern, Hoog, JCS – Criminal Psychology, Kurzgesagt, Veritasium, C'est pas sorcier (French, tagged "In French") |
 
-Each channel has a parsing *profile* (how its titles encode show / episode / season) chosen automatically; add more channels in `server/data/sources.json` or from the Sources page of the server edition.
+Each channel has a parsing *profile* (how its titles encode show / episode / season) chosen automatically; add more channels in `server/data/sources.json` or from the Sources page of the server edition. A source may carry `contentLang` (e.g. `"fr"`) when its spoken language differs from its section: those shows get a language badge and an "In French" tag.
+
+### Posters & synopses (optional, TMDB)
+
+Set `TMDB_API_KEY` (free key from themoviedb.org; locally as an environment variable, in CI as a repository secret) and each refresh looks up shows on TMDB by title: matched shows get the TMDB backdrop as card art, the portrait poster on the show page, and the TMDB overview (Arabic or English) when the channel wrote no synopsis. Results are cached in `server/data/artwork.json`; YouTube thumbnails remain the fallback.
 
 ## Three ways to run it
 

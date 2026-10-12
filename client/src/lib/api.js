@@ -8,10 +8,14 @@ export const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 
 async function req(url, opts) {
   const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(body.error || `HTTP ${res.status}`);
-    err.status = res.status;
+  const text = await res.text();
+  let body = {};
+  let isJson = false;
+  try { body = JSON.parse(text); isJson = true; } catch { body = {}; }
+  // A static host may answer a missing JSON file with the SPA's index.html (200): treat as missing.
+  if (!res.ok || !isJson) {
+    const err = new Error(body.error || (isJson ? `HTTP ${res.status}` : 'not found'));
+    err.status = !isJson && res.ok ? 404 : res.status;
     err.body = body;
     throw err;
   }

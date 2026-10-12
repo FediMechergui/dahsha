@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build:static",
+  "buildCommand": "node scripts/vercel-build.js",
   "outputDirectory": "client/dist",
-  "installCommand": "npm install --prefix client",
+  "installCommand": "npm install --prefix client && npm install --prefix server",
   "framework": null,
   "trailingSlash": false,
   "headers": [
@@ -13,6 +13,6 @@
     { "source": "/(.*)", "headers": [{ "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }, { "key": "X-Content-Type-Options", "value": "nosniff" }] }
   ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!data/|assets/).*)", "destination": "/index.html" }
   ]
 }
