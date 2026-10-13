@@ -540,13 +540,19 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(10, 11, 13, 0.82);
+  background: rgba(10, 11, 13, 0.88);
   backdrop-filter: blur(12px);
   padding: 4px 10px;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.14);
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+  scrollbar-width: none;
   pointer-events: auto;
   animation: rise 0.25s var(--ease);
+}
+.player__servers::-webkit-scrollbar {
+  display: none;
 }
 .player__servers-title {
   font-size: 11px;
@@ -557,6 +563,7 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
   align-items: center;
   gap: 5px;
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 .player__servers-title .dot {
   width: 6px;
@@ -568,6 +575,7 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
 .player__servers-list {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 .player__server-btn {
   background: rgba(255, 255, 255, 0.08);

@@ -69,12 +69,15 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
         const resolvedServers = [];
         if (Array.isArray(data?.servers) && data.servers.length) {
           data.servers.forEach((s, idx) => {
-            const url = toAbsolute(s.streamUrl || s.rawStreamUrl);
-            if (url) {
+            const streamUrl = s.streamUrl ? toAbsolute(s.streamUrl) : (s.rawStreamUrl ? toAbsolute(s.rawStreamUrl) : null);
+            const embedUrl = s.embedUrl ? toAbsolute(s.embedUrl) : (s.rawEmbedUrl ? toAbsolute(s.rawEmbedUrl) : null);
+            if (streamUrl || embedUrl) {
               resolvedServers.push({
                 id: s.id ?? idx,
-                name: s.name || `Server ${idx + 1}`,
-                streamUrl: url,
+                name: s.name || `Player ${idx + 1}`,
+                type: s.type || (streamUrl ? 'hls' : 'embed'),
+                streamUrl,
+                embedUrl,
               });
             }
           });
@@ -87,6 +90,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
               resolvedServers.push({
                 id: idx,
                 name: s.quality || s.name || `Server ${idx + 1}`,
+                type: 'hls',
                 streamUrl: url,
               });
             }
@@ -96,24 +100,34 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
         if (!resolvedServers.length && data?.streamUrl) {
           resolvedServers.push({
             id: 0,
-            name: 'Soap2Cloud',
+            name: 'Player 1 (HLS)',
+            type: 'hls',
             streamUrl: toAbsolute(data.streamUrl),
           });
         }
 
+        if (!resolvedServers.length && data?.embedUrl) {
+          resolvedServers.push({
+            id: 0,
+            name: 'Player 1',
+            type: 'embed',
+            embedUrl: toAbsolute(data.embedUrl),
+          });
+        }
+
         setServers(resolvedServers);
-        setActiveServerIdx(0);
 
-        const primaryStream = resolvedServers[0]?.streamUrl || null;
-        const embed = toAbsolute(data?.embedUrl);
+        // Prioritize Player 2 (Medmedia) as initial active server: it provides multi-CDN sources,
+        // full video controls, subtitles, and is completely free of Soap2Day token/CSP blocks.
+        const p2Idx = resolvedServers.findIndex((s) => s.name?.toLowerCase().includes('player 2'));
+        const initialIdx = p2Idx !== -1 ? p2Idx : 0;
+        setActiveServerIdx(initialIdx);
 
-        if (primaryStream) {
-          setStreamUrl(primaryStream);
-          if (embed) setEmbedSrc(embed);
-        } else if (embed) {
-          setEmbedSrc(embed);
+        const initialSrv = resolvedServers[initialIdx];
+        if (initialSrv?.type === 'hls' && initialSrv?.streamUrl) {
+          setStreamUrl(initialSrv.streamUrl);
         } else {
-          setStreamFailed(true);
+          setStreamUrl(null);
         }
       })
       .catch((err) => {
@@ -130,14 +144,27 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
   const switchServer = (idx) => {
     if (!servers[idx]) return;
     setActiveServerIdx(idx);
-    setStreamUrl(servers[idx].streamUrl);
+    const target = servers[idx];
     setStreamFailed(false);
+    if (target.type === 'hls' && target.streamUrl) {
+      setStreamUrl(target.streamUrl);
+    } else {
+      setStreamUrl(null);
+    }
   };
 
-  // Automatic failover to next server when an HLS stream fails
+  // Automatic failover to next server when a stream fails
   const failoverToNext = () => {
-    if (activeServerIdx + 1 < servers.length) {
-      const nextIdx = activeServerIdx + 1;
+    // If an HLS stream fails, jump directly to the next embed server (e.g. Player 2)
+    let nextIdx = activeServerIdx + 1;
+    if (servers[activeServerIdx]?.type === 'hls') {
+      const nextEmbedIdx = servers.findIndex((s, i) => i > activeServerIdx && s.type === 'embed');
+      if (nextEmbedIdx !== -1) {
+        nextIdx = nextEmbedIdx;
+      }
+    }
+
+    if (nextIdx < servers.length) {
       const nextSrv = servers[nextIdx];
       const curName = servers[activeServerIdx]?.name || `Server ${activeServerIdx + 1}`;
       const nextName = nextSrv?.name || `Server ${nextIdx + 1}`;
@@ -150,19 +177,18 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       setTimeout(() => {
         switchServer(nextIdx);
         setServerNotice(null);
-      }, 700);
+      }, 600);
     } else {
-      console.warn('[player] all HLS servers exhausted');
+      console.warn('[player] all servers exhausted');
       setStreamFailed(true);
     }
   };
 
   const retryPlayback = () => {
     setStreamFailed(false);
-    setActiveServerIdx(0);
-    if (servers[0]?.streamUrl) {
-      setStreamUrl(servers[0].streamUrl);
-    }
+    const p2Idx = servers.findIndex((s) => s.name?.toLowerCase().includes('player 2'));
+    const targetIdx = p2Idx !== -1 ? p2Idx : 0;
+    switchServer(targetIdx);
   };
 
   // 2. Attach Hls.js or native HLS to HTML5 <video>
@@ -275,32 +301,40 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
 
   if (isMyflixer) {
     const poster = episode?.thumbs?.custom || (episode?.thumbs?.default?.startsWith('http') ? episode.thumbs.default : null);
+    const curServer = servers[activeServerIdx] || null;
+    const isHls = curServer?.type === 'hls' && streamUrl && !streamFailed;
+    const currentEmbed = curServer?.embedUrl || (!isHls && curServer?.rawEmbedUrl ? curServer.rawEmbedUrl : embedSrc);
 
-    // Primary: Native HTML5 video with Hls.js stream
-    if (streamUrl && !streamFailed) {
+    // Shared server switcher button bar
+    const renderServerBar = () => (
+      servers.length > 1 && (
+        <div className="player__servers">
+          <span className="player__servers-title">
+            <i className="dot" />
+            {lang === 'ar' ? 'السيرفر' : 'Server'}:
+          </span>
+          <div className="player__servers-list">
+            {servers.map((s, idx) => (
+              <button
+                key={s.id ?? idx}
+                type="button"
+                className={`player__server-btn ${idx === activeServerIdx ? 'is-active' : ''}`}
+                onClick={() => switchServer(idx)}
+                title={`Switch to ${s.name}`}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    );
+
+    // 1. Primary: Native HTML5 video with Hls.js stream
+    if (isHls) {
       return (
         <div className="player player--video">
-          {servers.length > 1 && (
-            <div className="player__servers">
-              <span className="player__servers-title">
-                <i className="dot" />
-                {lang === 'ar' ? 'السيرفر' : 'Server'}:
-              </span>
-              <div className="player__servers-list">
-                {servers.map((s, idx) => (
-                  <button
-                    key={s.id ?? idx}
-                    type="button"
-                    className={`player__server-btn ${idx === activeServerIdx ? 'is-active' : ''}`}
-                    onClick={() => switchServer(idx)}
-                    title={`Switch to ${s.name}`}
-                  >
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {renderServerBar()}
           {serverNotice && (
             <div className="player__notice">
               <span className="spinner" style={{ width: 14, height: 14 }} />
@@ -321,7 +355,31 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       );
     }
 
-    // While loading stream files
+    // 2. Embed Player iframe (Player 2, Player 3, Player 4, Player 5, Player 6, Player 7)
+    if (currentEmbed && !streamFailed) {
+      return (
+        <div className="player player--myflixer" style={{ position: 'relative', width: '100%', height: '100%' }}>
+          {renderServerBar()}
+          {serverNotice && (
+            <div className="player__notice">
+              <span className="spinner" style={{ width: 14, height: 14 }} />
+              <span>{serverNotice}</span>
+            </div>
+          )}
+          <iframe
+            key={currentEmbed}
+            src={currentEmbed}
+            title={episode?.title || 'Documentary Player'}
+            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            allowFullScreen
+            frameBorder="0"
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+          />
+        </div>
+      );
+    }
+
+    // 3. While loading stream files
     if (loading) {
       return (
         <div className="player player--loading" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0a0b0d', color: '#fff', gap: 14 }}>
@@ -331,23 +389,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       );
     }
 
-    // Secondary fallback: Direct nontongo player iframe
-    if (embedSrc) {
-      return (
-        <div className="player player--myflixer">
-          <iframe
-            src={embedSrc}
-            title={episode?.title || 'Documentary Player'}
-            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-            allowFullScreen
-            frameBorder="0"
-            style={{ width: '100%', height: '100%', border: 'none' }}
-          />
-        </div>
-      );
-    }
-
-    // Final fallback if all servers fail
+    // 4. Final fallback if all servers fail
     return (
       <div className="player player--error" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0a0b0d', color: '#fff', gap: 14, padding: 20, textAlign: 'center' }}>
         <p>{lang === 'ar' ? 'تعذر تشغيل البث المباشر لجميع السيرفرات حالياً.' : (t('stream_error') || 'Unable to play this stream directly across all servers.')}</p>

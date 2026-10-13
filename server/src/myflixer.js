@@ -388,15 +388,22 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
 <body>
   <div class="wrap">
     <div class="srv-bar" id="srvBar"></div>
-    <video id="player" controls playsinline preload="auto"></video>
+    <div id="content" style="width:100%;height:100%;"></div>
   </div>
   <script>
     (function() {
       var servers = ${serversJson};
-      var v = document.getElementById('player');
       var srvBar = document.getElementById('srvBar');
+      var content = document.getElementById('content');
       var hls = null;
-      var currentIdx = 0;
+      var p2Idx = -1;
+      for (var i = 0; i < servers.length; i++) {
+        if (servers[i].name && servers[i].name.toLowerCase().indexOf('player 2') !== -1) {
+          p2Idx = i;
+          break;
+        }
+      }
+      var currentIdx = p2Idx !== -1 ? p2Idx : 0;
 
       if (!servers.length) {
         document.body.innerHTML = '<div class="msg">No playback stream found</div>';
@@ -409,7 +416,7 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
         servers.forEach(function(s, idx) {
           var btn = document.createElement('button');
           btn.className = 'srv-btn' + (idx === currentIdx ? ' active' : '');
-          btn.textContent = s.name || ('Server ' + (idx + 1));
+          btn.textContent = s.name || ('Player ' + (idx + 1));
           btn.onclick = function() { loadStream(idx); };
           srvBar.appendChild(btn);
         });
@@ -419,9 +426,18 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
         currentIdx = idx;
         renderBar();
         var s = servers[idx];
-        if (!s || !s.streamUrl) return;
+        if (!s) return;
 
         if (hls) { hls.destroy(); hls = null; }
+
+        if (s.type === 'embed' || (!s.streamUrl && (s.embedUrl || s.rawEmbedUrl))) {
+          var embedSrc = s.embedUrl || s.rawEmbedUrl;
+          content.innerHTML = '<iframe src="' + embedSrc + '" style="width:100%;height:100%;border:none;" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>';
+          return;
+        }
+
+        content.innerHTML = '<video id="player" controls playsinline preload="auto" style="width:100%;height:100%;object-fit:contain;background:#000;"></video>';
+        var v = document.getElementById('player');
 
         if (v.canPlayType('application/vnd.apple.mpegurl')) {
           v.src = s.streamUrl;
@@ -443,7 +459,7 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
         }
       }
 
-      loadStream(0);
+      loadStream(currentIdx);
     })();
   </script>
 </body>
@@ -467,8 +483,20 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const doc = await res.text();
 
+    // Extract all player tabs (Player 1, Player 2, Player 3, Player 4, Player 5, Player 6, Player 7)
+    const tabs = [];
+    const reTab = /<button[^>]*class="[^"]*player-tab-btn[^"]*"[^>]*data-player-url="([^"]+)"[^>]*>([\s\S]*?)<\/button>/gi;
+    let mTab;
+    while ((mTab = reTab.exec(doc)) !== null) {
+      const pUrl = mTab[1].trim().replace(/&#038;/g, '&');
+      const pName = mTab[2].replace(/<[^>]+>/g, '').trim() || `Player ${tabs.length + 1}`;
+      if (pUrl && !tabs.some((t) => t.url === pUrl)) {
+        tabs.push({ id: tabs.length + 1, name: pName, url: pUrl });
+      }
+    }
+
     const tag = /<iframe\b[^>]*id="main-player"[^>]*>/i.exec(doc)?.[0];
-    const playerUrl = tag ? (/\bdata-src="([^"]+)"/i.exec(tag)?.[1] ?? /\bsrc="([^"]+)"/i.exec(tag)?.[1]) : null;
+    const playerUrl = tag ? (/\bdata-src="([^"]+)"/i.exec(tag)?.[1] ?? /\bsrc="([^"]+)"/i.exec(tag)?.[1]) : (tabs[0]?.url || null);
 
     let hlsStreams = [];
     if (playerUrl && playerUrl.includes('soap/')) {
@@ -500,24 +528,58 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
       }
     }
 
-    const rawStream = hlsStreams[0]?.uri || null;
-    const servers = hlsStreams.map((s, idx) => ({
-      id: idx,
-      name: s.quality || `Server ${idx + 1}`,
-      streamUrl: `${proxyPrefix}?proxy=1&url=${encodeURIComponent(s.uri)}`,
-      rawStreamUrl: s.uri,
-    }));
+    const servers = [];
 
-    const streamUrl = servers[0]?.streamUrl || null;
+    // 1. Direct HLS servers from Player 1 (Soap2Day)
+    if (hlsStreams.length > 0) {
+      hlsStreams.forEach((s, idx) => {
+        servers.push({
+          id: `hls_${idx}`,
+          name: `${s.quality || `Server ${idx + 1}`} (HLS)`,
+          type: 'hls',
+          streamUrl: `${proxyPrefix}?proxy=1&url=${encodeURIComponent(s.uri)}`,
+          rawStreamUrl: s.uri,
+        });
+      });
+    }
+
+    // 2. All player providers from Myflixer (Player 1, Player 2, Player 3, Player 4, Player 5, Player 6, Player 7)
+    tabs.forEach((tab) => {
+      // Avoid duplicate Player 1 if already present as direct HLS
+      const isSoapHls = hlsStreams.length > 0 && tab.name.toLowerCase().includes('player 1') && tab.url.includes('soap/');
+      if (!isSoapHls) {
+        servers.push({
+          id: `tab_${tab.id}`,
+          name: tab.name, // e.g. "Player 2", "Player 3", etc.
+          type: 'embed',
+          embedUrl: tab.url,
+          rawEmbedUrl: tab.url,
+        });
+      }
+    });
+
+    // Fallback if no tabs found
+    if (!servers.length && playerUrl) {
+      servers.push({
+        id: 'p1',
+        name: 'Player 1',
+        type: 'embed',
+        embedUrl: playerUrl,
+        rawEmbedUrl: playerUrl,
+      });
+    }
+
+    const primaryHls = servers.find((s) => s.type === 'hls')?.streamUrl || null;
+    const primaryEmbed = servers.find((s) => s.type === 'embed')?.embedUrl || playerUrl || url;
     const embedUrl = `${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`;
 
     return {
       id,
       sourceUrl: url,
       embedUrl,
-      rawEmbedUrl: playerUrl || url,
-      streamUrl,
-      rawStreamUrl: rawStream,
+      rawEmbedUrl: primaryEmbed,
+      streamUrl: primaryHls,
+      rawStreamUrl: hlsStreams[0]?.uri || null,
       servers,
       streams: hlsStreams.map((s, idx) => ({
         ...s,
