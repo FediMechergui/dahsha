@@ -622,3 +622,10 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ───────────────────────── fullscreen toggle (Myflixer player) ───────────────────────── */
+.player__fs-btn { display: inline-grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; margin-inline-start: 4px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: var(--text-2); cursor: pointer; transition: all 0.2s ease; }
+.player__fs-btn svg { width: 15px; height: 15px; }
+.player__fs-btn:hover, .player__fs-btn.is-active { background: var(--accent); border-color: var(--accent); color: #000; }
+.player:fullscreen, .player:-webkit-full-screen { background: #000; border-radius: 0; }
+.player:fullscreen video, .player:fullscreen iframe, .player:-webkit-full-screen video, .player:-webkit-full-screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; }

@@ -43,6 +43,27 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
   const isMyflixer = videoId?.startsWith('mf:');
   const mfSlug = isMyflixer ? videoId.replace(/^mf:[me]:/, '') : '';
 
+  // Fullscreen for the Myflixer player (YouTube ships its own button). The whole player box goes
+  // fullscreen so the server bar stays available; iOS Safari only allows <video> itself.
+  const containerRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!(document.fullscreenElement || document.webkitFullscreenElement));
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => { document.removeEventListener('fullscreenchange', onChange); document.removeEventListener('webkitfullscreenchange', onChange); };
+  }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.())?.catch?.(() => {});
+      return;
+    }
+    const el = containerRef.current;
+    if (el?.requestFullscreen) el.requestFullscreen().catch(() => videoRef.current?.webkitEnterFullscreen?.());
+    else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    else videoRef.current?.webkitEnterFullscreen?.();
+  };
+
   // 1. Fetch resolved video streams for Myflixer
   useEffect(() => {
     if (!isMyflixer) {
@@ -307,8 +328,8 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
 
     // Shared server switcher button bar
     const renderServerBar = () => (
-      servers.length > 1 && (
-        <div className="player__servers">
+      <div className="player__servers">
+        {servers.length > 1 && (<>
           <span className="player__servers-title">
             <i className="dot" />
             {lang === 'ar' ? 'السيرفر' : 'Server'}:
@@ -326,14 +347,19 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
               </button>
             ))}
           </div>
-        </div>
-      )
+        </>)}
+        <button type="button" className={`player__fs-btn ${isFullscreen ? 'is-active' : ''}`} onClick={toggleFullscreen} title={t(isFullscreen ? 'exit_fullscreen' : 'fullscreen')} aria-label={t(isFullscreen ? 'exit_fullscreen' : 'fullscreen')}>
+          {isFullscreen
+            ? <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-14v3h3v2h-5V5h2z" /></svg>
+            : <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" /></svg>}
+        </button>
+      </div>
     );
 
     // 1. Primary: Native HTML5 video with Hls.js stream
     if (isHls) {
       return (
-        <div className="player player--video">
+        <div ref={containerRef} className="player player--video">
           {renderServerBar()}
           {serverNotice && (
             <div className="player__notice">
@@ -358,7 +384,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     // 2. Embed Player iframe (Player 2, Player 3, Player 4, Player 5, Player 6, Player 7)
     if (currentEmbed && !streamFailed) {
       return (
-        <div className="player player--myflixer" style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <div ref={containerRef} className="player player--myflixer" style={{ position: 'relative', width: '100%', height: '100%' }}>
           {renderServerBar()}
           {serverNotice && (
             <div className="player__notice">
