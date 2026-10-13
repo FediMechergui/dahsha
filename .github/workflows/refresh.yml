@@ -50,7 +50,8 @@ jobs:
           npm install -g vercel@latest
           vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
           vercel build --prod --token "$VERCEL_TOKEN"
-          vercel deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN"
+          # --archive=tgz: one upload instead of ~13k files (the free plan caps file uploads at 5000/day)
+          vercel deploy --prebuilt --prod --yes --archive=tgz --token "$VERCEL_TOKEN"
       - name: Build site (no Vercel token configured)
         if: env.VERCEL_TOKEN == ''
         run: node scripts/build-static.js
