@@ -1,4 +1,4 @@
-package app.dahsha.docs;
+package app.flixer.stream;
 
 import com.getcapacitor.BridgeActivity;
 

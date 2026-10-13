@@ -9,10 +9,10 @@ def appVersionCode = (System.getenv('APP_VERSION_CODE') ?: '1').toInteger()
 def appVersionName = System.getenv('APP_VERSION_NAME') ?: '1.0.0'
 
 android {
-    namespace "app.dahsha.docs"
+    namespace "app.flixer.stream"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.dahsha.docs"
+        applicationId "app.flixer.stream"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode
