@@ -5,6 +5,7 @@
   "description": "Flixer Android app (Capacitor wrapper around the static web build).",
   "scripts": {
     "build:web": "node ../scripts/build-static.js --mobile --out ../mobile/www",
+    "build:terra": "node ../scripts/build-terrarium.js --mobile",
     "sync": "npx cap sync android",
     "open": "npx cap open android",
     "icons": "node ../scripts/icons.js && node ../scripts/android-icons.js",

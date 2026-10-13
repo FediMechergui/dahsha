@@ -19,14 +19,9 @@ if (!dataBase && !fs.existsSync(data)) {
 }
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const apiBase = process.env.VITE_API_BASE || dataBase || (mobile ? 'https://dahsha.vercel.app' : '');
+const apiBase = process.env.VITE_API_BASE || dataBase || '';
 const env = { ...process.env, VITE_STATIC: '1', VITE_DATA_BASE: dataBase, VITE_API_BASE: apiBase, VITE_MOBILE: mobile ? '1' : '' };
 // --emptyOutDir: Vite refuses to clear an outDir outside its root (mobile/www) unless told to,
 // which otherwise lets old hashed bundles pile up inside the APK.
 const r = spawnSync(npm, ['run', 'build', '--', '--outDir', outDir, '--emptyOutDir', ...(mobile ? ['--base', './'] : [])], { cwd: path.join(root, 'client'), stdio: 'inherit', env, shell: process.platform === 'win32' });
-if (r.status === 0 && mobile) {
-  // The app reads its data from VITE_DATA_BASE; never ship the exported JSON inside the APK.
-  const dataInOut = path.resolve(path.join(root, 'client'), outDir, 'data');
-  if (fs.existsSync(dataInOut)) { fs.rmSync(dataInOut, { recursive: true, force: true }); console.log('[build-static] removed bundled data folder from the mobile build'); }
-}
 process.exit(r.status ?? 1);

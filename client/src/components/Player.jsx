@@ -43,6 +43,40 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
   const isMyflixer = videoId?.startsWith('mf:');
   const mfSlug = isMyflixer ? videoId.replace(/^mf:[me]:/, '') : '';
 
+  const containerRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!(document.fullscreenElement || document.webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      document.removeEventListener('webkitfullscreenchange', handleFsChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    const el = containerRef.current || document.querySelector('.watch__player') || document.querySelector('.player');
+    if (!el) return;
+    const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!isFs) {
+      if (el.requestFullscreen) {
+        el.requestFullscreen().catch(() => {});
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    }
+  };
+
   // 1. Fetch resolved video streams for Myflixer
   useEffect(() => {
     if (!isMyflixer) {
@@ -130,15 +164,65 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
           setStreamUrl(null);
         }
       })
-      .catch((err) => {
+      .catch(async (err) => {
         if (cancelled) return;
         console.warn('[player] stream resolution notice:', err.message);
+
+        // Integrated client-side scraper fallback (works standalone inside APK / offline without server)
+        try {
+          const targetUrl = episode?.sourceUrl || `https://myflixerz.day/${mfSlug}/`;
+          const res = await fetch(targetUrl);
+          if (res.ok) {
+            const html = await res.text();
+            const tabs = [];
+            const reTab = /<button[^>]*class="[^"]*player-tab-btn[^"]*"[^>]*data-player-url="([^"]+)"[^>]*>([\s\S]*?)<\/button>/gi;
+            let mTab;
+            while ((mTab = reTab.exec(html)) !== null) {
+              const pUrl = mTab[1].trim().replace(/&#038;/g, '&');
+              const pName = mTab[2].replace(/<[^>]+>/g, '').trim() || `Player ${tabs.length + 1}`;
+              if (pUrl && !tabs.some((t) => t.url === pUrl)) {
+                tabs.push({ id: tabs.length + 1, name: pName, url: pUrl });
+              }
+            }
+            if (tabs.length > 0) {
+              const fallbackServers = tabs.map((tab) => ({
+                id: `tab_${tab.id}`,
+                name: tab.name,
+                type: 'embed',
+                embedUrl: tab.url,
+                rawEmbedUrl: tab.url,
+              }));
+              setServers(fallbackServers);
+              const p2Idx = fallbackServers.findIndex((s) => s.name?.toLowerCase().includes('player 2'));
+              setActiveServerIdx(p2Idx !== -1 ? p2Idx : 0);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (e2) {
+          console.warn('[player] client fallback scrape error:', e2.message);
+        }
+
+        // Direct episode embed fallback if available
+        if (episode?.embedUrl || episode?.sourceUrl) {
+          const fb = [{
+            id: 'embed_fallback',
+            name: 'Player (Direct)',
+            type: 'embed',
+            embedUrl: episode.embedUrl || episode.sourceUrl,
+          }];
+          setServers(fb);
+          setActiveServerIdx(0);
+          setLoading(false);
+          return;
+        }
+
         setLoading(false);
         setStreamFailed(true);
       });
 
     return () => { cancelled = true; };
-  }, [videoId, isMyflixer]);
+  }, [videoId, isMyflixer, mfSlug, episode]);
 
   // Switch to specific server
   const switchServer = (idx) => {
@@ -307,33 +391,51 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
 
     // Shared server switcher button bar
     const renderServerBar = () => (
-      servers.length > 1 && (
-        <div className="player__servers">
-          <span className="player__servers-title">
-            <i className="dot" />
-            {lang === 'ar' ? 'السيرفر' : 'Server'}:
-          </span>
-          <div className="player__servers-list">
-            {servers.map((s, idx) => (
-              <button
-                key={s.id ?? idx}
-                type="button"
-                className={`player__server-btn ${idx === activeServerIdx ? 'is-active' : ''}`}
-                onClick={() => switchServer(idx)}
-                title={`Switch to ${s.name}`}
-              >
-                {s.name}
-              </button>
-            ))}
+      <div className="player__overlay-bar">
+        {servers.length > 1 && (
+          <div className="player__servers">
+            <span className="player__servers-title">
+              <i className="dot" />
+              {lang === 'ar' ? 'السيرفر' : 'Server'}:
+            </span>
+            <div className="player__servers-list">
+              {servers.map((s, idx) => (
+                <button
+                  key={s.id ?? idx}
+                  type="button"
+                  className={`player__server-btn ${idx === activeServerIdx ? 'is-active' : ''}`}
+                  onClick={() => switchServer(idx)}
+                  title={`Switch to ${s.name}`}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )
+        )}
+        <button
+          type="button"
+          className={`player__fs-btn ${isFullscreen ? 'is-active' : ''}`}
+          onClick={toggleFullscreen}
+          title={isFullscreen ? (lang === 'ar' ? 'خروج من وضع ملء الشاشة' : 'Exit Fullscreen') : (lang === 'ar' ? 'ملء الشاشة' : 'Fullscreen')}
+        >
+          {isFullscreen ? (
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-14v3h3v2h-5V5h2z" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+            </svg>
+          )}
+        </button>
+      </div>
     );
 
     // 1. Primary: Native HTML5 video with Hls.js stream
     if (isHls) {
       return (
-        <div className="player player--video">
+        <div ref={containerRef} className="player player--video">
           {renderServerBar()}
           {serverNotice && (
             <div className="player__notice">
@@ -358,7 +460,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     // 2. Embed Player iframe (Player 2, Player 3, Player 4, Player 5, Player 6, Player 7)
     if (currentEmbed && !streamFailed) {
       return (
-        <div className="player player--myflixer" style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <div ref={containerRef} className="player player--myflixer" style={{ position: 'relative', width: '100%', height: '100%' }}>
           {renderServerBar()}
           {serverNotice && (
             <div className="player__notice">
@@ -369,8 +471,8 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
           <iframe
             key={currentEmbed}
             src={currentEmbed}
-            title={episode?.title || 'Documentary Player'}
-            allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+            title={episode?.title || 'Player'}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
             allowFullScreen
             frameBorder="0"
             style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
@@ -410,14 +512,31 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
   const message = errorCode == null ? null : ({ 2: 'player_err_2', 5: 'player_err_5', 100: 'player_err_100', 101: 'player_err_101', 150: 'player_err_101', 153: 'player_err_153' }[errorCode] ? t({ 2: 'player_err_2', 5: 'player_err_5', 100: 'player_err_100', 101: 'player_err_101', 150: 'player_err_101', 153: 'player_err_153' }[errorCode]) : t('player_err_other', { code: errorCode }));
 
   return (
-    <>
-      <div className="player" ref={host} />
+    <div ref={containerRef} className="player player--wrap" style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <button
+        type="button"
+        className={`player__fs-btn ${isFullscreen ? 'is-active' : ''}`}
+        onClick={toggleFullscreen}
+        title={isFullscreen ? (lang === 'ar' ? 'خروج من وضع ملء الشاشة' : 'Exit Fullscreen') : (lang === 'ar' ? 'ملء الشاشة' : 'Fullscreen')}
+        style={{ position: 'absolute', top: 12, right: 12, zIndex: 30 }}
+      >
+        {isFullscreen ? (
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+            <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-14v3h3v2h-5V5h2z" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+          </svg>
+        )}
+      </button>
+      <div className="player__mount" ref={host} style={{ width: '100%', height: '100%' }} />
       {message && (
         <div className="player__error">
           <p>{message}</p>
           <a className="btn btn--primary" href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noreferrer">{t('watch_on_youtube')} ↗</a>
         </div>
       )}
-    </>
+    </div>
   );
 }

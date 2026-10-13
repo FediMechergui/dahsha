@@ -23,7 +23,7 @@ function normalizeCatalog(raw) {
     const show = {
       ...s,
       channel,
-      lang: s.lang || channel?.lang || raw.lang || 'ar',
+      lang: s.lang || channel?.lang || raw.lang || null, // null = language-neutral (Flixer catalogue)
       // Keep the plain YouTube thumbnail set as fallbacks even when a custom poster is present.
       poster: s.poster ? { ...(thumbsOf(s.posterId) || {}), ...s.poster } : thumbsOf(s.posterId),
       synopsis: s.synopsis || s.blurb || '',
@@ -39,15 +39,18 @@ function normalizeCatalog(raw) {
 /** Restrict a catalogue to one language and localise tag/channel labels. */
 function scopeCatalog(all, lang) {
   if (!all) return null;
-  const shows = all.shows.filter((s) => (s.lang || 'ar') === lang);
-  const channels = (all.channels || []).filter((c) => (c.lang || 'ar') === lang).map((c) => ({ ...c, name: channelName(c, lang) }));
+  // In Flixer, all shows are international movies & TV series.
+  // Prioritize matching language if any, otherwise fallback to all shows so nothing is ever hidden.
+  const matching = all.shows.filter((s) => !s.lang || s.lang === lang);
+  const shows = matching.length > 0 ? matching : all.shows;
+  const channels = (all.channels || []).filter((c) => !c.lang || c.lang === lang || matching.length === 0).map((c) => ({ ...c, name: channelName(c, lang) }));
   const tags = (all.tags || []).map((t) => ({ ...t, label: lang === 'en' ? (t.labelEn || t.label) : t.label, count: lang === 'en' ? (t.countEn ?? t.count) : (t.countAr ?? t.count) })).filter((t) => t.count > 0);
   const stats = {
     ...all.stats,
     shows: shows.length,
     series: shows.filter((s) => s.kind === 'series').length,
     films: shows.filter((s) => s.kind === 'film').length,
-    episodes: shows.reduce((a, s) => a + s.episodeCount, 0),
+    episodes: shows.reduce((a, s) => a + (s.episodeCount || 0), 0),
     channels: channels.length,
     totalHours: Math.round(shows.reduce((a, s) => a + (s.totalDurationSec || 0), 0) / 3600),
   };
@@ -77,7 +80,8 @@ export function CatalogProvider({ children }) {
     inflight.current.add(l);
     try {
       const c = await api.catalog(l);
-      setSections((prev) => ({ ...prev, [l]: normalizeCatalog(c) }));
+      const norm = normalizeCatalog(c);
+      setSections((prev) => ({ ...prev, [l]: norm, ar: norm, en: norm }));
       setError(null);
       setBuilding(false);
     } catch (e) {
@@ -210,7 +214,7 @@ export function useFullShow(id) {
     api.show(id).then((s) => {
       if (cancelled) return;
       const channel = s.channel || lite?.channel || null;
-      const show = { ...s, channel, lang: s.lang || channel?.lang || 'ar', poster: s.poster || thumbsOf(s.posterVideoId), altTitles: s.altTitles || [], seasons: s.seasons || [] };
+      const show = { ...s, channel, lang: s.lang || channel?.lang || null, poster: s.poster || thumbsOf(s.posterVideoId), altTitles: s.altTitles || [], seasons: s.seasons || [] };
       show.episodes = (s.episodes || []).map((e) => ({ ...e, showId: s.id, thumbs: e.thumbs || thumbsOf(e.id) }));
       setFull(show);
     }).catch(() => {});

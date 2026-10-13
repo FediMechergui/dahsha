@@ -4,7 +4,7 @@
   "webDir": "www",
   "backgroundColor": "#0a0b0d",
   "android": {
-    "allowMixedContent": false,
+    "allowMixedContent": true,
     "backgroundColor": "#0a0b0d",
     "adjustMarginsForEdgeToEdge": "force"
   },
@@ -13,6 +13,7 @@
   },
   "plugins": {
     "StatusBar": { "style": "DARK", "backgroundColor": "#0a0b0d", "overlaysWebView": false },
-    "SplashScreen": { "launchShowDuration": 0 }
+    "SplashScreen": { "launchShowDuration": 0 },
+    "CapacitorHttp": { "enabled": true }
   }
 }

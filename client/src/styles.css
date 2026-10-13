@@ -534,11 +534,19 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
 }
 
 /* ───────────────────────── player server switcher ───────────────────────── */
-.player__servers {
+.player__overlay-bar {
   position: absolute;
-  top: 12px;
-  inset-inline-end: 12px;
+  top: 10px;
+  inset-inline-start: 10px;
+  inset-inline-end: 10px;
   z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+.player__servers {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -547,7 +555,7 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
   padding: 4px 10px;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - 46px);
   overflow-x: auto;
   scrollbar-width: none;
   pointer-events: auto;
@@ -601,24 +609,74 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
   color: #000;
   box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);
 }
-.player__notice {
-  position: absolute;
-  top: 56px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
-  background: rgba(21, 24, 30, 0.94);
-  border: 1px solid var(--accent);
-  color: var(--text);
-  padding: 6px 14px;
-  border-radius: 18px;
-  font-size: 12.5px;
-  display: flex;
+.player__fs-btn {
+  background: rgba(10, 11, 13, 0.88);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-2);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(8px);
-  animation: rise 0.25s var(--ease);
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  pointer-events: auto;
+  margin-inline-start: auto;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.player__fs-btn:hover,
+.player__fs-btn:active,
+.player__fs-btn.is-active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);
+}
+
+/* ───────────────────────── Fullscreen Video Player ───────────────────────── */
+:fullscreen .watch__player,
+:-webkit-full-screen .watch__player,
+.watch__player:fullscreen,
+.watch__player:-webkit-full-screen,
+.player:fullscreen,
+.player:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  aspect-ratio: auto !important;
+  border-radius: 0 !important;
+  border: none !important;
+  z-index: 999999 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #000 !important;
+}
+
+:fullscreen .player iframe,
+:-webkit-full-screen .player iframe,
+.player:fullscreen iframe,
+.player:-webkit-full-screen iframe,
+:fullscreen .player video,
+:-webkit-full-screen .player video,
+.player:fullscreen video,
+.player:-webkit-full-screen video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  border: none !important;
+  border-radius: 0 !important;
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* failover notice shown by the player while it switches servers */
+.player__notice { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 30; background: rgba(21, 24, 30, 0.94); border: 1px solid var(--accent); color: var(--text); padding: 6px 14px; border-radius: 18px; font-size: 12.5px; display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow); backdrop-filter: blur(8px); animation: rise 0.25s var(--ease); }

@@ -6,7 +6,7 @@ const isMobileApp = import.meta.env.VITE_MOBILE === '1' || (typeof window !== 'u
   (window.location.hostname === 'localhost' && (window.Capacitor || !window.location.port)) ||
   window.location.origin.startsWith('file:')
 ));
-const defaultBase = isMobileApp ? 'https://dahsha.vercel.app' : '';
+const defaultBase = '';
 export const API_BASE = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
 
 async function req(url, opts = {}) {
@@ -83,7 +83,8 @@ export const api = {
     if (STATIC && DATA_BASE) {
       return req(`${DATA_BASE}/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`);
     }
-    return req(`${API_BASE}/api/catalog`).catch(() => req(`/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`));
+    const catUrl = API_BASE ? `${API_BASE}/api/catalog` : `/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`;
+    return req(catUrl).catch(() => req(`/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`));
   },
 
   status: () => req(`${API_BASE}/api/status`).catch(() => ({ ok: true, static: true })),
