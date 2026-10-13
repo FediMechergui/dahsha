@@ -25,19 +25,20 @@
   };
   const SORT_OPTIONS = {
     movie: [["added", "Recently added", "Newest in the catalogue first"], ["year", "Release year", "Newest releases first"], ["oldest", "Oldest first", "Classics first"], ["title", "Title A–Z", ""]],
-    tv: [["added", "Recently added", "Newest in the catalogue first"], ["year", "Release year", "Newest releases first"], ["episodes", "Most episodes", "Longest series first"], ["title", "Title A–Z", ""]]
+    tv: [["popularity", "Most popular", "TVmaze popularity"], ["rating", "Top rated", "TVmaze rating"], ["added", "Recently added", "Newest in the catalogue first"], ["year", "Release year", "Newest releases first"], ["episodes", "Most episodes", "Longest series first"], ["title", "Title A–Z", ""]]
   };
   const sortLabel = (type, key) => { const o = SORT_OPTIONS[type].find(x => x[0] === key); return o ? o[1] : ""; };
+  const RATING_STEPS = [[0, "Any rating"], [6, "6+"], [7, "7+"], [8, "8+"]];
 
   /* ---------- State ---------- */
-  const defaultFilters = () => ({ sort: "added", genres: [], yearFrom: null, yearTo: null, country: "", lang: "" });
+  const defaultFilters = () => ({ sort: "added", genres: [], yearFrom: null, yearTo: null, services: [], minRating: 0, universe: "", country: "", lang: "" });
   const state = {
     settings: Object.assign({ autoplay: true }, store.get("settings", {})),
     watchlist: store.get("watchlist", []),
     filters: Object.assign({ movie: defaultFilters(), tv: defaultFilters() }, store.get("filters", {})),
     recent: store.get("recent", []),
     progress: store.get("progress", {}),
-    meta: { genres: {}, countries: [], languages: [] },
+    meta: { genres: {}, services: {}, countries: [], languages: [] },
     renderedTab: null,
     scroll: {},
     heroTimer: null,
@@ -47,13 +48,17 @@
     countdown: null
   };
   const api = new Api.FlixerApi();
-  const saveSettings = () => store.set("settings", state.settings);
+  api.setSettings(state.settings);
+  const saveSettings = () => { store.set("settings", state.settings); api.setSettings(state.settings); };
+  const UNIVERSES = window.FlixerUniverses.UNIVERSES;
+  const universeName = id => { const u = UNIVERSES.find(x => x.id === id); return u ? u.name : ""; };
   const saveFilters = () => store.set("filters", state.filters);
   const saveWatchlist = () => store.set("watchlist", state.watchlist);
   const saveProgress = () => store.set("progress", state.progress);
 
   async function ensureMeta(type) {
     if (type && !state.meta.genres[type]) state.meta.genres[type] = await api.genres(type);
+    if (type && !state.meta.services[type]) state.meta.services[type] = await api.services(type);
   }
   const genreName = (type, id) => { const g = (state.meta.genres[type] || []).find(x => x.id === id); return g ? g.name : ""; };
   const inList = item => state.watchlist.some(w => w.id === item.id);
@@ -96,9 +101,11 @@
   /* ---------- Components ---------- */
   function card(item, opts = {}) {
     const fresh = isFresh(item);
-    const artHtml = item.poster ? `<img src="${esc(item.poster)}" alt="" loading="lazy" onerror="this.remove()">` : "";
+    const artHtml = item.poster ? `<img src="${esc(item.poster)}" alt="" loading="lazy" data-art="${esc(item.id)}">` : "";
+    const r = opts.rating ? api.ratingOf(item.id) : null;
     return `<a class="card" href="#/${item.type}/${esc(item.id)}" aria-label="${esc(item.title)}">
       <div class="card__art">${artHtml}${fresh ? '<span class="card__fresh" title="New"></span>' : ""}
+        ${r ? `<span class="card__rating">${r.rating.toFixed(1)}</span>` : ""}
         ${opts.showType ? `<span class="card__type">${item.type === "tv" ? "TV" : "FILM"}</span>` : ""}
       </div>
       <p class="card__title">${esc(item.title)}</p>
@@ -107,7 +114,7 @@
   }
   function resumeCard(item, ep, pct) {
     return `<a class="card" href="#/watch/${esc(item.id)}/${esc(ep)}" aria-label="Resume ${esc(item.title)}">
-      <div class="card__art">${item.poster ? `<img src="${esc(item.poster)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+      <div class="card__art">${item.poster ? `<img src="${esc(item.poster)}" alt="" loading="lazy" data-art="${esc(item.id)}">` : ""}
         <span class="card__resume">RESUME</span>
         <span class="card__bar"><i style="width:${pct}%"></i></span>
       </div>
@@ -266,18 +273,32 @@
     const mg = (state.meta.genres.movie || []).slice(0, 12);
     const genreRow = mg.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Browse by genre</h2><span class="section__sub eyebrow">Movies · tap to filter</span></div></div>
       <div class="row">${mg.map(g => `<button class="chip" data-genre="${esc(g.id)}">${esc(g.name)} <span class="chip__val">${g.count}</span></button>`).join("")}</div></section>` : "";
+    // Universes row: shared universes and franchises found in the index.
+    const universes = (await api.universes()).filter(u => u.count > 0);
+    const universeRow = universes.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Universes</h2><span class="section__sub eyebrow">Shared universes and franchises · tap to browse</span></div></div>
+      <div class="row">${universes.map(u => `<button class="chip" data-universe="${esc(u.id)}">${esc(u.short)} <span class="chip__val">${u.count}</span></button>`).join("")}</div></section>` : "";
+    const [popularTv, ratedTv, topUni] = await Promise.all([api.popular("tv", 14), api.topRated("tv", 14), api.topUniverses(3)]);
+    const uniRails = await Promise.all(topUni.map(async u => section(u.name, `${u.count} titles in Flixer`, await api.universeRail(u.id, 14), { showType: true, rating: true })));
+    if (state.renderedTab !== "home") return;
 
     $("#home-rows").innerHTML =
       resumeRow +
+      section("Popular series", "TVmaze popularity", popularTv, { rating: true }) +
       section("Just added", "Movies and series", (trend || []).slice(0, 20), { showType: true }) +
       section("New movies", "Latest additions", now, { link: "#/movies" }) +
       section("New series", "Latest additions", air, { link: "#/shows" }) +
-      genreRow +
+      genreRow + universeRow +
+      uniRails.join("") +
+      section("Top rated series", "TVmaze rating", ratedTv, { rating: true }) +
       section("Recent releases", "Films by release year", topM, { genre: true }) +
       section("Longest series", "Most episodes available", topT, { genre: true });
 
     $$("[data-genre]", view).forEach(b => b.addEventListener("click", () => {
       state.filters.movie = Object.assign(defaultFilters(), { genres: [b.dataset.genre] }); saveFilters(); location.hash = "#/movies";
+    }));
+    $$("[data-universe]", view).forEach(b => b.addEventListener("click", () => {
+      const id = b.dataset.universe;
+      state.filters.movie = Object.assign(defaultFilters(), { universe: id }); state.filters.tv = Object.assign(defaultFilters(), { universe: id, sort: "popularity" }); saveFilters(); location.hash = "#/movies";
     }));
   }
 
@@ -329,6 +350,9 @@
     const parts = [];
     if (f.genres.length) parts.push(f.genres.length === 1 ? genreName(type, f.genres[0]) : f.genres.length + " genres");
     if (f.yearFrom || f.yearTo) parts.push((f.yearFrom || "…") + (f.yearTo && f.yearTo !== f.yearFrom ? "–" + f.yearTo : f.yearTo ? "" : "–now"));
+    if (f.services && f.services.length) parts.push(f.services.join(", "));
+    if (f.minRating) parts.push("rated " + f.minRating + "+");
+    if (f.universe) parts.push(universeName(f.universe));
     return parts;
   }
 
@@ -336,11 +360,14 @@
     const type = state.browse.type, f = state.filters[type];
     const chip = (key, label, val) => `<button class="chip ${val ? "is-set" : ""}" data-filter="${key}">${esc(label)}${val ? ` <span class="chip__val">${esc(val)}</span>` : ""} ${ICON.chev}</button>`;
     const yearVal = (f.yearFrom || f.yearTo) ? (f.yearFrom && f.yearTo && f.yearFrom === f.yearTo ? String(f.yearFrom) : (f.yearFrom || "…") + "–" + (f.yearTo || "now")) : "";
-    const any = f.genres.length || f.yearFrom || f.yearTo || f.sort !== "added";
+    const svcVal = f.services && f.services.length ? (f.services.length === 1 ? f.services[0] : String(f.services.length)) : "";
+    const any = f.genres.length || f.yearFrom || f.yearTo || f.sort !== "added" || svcVal || f.minRating || f.universe;
     $("#rail").innerHTML =
       chip("sort", "Sort", f.sort !== "added" ? sortLabel(type, f.sort) : "") +
       chip("genre", "Genre", f.genres.length ? (f.genres.length === 1 ? genreName(type, f.genres[0]) : f.genres.length) : "") +
       chip("year", "Year", yearVal) +
+      chip("universe", "Universe", f.universe ? (UNIVERSES.find(u => u.id === f.universe) || {}).short || "" : "") +
+      (type === "tv" ? chip("services", "Streaming on", svcVal) + chip("rating", "Rating", f.minRating ? f.minRating + "+" : "") : "") +
       (any ? `<button class="chip chip--reset" data-filter="reset">Reset</button>` : "");
     $$("[data-filter]", $("#rail")).forEach(c => c.addEventListener("click", () => openFilter(c.dataset.filter)));
     $("#sortlabel").textContent = filterSummary(type).join(" · ");
@@ -357,7 +384,8 @@
       const r = await api.discover(type, state.filters[type], b.page + 1);
       if (seq !== b.seq) return;
       b.page = r.page; b.totalPages = r.totalPages;
-      const html = r.items.map(i => card(i)).join("");
+      b.loaded = (reset ? 0 : (b.loaded || 0)) + r.items.length;
+      const html = r.items.map(i => card(i, { rating: true })).join("");
       if (reset) grid.innerHTML = html; else grid.insertAdjacentHTML("beforeend", html);
       $("#count").innerHTML = r.total ? `<b>${r.total.toLocaleString()}</b> ${type === "tv" ? "series" : "films"}` : "No results";
       if (!r.items.length && reset) grid.innerHTML = `<div style="grid-column:1/-1">${emptyState("Nothing matches these filters", "Loosen the year range or remove a genre to see more.", `<button class="btn btn--outline" data-reset>Reset filters</button>`)}</div>`;
@@ -383,6 +411,39 @@
     if (key === "sort") return openRadioSheet("Sort by", SORT_OPTIONS[type], f.sort, v => applyFilters(Object.assign({}, f, { sort: v })));
     if (key === "genre") return openGenreSheet(type, f);
     if (key === "year") return openYearSheet(f);
+    if (key === "rating") return openRadioSheet("Minimum rating", RATING_STEPS.map(([v, l]) => [String(v), l, v ? "TVmaze rating" : ""]), String(f.minRating || 0), v => applyFilters(Object.assign({}, f, { minRating: +v })));
+    if (key === "universe") return openUniverseSheet(f);
+    if (key === "services") return openServicesSheet(type, f);
+  }
+
+  async function openUniverseSheet(f) {
+    const list = (await api.universes()).filter(u => u.count > 0);
+    openRadioSheet("Universe / franchise", [["", "Any", ""], ...list.map(u => [u.id, u.name, `${u.count} title${u.count === 1 ? "" : "s"}`])], f.universe || "", v => applyFilters(Object.assign({}, f, { universe: v })));
+  }
+
+  async function openServicesSheet(type, f) {
+    await ensureMeta(type);
+    const list = state.meta.services[type] || [];
+    const sel = new Set(f.services || []);
+    openSheet({
+      title: "Streaming on",
+      body: `<p class="eyebrow" style="margin:0 0 12px">Network or streaming service · TVmaze · pick one or several</p>
+        <div class="search-field" style="margin-bottom:8px"><input class="search-input" id="svc-q" placeholder="Type to filter" autocomplete="off"></div>
+        <div class="optlist" id="svc-rows"></div>`,
+      foot: `<button class="btn btn--outline" data-clear>Clear</button><button class="btn btn--primary" data-apply>Show results</button>`,
+      onOpen: s => {
+        const rows = $("#svc-rows", s);
+        const paint = q => {
+          const needle = q.trim().toLowerCase();
+          rows.innerHTML = list.filter(p => !needle || p.name.toLowerCase().includes(needle)).slice(0, 80).map(p => `<button class="opt ${sel.has(p.name) ? "is-on" : ""}" data-s="${esc(p.name)}"><span>${esc(p.name)} <span class="opt__hint">${p.count}</span></span><span class="opt__check">${ICON.check}</span></button>`).join("") || `<p class="empty__text">No services match.</p>`;
+          $$("[data-s]", rows).forEach(b => b.addEventListener("click", () => { const id = b.dataset.s; sel.has(id) ? sel.delete(id) : sel.add(id); b.classList.toggle("is-on", sel.has(id)); }));
+        };
+        paint("");
+        $("#svc-q", s).addEventListener("input", e => paint(e.target.value));
+        $("[data-clear]", s).addEventListener("click", () => applyFilters(Object.assign({}, f, { services: [] })));
+        $("[data-apply]", s).addEventListener("click", () => applyFilters(Object.assign({}, f, { services: [...sel] })));
+      }
+    });
   }
 
   function openRadioSheet(title, options, current, onPick) {
@@ -467,7 +528,7 @@
         if (commit) { state.recent = [t, ...state.recent.filter(x => x !== t)].slice(0, 8); store.set("recent", state.recent); }
         if (!r.items.length) { out.innerHTML = emptyState("No matches for “" + t + "”", "Check the spelling or try a shorter title."); return; }
         out.innerHTML = `<div class="list fade-in">${r.items.map(i => `<a class="list-item" href="#/${i.type}/${esc(i.id)}">
-          <div class="list-item__art">${i.poster ? `<img src="${esc(i.poster)}" alt="" loading="lazy" onerror="this.remove()">` : ""}</div>
+          <div class="list-item__art">${i.poster ? `<img src="${esc(i.poster)}" alt="" loading="lazy" data-art="${esc(i.id)}">` : ""}</div>
           <div><p class="list-item__title">${esc(i.title)}</p><div class="meta list-item__meta">${i.type === "tv" ? "Series" : "Film"} · ${esc(i.year || "—")}${i.type === "tv" && i.episodeCount > 1 ? ` · ${i.episodeCount} ep` : ""}</div></div></a>`).join("")}</div>`;
       } catch (e) { if (my === seq) out.innerHTML = emptyState("Search failed", e.message); }
     }
@@ -504,7 +565,7 @@
     const pct = pctOf(e.id);
     const status = p && p.finished ? `<span class="episode__watched">Watched</span>` : pct ? `${pct}% watched` : "";
     return `<a class="episode ${e.id === activeId ? "is-active" : ""}" href="#/watch/${esc(d.id)}/${esc(e.id)}">
-      <div class="episode__still">${e.still ? `<img src="${esc(e.still)}" alt="" loading="lazy" onerror="this.remove()">` : ""}<span class="episode__play">${ICON.play}</span></div>
+      <div class="episode__still">${e.still ? `<img src="${esc(e.still)}" alt="" loading="lazy" data-art="${esc(d.id)}">` : ""}<span class="episode__play">${ICON.play}</span></div>
       <div><div class="episode__num">${epLabel(d.type, e)}${status ? " · " + status : ""}</div><p class="episode__title">${esc(e.title)}</p>${e.overview ? `<div class="episode__ov">${esc(e.overview)}</div>` : ""}</div>
     </a>`;
   }
@@ -540,7 +601,7 @@
       <button class="detail__back detail__save ${saved ? "is-on" : ""}" data-save aria-label="${saved ? "Remove from my list" : "Save to my list"}">${ICON.bookmark}</button>
       <div class="detail__backdrop">${d.backdrop || d.poster ? `<img src="${esc(d.backdrop || d.poster)}" alt="" ${d.poster && d.backdrop !== d.poster ? `onerror="this.onerror=null;this.src='${esc(d.poster)}';this.onerror=()=>this.remove()"` : ""}>` : ""}</div>
       <div class="detail__head">
-        <div class="detail__poster">${d.posterLarge || d.poster ? `<img src="${esc(d.posterLarge || d.poster)}" alt="" onerror="this.remove()">` : ""}</div>
+        <div class="detail__poster">${d.posterLarge || d.poster ? `<img src="${esc(d.posterLarge || d.poster)}" alt="" data-art="${esc(d.id)}">` : ""}</div>
         <div>
           <div class="eyebrow" style="margin-bottom:6px">${type === "tv" ? "Series" : "Film"}${isFresh(d) ? ' · <span style="color:var(--fern)">New</span>' : ""}</div>
           <h1 class="h-display detail__title">${esc(d.title)}</h1>
@@ -561,10 +622,43 @@
           ${d.seasons.length > 1 ? `<select class="season-select" id="season">${d.seasons.map(s => `<option value="${s.season_number}">${esc(s.name)} · ${s.episode_count} episodes</option>`).join("")}</select>` : ""}
           <div id="episodes" style="margin-top:6px"></div></section>` : ""}
 
-        ${d.similar.length ? `<section class="sub-section"><h3 class="sub-section__title">More like this</h3><div class="row">${d.similar.map(i => card(i)).join("")}</div></section>` : ""}
+        ${d.universes && d.universes.length ? `<div class="tags">${d.universes.map(u => `<button class="tag" data-universe="${esc(u)}" style="color:var(--amber)">${esc(universeName(u))}</button>`).join("")}</div>` : ""}
+        <div id="extras">${type === "tv" ? `<div class="loader">Loading rating, network and cast…</div>` : ""}</div>
+        <div id="related"><div class="loader">Finding related titles…</div></div>
+
         ${d.sourceUrl ? `<p class="attrib">Source: <a href="${esc(d.sourceUrl)}" target="_blank" rel="noopener" style="color:var(--amber)">open page ${ICON.ext}</a></p>` : ""}
         <div style="height:40px"></div>
       </div>`;
+
+    // Related titles: same universe, same franchise, then similar titles from the index.
+    api.related(d, 16).then(rel => {
+      const box = $("#related", el); if (!box || !el.isConnected) return;
+      const rail = (title, sub, items, opts) => items.length ? `<section class="sub-section"><h3 class="sub-section__title">${esc(title)}</h3>${sub ? `<span class="eyebrow" style="display:block;margin:-6px 0 10px">${esc(sub)}</span>` : ""}<div class="row">${items.map(i => card(i, Object.assign({ showType: true, rating: true }, opts))).join("")}</div></section>` : "";
+      box.innerHTML =
+        rail(`Same universe · ${rel.universeName}`, "Films and series that share the universe", rel.universe) +
+        rail("Same franchise", "Titles that share the name", rel.franchise) +
+        rail("More like this", "Same genres, close release years", rel.similar) ||
+        "";
+    }).catch(() => { const box = $("#related", el); if (box) box.innerHTML = ""; });
+    $$("[data-universe]", el).forEach(b => b.addEventListener("click", () => { const id = b.dataset.universe; state.filters.movie = Object.assign(defaultFilters(), { universe: id }); state.filters.tv = Object.assign(defaultFilters(), { universe: id, sort: "popularity" }); saveFilters(); state.renderedTab = null; location.hash = type === "tv" ? "#/shows" : "#/movies"; }));
+
+    // TVmaze extras for series: rating, where it airs or streams, status, schedule, cast.
+    if (type === "tv") {
+      api.extras(d).then(x => {
+        const box = $("#extras", el); if (!box || !el.isConnected) return;
+        if (!x || !x.matched) { box.innerHTML = ""; return; }
+        const where = [x.web && x.web.name ? `<span class="provider">${esc(x.web.name)}${x.web.country ? ` <span class="opt__hint">${esc(x.web.country)}</span>` : ""}</span>` : "", x.network && x.network.name ? `<span class="provider">${esc(x.network.name)}${x.network.country ? ` <span class="opt__hint">${esc(x.network.country)}</span>` : ""}</span>` : ""].filter(Boolean).join("");
+        box.innerHTML = `
+          <div class="facts" style="margin-top:0">
+            ${x.rating ? `<div class="fact"><div class="fact__k">TVmaze rating</div><div class="fact__v amber">${x.rating.toFixed(1)}</div></div>` : ""}
+            ${x.status ? `<div class="fact"><div class="fact__k">Status</div><div class="fact__v">${esc(x.status)}</div></div>` : ""}
+            ${x.runtime ? `<div class="fact"><div class="fact__k">Runtime</div><div class="fact__v">${x.runtime}m <span class="meta">/ ep</span></div></div>` : ""}
+          </div>
+          ${where ? `<section class="sub-section"><h3 class="sub-section__title">Where it airs or streams</h3><div class="providers">${where}</div>${x.schedule ? `<p class="attrib">${esc(x.schedule)} · data by TVmaze</p>` : `<p class="attrib">Data by TVmaze</p>`}</section>` : ""}
+          ${!d.overview && x.summary ? `<p class="overview" style="margin-top:12px">${esc(x.summary)}</p>` : ""}
+          ${x.cast.length ? `<section class="sub-section"><h3 class="sub-section__title">Cast</h3><div class="cast">${x.cast.map(c => `<div class="person"><div class="person__pic">${c.pic ? `<img src="${esc(c.pic)}" alt="" loading="lazy">` : ""}</div><div class="person__name">${esc(c.name)}</div><div class="person__role">${esc(c.role)}</div></div>`).join("")}</div></section>` : ""}`;
+      }).catch(() => { const box = $("#extras", el); if (box) box.innerHTML = ""; });
+    }
 
     $("[data-back]", el).addEventListener("click", goBack);
     $$("[data-save]", el).forEach(b => b.addEventListener("click", () => {
@@ -672,14 +766,22 @@
         </div>
         <div class="field" style="margin-top:16px"><button class="btn btn--outline btn--block" data-wipe style="color:var(--rose)">Clear my list, searches and watch history</button>
           <p class="hint">${state.watchlist.length} saved · ${watched} watched · ${Object.keys(state.progress).length - watched} in progress</p></div>
-        ${st ? `<div class="facts" style="margin-top:0"><div class="fact"><div class="fact__k">Titles</div><div class="fact__v amber">${st.total.toLocaleString()}</div></div><div class="fact"><div class="fact__k">Films</div><div class="fact__v">${st.films.toLocaleString()}</div></div><div class="fact"><div class="fact__k">Series</div><div class="fact__v">${st.series.toLocaleString()}</div></div></div>` : ""}
-        <p class="attrib">Flixer · index ${generated ? "built " + esc(generated.slice(0, 10)) : "bundled with the app"}${st && st.lastSync ? " · live sync " + new Date(st.lastSync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}. New titles are picked up every 10 minutes; synopsis and episodes load when a title is opened. Playback comes from third-party players; Flixer hosts no video.</p>`,
+        ${st ? `<div class="facts" style="margin-top:0"><div class="fact"><div class="fact__k">Titles</div><div class="fact__v amber">${st.total.toLocaleString()}</div></div><div class="fact"><div class="fact__k">Films</div><div class="fact__v">${st.films.toLocaleString()}</div></div><div class="fact"><div class="fact__k">Series</div><div class="fact__v">${st.series.toLocaleString()} <span class="meta">· ${st.rated.toLocaleString()} rated</span></div></div></div>` : ""}
+        <p class="attrib">Flixer · index ${generated ? "built " + esc(generated.slice(0, 10)) : "bundled with the app"}${st && st.lastSync ? " · live sync " + new Date(st.lastSync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}. New titles are picked up every 3 minutes while the app is open; synopsis and episodes load when a title is opened. Series ratings, popularity, networks, cast and episode guides come from TVmaze. Playback comes from third-party players; Flixer hosts no video.</p>`,
       onOpen: sh => {
         $("[data-autoplay]", sh).addEventListener("click", e => { s.autoplay = !s.autoplay; saveSettings(); e.currentTarget.classList.toggle("is-on", s.autoplay); });
         $("[data-wipe]", sh).addEventListener("click", () => { if (confirm("Clear your saved list, recent searches and watch history on this device?")) { state.watchlist = []; state.recent = []; state.progress = {}; saveWatchlist(); store.set("recent", []); saveProgress(); closeSheet(); state.renderedTab = null; route(); toast("Cleared"); } });
       }
     });
   }
+
+  /* ---------- Image fallback: a missing series poster is replaced from TVmaze ---------- */
+  document.addEventListener("error", e => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !img.dataset.art || img.dataset.tried) return;
+    img.dataset.tried = "1";
+    api.posterFallback(img.dataset.art).then(src => { if (src && src !== img.src) img.src = src; else img.remove(); }).catch(() => img.remove());
+  }, true);
 
   /* ---------- Live catalogue updates ---------- */
   window.addEventListener("flixer:catalog", e => {

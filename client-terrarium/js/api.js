@@ -1,14 +1,17 @@
 /* Flixer data layer. Same surface as Terrarium's TmdbApi/DemoApi so the views stay untouched.
-   Two tiers:
+   Tiers:
    - the bundled index (data/catalog.json): every title, lean (no synopsis), loads instantly and
-     works offline; filters, sorting and search run on it;
-   - the live tier: the Flixer endpoints (/api/...) when the app is served next to them, otherwise
-     the source's public JSON API directly (same requests the Flixer server makes). It keeps the
-     index fresh in the background (new titles every few minutes), fetches synopsis and episodes
-     when a title is opened, and widens search.
+     works offline; filters, sorting, search and relations run on it. Series carry TVmaze data
+     (popularity weight, rating, network / web channel) merged at build time;
+   - the live source tier: the Flixer endpoints (/api/...) when the app is served next to them,
+     otherwise the source's public JSON API directly (same requests the Flixer server makes).
+     Keeps the index fresh (new titles every few minutes), fetches synopsis and episodes when a
+     title is opened, widens search;
+   - TVmaze (keyless, series only): rating, where it airs or streams, status, cast, episode guide,
+     poster fallback. Universes and franchises come from js/universes.js (title patterns).
    Normalized item shape (what the views consume):
    { id, type: 'movie'|'tv', title, date, year, poster, backdrop, rating, votes, genreIds, overview,
-     lang, country[], episodeCount, firstEpisodeId, sourceUrl } */
+     lang, country[], episodeCount, firstEpisodeId, sourceUrl, weight, service, universes[], stem } */
 
 (function () {
   const CFG = window.FLIXER_CONFIG || {};
@@ -17,8 +20,9 @@
   const PER_PAGE = 24;
   const SOURCE = "https://myflixerz.day";
   const WP = SOURCE + "/wp-json/wp/v2";
-  const SYNC_EVERY = 10 * 60 * 1000;
+  const SYNC_EVERY = 3 * 60 * 1000;
   const DELTA_CAP = 2500;
+  const UNI = window.FlixerUniverses;
   const GENRES = [
     [39, "Action", "action"], [42, "Adventure", "adventure"], [97, "Animation", "animation"], [2343589, "Biography", "biography"],
     [46, "Comedy", "comedy"], [160, "Crime", "crime"], [212, "Documentary", "documentary"], [56, "Drama", "drama"],
@@ -66,6 +70,8 @@
   const byYearAsc = (a, b) => (+a.year || 0) - (+b.year || 0) || byAdded(a, b);
   const byEpisodes = (a, b) => (b.episodeCount || 0) - (a.episodeCount || 0) || byAdded(a, b);
   const byTitle = (a, b) => a.title.localeCompare(b.title);
+  const byWeight = (a, b) => (b.weight || 0) - (a.weight || 0) || (b.rating || 0) - (a.rating || 0) || byAdded(a, b);
+  const byRating = (a, b) => (b.rating || 0) - (a.rating || 0) || byWeight(a, b);
 
   /* ----- raw show -> view item ----- */
   function normalize(s) {
@@ -73,23 +79,32 @@
     const date = String(s.publishedAt || "").slice(0, 10);
     const poster = s.poster || {};
     const episodes = Array.isArray(s.episodes) ? s.episodes : [];
+    const tvm = s.tvm || null;
+    const title = decodeEntities(s.title);
     return {
       id: s.id,
       type,
-      title: decodeEntities(s.title),
+      title,
       date,
       year: s.year ? String(s.year) : (date ? date.slice(0, 4) : ""),
       poster: s.portrait || poster.custom || poster.default || posterFor(s.wpId),
       backdrop: poster.backdrop || poster.hq || backdropFor(s.wpId) || poster.custom || null,
-      rating: 0,
+      rating: tvm ? tvm.r || 0 : 0,
       votes: 0,
+      weight: tvm ? tvm.w || 0 : 0,
+      service: tvm && tvm.svc ? tvm.svc : "",
+      status: tvm && tvm.st ? tvm.st : "",
+      tvmazeId: tvm ? tvm.id || null : null,
+      tvImage: tvm && tvm.img ? tvm.img : null,
       genreIds: Array.isArray(s.tags) ? s.tags : [],
       overview: decodeEntities(s.synopsis),
       lang: "",
-      country: [],
+      country: tvm && tvm.c ? [tvm.c] : [],
       episodeCount: s.episodeCount || episodes.length || (type === "movie" ? 1 : 0),
       firstEpisodeId: episodes[0] ? episodes[0].id : s.id,
-      sourceUrl: s.sourceUrl || (type === "tv" ? `${SOURCE}/series/${s.slug}/` : `${SOURCE}/${s.slug}/`)
+      sourceUrl: s.sourceUrl || (type === "tv" ? `${SOURCE}/series/${s.slug}/` : `${SOURCE}/${s.slug}/`),
+      universes: UNI.detect(title),
+      stem: UNI.stem(title)
     };
   }
 
@@ -118,10 +133,9 @@
       sourceUrl: e.sourceUrl || (isMovie ? show.sourceUrl : `${SOURCE}/episodes/${slug}/`) || ""
     };
   }
-  // A movie's only "episode" is the film itself.
   const movieEpisode = s => ({ id: s.id, slug: s.slug, title: s.title, season: 1, number: 1, sourceUrl: s.sourceUrl || `${SOURCE}/${s.slug}/` });
 
-  /* ----- live tier: the same requests the Flixer server makes ----- */
+  /* ----- live source tier: the same requests the Flixer server makes ----- */
   const live = {
     hasServer: null,
     years: null,
@@ -146,7 +160,6 @@
       store.set("years", { t: Date.now(), map: [...map] });
       return map;
     },
-    // Same shape the server's formatItem produces (lean when the row carries no content).
     format(row, years, kind) {
       const isMovie = kind === "movie";
       const year = (row["release-year"] || []).map(id => years.get(id)).find(Boolean);
@@ -155,8 +168,7 @@
       const synopsis = plain((row.content && row.content.rendered) || (row.excerpt && row.excerpt.rendered) || "");
       return {
         id: `mf:${isMovie ? "m" : "s"}:${slug}`,
-        wpId: row.id,
-        slug,
+        wpId: row.id, slug,
         kind: isMovie ? "film" : "series",
         title: plain((row.title && row.title.rendered) || row.title),
         synopsis,
@@ -198,7 +210,6 @@
       if (isSeries) item.episodes = await this.episodes(slug).catch(() => []);
       return item;
     },
-    // Episode list from the series page (same parsing as the Flixer server's fetchSeriesEpisodes).
     async episodes(slug) {
       const res = await fetch(`${SOURCE}/series/${slug}/`);
       if (!res.ok) return [];
@@ -233,8 +244,12 @@
       this._lastSync = 0;
       this._timer = null;
       this.liveEnabled = CFG.live !== false;
+      this.settings = {};
+      this.tvmaze = new window.FlixerTvMaze.TvMaze();
+      this._guides = new Map();
     }
     today() { return new Date().toISOString().slice(0, 10); }
+    setSettings(s) { this.settings = s || {}; }
 
     /* ----- index ----- */
     catalog() {
@@ -243,10 +258,9 @@
         this._loading = (async () => {
           const { body: c } = await getJson(`${DATA_BASE}/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`, 60000);
           const shows = Array.isArray(c.shows) ? c.shows : [];
-          this._catalog = { shows, items: [], genres: { movie: [], tv: [] }, years: [1900, new Date().getFullYear()], generatedAt: c.generatedAt || null, lite: !!c.lite, tagLabels: new Map((c.tags || []).map(t => [t.id, t.labelEn || t.label || titleCase(t.id)])) };
+          this._catalog = { shows, items: [], genres: { movie: [], tv: [] }, years: [1900, new Date().getFullYear()], generatedAt: c.generatedAt || null, tvmazeAt: c.tvmazeAt || null, lite: !!c.lite, tagLabels: new Map((c.tags || []).map(t => [t.id, t.labelEn || t.label || titleCase(t.id)])) };
           this._byId = new Map();
           shows.forEach(s => this._byId.set(s.id, s));
-          // Titles learned live in earlier sessions.
           const delta = store.get("delta", []);
           if (Array.isArray(delta)) delta.forEach(s => { if (!this._byId.has(s.id)) { shows.push(s); this._byId.set(s.id, s); } });
           this._reindex();
@@ -268,8 +282,17 @@
       let min = Infinity, max = new Date().getFullYear();
       c.items.forEach(i => { const y = +i.year; if (y) { if (y < min) min = y; if (y > max) max = y; } });
       c.years = [min === Infinity ? 1900 : min, max];
+      // Services (where series air / stream), universes and franchise stems.
+      const svc = new Map();
+      c.items.forEach(i => { if (i.service) svc.set(i.service, (svc.get(i.service) || 0) + 1); });
+      c.services = [...svc].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+      const uni = new Map();
+      c.items.forEach(i => i.universes.forEach(u => uni.set(u, (uni.get(u) || 0) + 1)));
+      c.universeCounts = uni;
+      const stems = new Map();
+      c.items.forEach(i => { if (i.stem && i.stem.length > 2) { const arr = stems.get(i.stem); if (arr) arr.push(i); else stems.set(i.stem, [i]); } });
+      c.stems = stems;
     }
-    // Merge live rows into the index. Returns the number of titles that were new.
     _merge(rows) {
       const c = this._catalog;
       let added = 0;
@@ -283,6 +306,7 @@
           if (r.year) cur.year = r.year;
           if (r.publishedAt) cur.publishedAt = r.publishedAt;
           if (r.wpId) cur.wpId = r.wpId;
+          if (r.tvm) cur.tvm = r.tvm;
           if (Array.isArray(r.episodes) && r.episodes.length > (cur.episodes || []).length) { cur.episodes = r.episodes; cur.episodeCount = r.episodes.length; }
         } else {
           c.shows.push(r); this._byId.set(r.id, r); added += 1;
@@ -316,12 +340,12 @@
             const r = await live.list(kind, { page, perPage: 50 });
             const n = this._merge(r.items);
             added += n;
-            if (!r.items.length || (page > 1 && n === 0) || (page === 1 && n === 0 && r.items.every(i => this._byId.has(i.id)))) break;
+            if (!r.items.length || n === 0) break;
           }
         }
         this._lastSync = Date.now();
         if (added) { this._reindex(); window.dispatchEvent(new CustomEvent("flixer:catalog", { detail: { added, total: this._catalog.shows.length } })); }
-        window.dispatchEvent(new CustomEvent("flixer:sync", { detail: { ok: true, added } }));
+        window.dispatchEvent(new CustomEvent("flixer:sync", { detail: { ok: true, added, at: this._lastSync } }));
       } catch (e) {
         window.dispatchEvent(new CustomEvent("flixer:sync", { detail: { ok: false, error: e.message } }));
         throw e;
@@ -333,16 +357,23 @@
     async item(id) { const c = await this.catalog(); return c.items.find(i => i.id === id) || null; }
     async yearRange() { const c = await this.catalog(); return c.years; }
     async generatedAt() { const c = await this.catalog(); return c.generatedAt; }
-    async stats() { const c = await this.catalog(); return { total: c.shows.length, films: c.items.filter(i => i.type === "movie").length, series: c.items.filter(i => i.type === "tv").length, lastSync: this._lastSync, live: this.liveEnabled }; }
+    async stats() { const c = await this.catalog(); return { total: c.shows.length, films: c.items.filter(i => i.type === "movie").length, series: c.items.filter(i => i.type === "tv").length, rated: c.items.filter(i => i.rating).length, lastSync: this._lastSync, live: this.liveEnabled, tvmazeAt: c.tvmazeAt }; }
+    ratingOf(id) { const s = this._byId.get(id); const r = s && s.tvm && s.tvm.r; return r ? { rating: r } : null; }
 
     /* ----- Home rails ----- */
     async trending() { return (await this.all()).slice().sort(byAdded).slice(0, 20); }
     async nowPlaying() { return (await this.all("movie")).slice().sort(byAdded).slice(0, 14); }
     async onTheAir() { return (await this.all("tv")).slice().sort(byAdded).slice(0, 14); }
-    async topRated(type) {
+    async popular(type, n = 14) { return (await this.all(type)).filter(i => i.weight > 0).sort(byWeight).slice(0, n); }
+    async topRated(type, n = 14) {
       const list = (await this.all(type)).slice();
-      return (type === "tv" ? list.sort(byEpisodes) : list.sort(byYearDesc)).slice(0, 14);
+      const rated = list.filter(i => i.rating > 0);
+      return (rated.length ? rated.sort(byRating) : type === "tv" ? list.sort(byEpisodes) : list.sort(byYearDesc)).slice(0, n);
     }
+    async universeRail(id, n = 14) { return (await this.all()).filter(i => i.universes.includes(id)).sort(byWeight).slice(0, n); }
+    async topUniverses(n = 4) { const c = await this.catalog(); return [...c.universeCounts].sort((a, b) => b[1] - a[1]).slice(0, n).map(([id, count]) => ({ id, count, ...UNI.byId(id) })); }
+    async universes() { const c = await this.catalog(); return UNI.UNIVERSES.map(u => ({ id: u.id, name: u.name, short: u.short, count: c.universeCounts.get(u.id) || 0 })); }
+    async services(type) { const c = await this.catalog(); if (!type) return c.services; const m = new Map(); c.items.filter(i => i.type === type && i.service).forEach(i => m.set(i.service, (m.get(i.service) || 0) + 1)); return [...m].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count })); }
 
     /* ----- Browse ----- */
     async discover(type, f, page = 1) {
@@ -350,7 +381,10 @@
       if (f.genres && f.genres.length) list = list.filter(i => f.genres.every(g => i.genreIds.includes(g)));
       if (f.yearFrom) list = list.filter(i => +i.year >= f.yearFrom);
       if (f.yearTo) list = list.filter(i => +i.year <= f.yearTo);
-      const sorters = { added: byAdded, year: byYearDesc, oldest: byYearAsc, episodes: byEpisodes, title: byTitle };
+      if (f.services && f.services.length) { const set = new Set(f.services); list = list.filter(i => set.has(i.service)); }
+      if (f.minRating) list = list.filter(i => i.rating >= f.minRating);
+      if (f.universe) list = list.filter(i => i.universes.includes(f.universe));
+      const sorters = { added: byAdded, year: byYearDesc, oldest: byYearAsc, episodes: byEpisodes, title: byTitle, popularity: byWeight, rating: byRating };
       list = list.slice().sort(sorters[f.sort] || byAdded);
       const start = (page - 1) * PER_PAGE;
       return { items: list.slice(start, start + PER_PAGE), page, totalPages: Math.max(1, Math.ceil(list.length / PER_PAGE)), total: list.length };
@@ -359,7 +393,19 @@
     async countries() { return []; }
     async languages() { return []; }
 
-    /* ----- Details: index entry completed live (synopsis, episodes) ----- */
+    /* ----- Relations: same universe, same franchise, then similar ----- */
+    async related(item, n = 16) {
+      const c = await this.catalog();
+      const seen = new Set([item.id]);
+      const take = (list, k) => { const out = []; for (const i of list) { if (out.length >= k) break; if (!seen.has(i.id)) { seen.add(i.id); out.push(i); } } return out; };
+      const universe = item.universes.length ? take(c.items.filter(i => i.universes.some(u => item.universes.includes(u))).sort(byWeight), n) : [];
+      const franchise = item.stem && item.stem.length > 2 ? take((c.stems.get(item.stem) || []).slice().sort(byYearAsc), n) : [];
+      const y = +item.year || 0;
+      const similar = take(c.items.filter(i => i.type === item.type && i.genreIds.length && i.genreIds.filter(g => item.genreIds.includes(g)).length >= Math.min(2, item.genreIds.length) && (!y || Math.abs((+i.year || 0) - y) <= 3)).sort(byWeight), n);
+      return { universe, universeName: item.universes.length ? (UNI.byId(item.universes[0]) || {}).name : "", franchise, similar };
+    }
+
+    /* ----- Details: index entry completed live (synopsis, episodes) + TVmaze guide ----- */
     async show(id) {
       await this.catalog();
       if (this._byId.has(id)) return this._byId.get(id);
@@ -374,6 +420,12 @@
     }
     async details(_type, id) {
       const raw = await this.show(id);
+      // Episode lists live in bundled per-series files (data/shows/<id>.json); pull them in once.
+      if (raw.kind === "series" && !(raw.episodes || []).length && !raw._episodesTried) {
+        raw._episodesTried = true;
+        try { const { body } = await getJson(`${DATA_BASE}/data/shows/${encodeURIComponent(id)}.json`, 8000); if (body && Array.isArray(body.episodes) && body.episodes.length) { raw.episodes = body.episodes; raw.episodeCount = body.episodes.length; } }
+        catch { /* not bundled: the live tier fills it below */ }
+      }
       const needsLive = this.liveEnabled && (!raw.synopsis || (raw.kind === "series" && (raw.episodes || []).length <= 1));
       if (needsLive && !this._details.has(id)) {
         const cached = store.get("title:" + id, null);
@@ -392,20 +444,36 @@
       const item = normalize(raw);
       const c = await this.catalog();
       const labels = new Map(c.genres[item.type].map(g => [g.id, g.name]));
-      const list = raw.kind === "series" ? (raw.episodes || []) : [movieEpisode(raw)];
+      // A series whose episode list is unavailable still gets one entry so it can be played from the
+      // source page (the player resolves the servers from there).
+      const list = raw.kind === "series" && (raw.episodes || []).length ? raw.episodes : [Object.assign(movieEpisode(raw), raw.kind === "series" ? { title: "Whole series", sourceUrl: raw.sourceUrl || `${SOURCE}/series/${raw.slug}/` } : {})];
       const episodes = list.map((e, i) => normalizeEpisode(e, i, raw));
+      // TVmaze episode guide: titles, stills, air dates and summaries for the source's episodes.
+      if (raw.kind === "series" && item.tvmazeId && episodes.length) {
+        const guide = await this._guide(item).catch(() => null);
+        if (guide) episodes.forEach(e => { const g = guide.get(e.season + ":" + e.n); if (g) { if (g.still) e.still = g.still; if (g.date) e.date = g.date; if (g.runtime) e.runtime = g.runtime; if (g.overview) e.overview = g.overview; if (g.title && /^episode \d+$/i.test(e.title)) e.title = g.title; } });
+      }
       const seasonNums = [...new Set(episodes.map(e => e.season))].sort((a, b) => a - b);
       const seasons = seasonNums.map(n => ({ season_number: n, name: "Season " + n, episode_count: episodes.filter(e => e.season === n).length }));
-      const similar = c.items.filter(i => i.id !== raw.id && i.type === item.type && i.genreIds.some(g => item.genreIds.includes(g))).sort(byAdded).slice(0, 12);
       return Object.assign(item, {
         tagline: "",
         genres: item.genreIds.map(g => ({ id: g, name: labels.get(g) || SLUG_LABEL.get(g) || titleCase(g) })),
-        runtime: null, status: "",
+        runtime: null,
         seasons, seasonCount: seasons.length, episodeCount: episodes.length,
         episodes, firstEpisodeId: episodes[0] ? episodes[0].id : item.id,
-        cast: [], trailer: null, providers: null, similar,
+        cast: [], trailer: null, providers: null,
+        similar: [],
         backdropLarge: item.backdrop, posterLarge: item.poster
       });
+    }
+    async _guide(item) {
+      if (this._guides.has(item.id)) return this._guides.get(item.id);
+      const cached = store.get("guide:" + item.id, null);
+      let eps = cached && Date.now() - cached.t < 3 * 86400e3 ? cached.eps : null;
+      if (!eps) { eps = await this.tvmaze.episodes(item.tvmazeId); store.set("guide:" + item.id, { t: Date.now(), eps: eps.map(e => ({ season: e.season, n: e.n, title: e.title, date: e.date, runtime: e.runtime, still: e.still, overview: (e.overview || "").slice(0, 240) })) }); }
+      const map = new Map(eps.map(e => [e.season + ":" + e.n, e]));
+      this._guides.set(item.id, map);
+      return map;
     }
     async season(id, n) { const d = await this.details(null, id); return d.episodes.filter(e => e.season === n); }
     async episode(showId, epId) {
@@ -414,11 +482,27 @@
       if (index < 0) throw new Error("Episode not found.");
       return { show, episode: show.episodes[index], index, prev: show.episodes[index - 1] || null, next: show.episodes[index + 1] || null, total: show.episodes.length };
     }
+    // TVmaze extras for a series: rating, where it airs or streams, status, cast, summary.
+    async extras(item) {
+      if (item.type !== "tv") return null;
+      const s = await this.tvmaze.show(item);
+      if (!s) return { matched: false };
+      let cast = [];
+      try { cast = await this.tvmaze.cast(s.id); } catch { /* optional */ }
+      return Object.assign({ matched: true, cast }, s);
+    }
+    async posterFallback(id) {
+      const item = await this.item(id);
+      if (!item || item.type !== "tv") return null;
+      if (item.tvImage) return item.tvImage;
+      const s = await this.tvmaze.show(item).catch(() => null);
+      return s && s.image ? s.image.medium : null;
+    }
 
     /* ----- Search: index first, widened by the source's own search ----- */
     async search(q) {
       const needle = q.toLowerCase();
-      const local = (await this.all()).filter(i => i.title.toLowerCase().includes(needle)).sort(byAdded).slice(0, 60);
+      const local = (await this.all()).filter(i => i.title.toLowerCase().includes(needle)).sort(byWeight).slice(0, 60);
       if (!this.liveEnabled) return { items: local, totalPages: 1 };
       const liveHits = await Promise.race([
         Promise.all([live.list("movie", { page: 1, perPage: 20, search: q }), live.list("tv", { page: 1, perPage: 20, search: q })]).then(([m, s]) => [...m.items, ...s.items]).catch(() => []),

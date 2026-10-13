@@ -37,7 +37,26 @@ const hls = path.join(root, 'client', 'node_modules', 'hls.js', 'dist', 'hls.min
 if (!fs.existsSync(hls)) { console.error('[terrarium] hls.js not found; run "npm install --prefix client"'); process.exit(1); }
 fs.mkdirSync(path.join(out, 'js', 'vendor'), { recursive: true });
 fs.copyFileSync(hls, path.join(out, 'js', 'vendor', 'hls.min.js'));
-if (!dataBase) fs.cpSync(dataDir, path.join(out, 'data'), { recursive: true });
+if (!dataBase) {
+  // The index always ships. Per-series episode files: all of them on the web, the newest N in the
+  // APK (the rest load live when a series is opened). --shows N overrides the mobile default.
+  const shows = opt('--shows', mobile ? '2500' : 'all');
+  fs.mkdirSync(path.join(out, 'data'), { recursive: true });
+  for (const f of fs.readdirSync(dataDir)) { const p = path.join(dataDir, f); if (fs.statSync(p).isFile()) fs.copyFileSync(p, path.join(out, 'data', f)); }
+  const showsDir = path.join(dataDir, 'shows');
+  if (fs.existsSync(showsDir)) {
+    const outShows = path.join(out, 'data', 'shows');
+    fs.mkdirSync(outShows, { recursive: true });
+    let wanted = null;
+    if (shows !== 'all') {
+      const cat = JSON.parse(fs.readFileSync(path.join(dataDir, 'catalog.json'), 'utf8'));
+      wanted = new Set(cat.shows.filter((s) => s.kind === 'series').sort((a, b) => String(b.publishedAt || '').localeCompare(String(a.publishedAt || ''))).slice(0, Number(shows)).map((s) => `${encodeURIComponent(s.id)}.json`));
+    }
+    let n = 0;
+    for (const f of fs.readdirSync(showsDir)) { if (!wanted || wanted.has(f)) { fs.copyFileSync(path.join(showsDir, f), path.join(outShows, f)); n += 1; } }
+    console.log(`[terrarium] bundled episode files for ${n} series`);
+  }
+}
 fs.writeFileSync(path.join(out, 'config.js'), `window.FLIXER_CONFIG = ${JSON.stringify({ dataBase, apiBase, mobile, builtAt: new Date().toISOString() })};\n`);
 
 const count = (d) => fs.readdirSync(d, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? count(path.join(d, e.name)) : 1), 0);
