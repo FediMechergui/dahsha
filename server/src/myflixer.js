@@ -1,6 +1,11 @@
+// Comprehensive Myflixer Scraper & Streaming Engine for Movies and TV Series.
+// Supports all genres, full catalog paging, search, trending, episode resolution, and all 7 streaming players.
+import path from 'node:path';
+
 const BASE = 'https://myflixerz.day';
 const API = `${BASE}/wp-json/wp/v2`;
-export const DOCUMENTARY_CAT = 212;
+
+const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 function decodeXml(s = '') {
   return String(s)
@@ -11,44 +16,12 @@ function decodeXml(s = '') {
     .replace(/&#39;/g, "'")
     .replace(/&#8217;/g, "'")
     .replace(/&#8211;/g, '–')
+    .replace(/&#8212;/g, '—')
+    .replace(/&#8230;/g, '…')
     .replace(/&#8220;/g, '"')
     .replace(/&#8221;/g, '"')
     .replace(/&apos;/g, "'");
 }
-
-const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-
-// Comprehensive Category IDs -> Dahsha topics
-export const CATEGORY_TAG_MAP = {
-  236: 'history',            // History
-  150: 'history',            // War
-  220: 'history',            // Western
-  2924983: 'politics',       // War & Politics
-  241303: 'politics',        // News
-  160: 'crime',              // Crime
-  40: 'crime',               // Mystery
-  45: 'crime',               // Thriller
-  237: 'crime',              // Horror
-  2343589: 'people-culture', // Biography
-  238: 'people-culture',     // Music
-  252374: 'people-culture',  // Musical
-  46: 'people-culture',      // Comedy
-  56: 'people-culture',      // Drama
-  99: 'people-culture',      // Family
-  130: 'people-culture',     // Romance
-  97: 'people-culture',      // Animation
-  2347584: 'people-culture', // Reality-TV
-  2613490: 'people-culture', // Short
-  2652335: 'people-culture', // Game-Show
-  2647311: 'people-culture', // Talk-Show
-  2340416: 'survival',       // Sport
-  42: 'survival',            // Adventure
-  2716699: 'science-space',  // Sci-Fi
-  2924281: 'science-space',  // Science Fiction
-  241300: 'science-space',   // Sci-Fi & Fantasy
-  48: 'science-space',       // Fantasy
-  212: 'documentary',        // Documentary
-};
 
 function plain(html = '') {
   return decodeXml(String(html).replace(/<[^>]+>/g, ' '))
@@ -56,31 +29,45 @@ function plain(html = '') {
     .trim();
 }
 
-function posterFor(postId) {
+export function posterFor(postId) {
   return `${BASE}/wp-content/uploads/posters/${postId}_medium.jpg`;
 }
 
-let yearCache = null;
-
-async function pool(items, fn, concurrency = 10) {
-  const results = [];
-  let index = 0;
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (index < items.length) {
-      const i = index++;
-      try {
-        results[i] = await fn(items[i], i);
-      } catch {
-        results[i] = null;
-      }
-    }
-  });
-  await Promise.all(workers);
-  return results;
+export function fullPosterFor(postId) {
+  return `${BASE}/wp-content/uploads/posters/${postId}.jpg`;
 }
 
+// All major Myflixer genres
+export const GENRES = [
+  { id: 39, name: 'Action', slug: 'action' },
+  { id: 42, name: 'Adventure', slug: 'adventure' },
+  { id: 97, name: 'Animation', slug: 'animation' },
+  { id: 2343589, name: 'Biography', slug: 'biography' },
+  { id: 46, name: 'Comedy', slug: 'comedy' },
+  { id: 160, name: 'Crime', slug: 'crime' },
+  { id: 212, name: 'Documentary', slug: 'documentary' },
+  { id: 56, name: 'Drama', slug: 'drama' },
+  { id: 99, name: 'Family', slug: 'family' },
+  { id: 48, name: 'Fantasy', slug: 'fantasy' },
+  { id: 236, name: 'History', slug: 'history' },
+  { id: 237, name: 'Horror', slug: 'horror' },
+  { id: 238, name: 'Music', slug: 'music' },
+  { id: 40, name: 'Mystery', slug: 'mystery' },
+  { id: 130, name: 'Romance', slug: 'romance' },
+  { id: 2716699, name: 'Sci-Fi', slug: 'sci-fi' },
+  { id: 2340416, name: 'Sport', slug: 'sport' },
+  { id: 45, name: 'Thriller', slug: 'thriller' },
+  { id: 150, name: 'War', slug: 'war' },
+  { id: 220, name: 'Western', slug: 'western' },
+];
+
+export const GENRE_ID_TO_NAME = Object.fromEntries(GENRES.map((g) => [g.id, g.name]));
+export const GENRE_SLUG_TO_ID = Object.fromEntries(GENRES.map((g) => [g.slug, g.id]));
+
+let yearCache = null;
+
 /**
- * Fetch and cache the release-year taxonomy.
+ * Load release-year taxonomy.
  */
 export async function loadYearTerms() {
   if (yearCache) return yearCache;
@@ -100,21 +87,163 @@ export async function loadYearTerms() {
       if (rows.length < 100) break;
     }
   } catch (e) {
-    console.warn('[myflixer] release-year lookup warning:', e.message);
+    console.warn('[myflixer] release-year lookup error:', e.message);
   }
   yearCache = map;
   return map;
 }
 
 /**
- * Parse episodes from a TV show / docuseries page.
+ * Parse an API post row (movie or series) into standard Dahsha/Flixer item.
+ */
+function formatItem(row, yearsMap, kind = 'movie') {
+  const isMovie = kind === 'movie';
+  const year = (row['release-year'] || []).map((id) => yearsMap?.get(id)).find(Boolean);
+  const genres = (row.categories || []).map((id) => GENRE_ID_TO_NAME[id]).filter(Boolean);
+  const title = plain(row.title?.rendered || row.title);
+  const synopsis = plain(row.content?.rendered || row.excerpt?.rendered || row.synopsis || '');
+  const slug = row.slug;
+  const id = isMovie ? `mf:m:${slug}` : `mf:s:${slug}`;
+  const poster = posterFor(row.id);
+  const backdrop = fullPosterFor(row.id);
+
+  return {
+    id,
+    wpId: row.id,
+    slug,
+    kind: isMovie ? 'film' : 'series',
+    type: kind,
+    title,
+    synopsis,
+    year: year ? Number(year) : null,
+    genres: genres.length ? genres : ['Cinema'],
+    tags: genres.map((g) => g.toLowerCase().replace(/[^a-z0-9]+/g, '-')),
+    poster: {
+      default: poster,
+      custom: poster,
+      sd: poster,
+      hq: backdrop,
+      backdrop,
+    },
+    portrait: poster,
+    publishedAt: row.date || row.date_gmt || null,
+    sourceUrl: isMovie ? `${BASE}/${slug}/` : `${BASE}/series/${slug}/`,
+    episodeCount: isMovie ? 1 : (row.episodeCount || 1),
+    seasons: isMovie ? [1] : (row.seasons || [1]),
+    episodes: isMovie ? [{
+      id,
+      title,
+      slug,
+      season: 1,
+      number: 1,
+      sourceUrl: `${BASE}/${slug}/`,
+      thumbs: { default: poster, custom: poster },
+    }] : [],
+  };
+}
+
+/**
+ * Fetch movies list with optional pagination, genre, year, search.
+ */
+export async function fetchMovies({ page = 1, perPage = 24, category, year, sort = 'modified', order = 'desc', search } = {}) {
+  const years = await loadYearTerms();
+  const params = new URLSearchParams({
+    per_page: String(perPage),
+    page: String(page),
+    orderby: sort,
+    order: order,
+    _fields: 'id,slug,title,date,date_gmt,categories,release-year,excerpt,content',
+  });
+
+  if (category) {
+    const catId = typeof category === 'number' ? category : GENRE_SLUG_TO_ID[category.toLowerCase()];
+    if (catId) params.set('categories', String(catId));
+  }
+  if (search) params.set('search', search);
+
+  const url = `${API}/posts?${params.toString()}`;
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return { items: [], total: 0, totalPages: 0, page };
+    const total = Number(res.headers.get('x-wp-total') || 0);
+    const totalPages = Number(res.headers.get('x-wp-totalpages') || 1);
+    const rows = await res.json();
+    const items = (Array.isArray(rows) ? rows : []).map((r) => formatItem(r, years, 'movie'));
+    return { items, total, totalPages, page };
+  } catch (err) {
+    console.warn('[myflixer] fetchMovies error:', err.message);
+    return { items: [], total: 0, totalPages: 0, page };
+  }
+}
+
+/**
+ * Fetch TV series list with optional pagination, genre, year, search.
+ */
+export async function fetchSeries({ page = 1, perPage = 24, category, year, sort = 'modified', order = 'desc', search } = {}) {
+  const years = await loadYearTerms();
+  const params = new URLSearchParams({
+    per_page: String(perPage),
+    page: String(page),
+    orderby: sort,
+    order: order,
+    _fields: 'id,slug,title,date,date_gmt,categories,release-year,excerpt,content',
+  });
+
+  if (category) {
+    const catId = typeof category === 'number' ? category : GENRE_SLUG_TO_ID[category.toLowerCase()];
+    if (catId) params.set('categories', String(catId));
+  }
+  if (search) params.set('search', search);
+
+  const url = `${API}/tvshows?${params.toString()}`;
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return { items: [], total: 0, totalPages: 0, page };
+    const total = Number(res.headers.get('x-wp-total') || 0);
+    const totalPages = Number(res.headers.get('x-wp-totalpages') || 1);
+    const rows = await res.json();
+    const items = (Array.isArray(rows) ? rows : []).map((r) => formatItem(r, years, 'series'));
+    return { items, total, totalPages, page };
+  } catch (err) {
+    console.warn('[myflixer] fetchSeries error:', err.message);
+    return { items: [], total: 0, totalPages: 0, page };
+  }
+}
+
+/**
+ * Search across both Movies and TV Series simultaneously.
+ */
+export async function searchContent(query, { perPage = 20 } = {}) {
+  if (!query || !query.trim()) return [];
+  const years = await loadYearTerms();
+  const q = encodeURIComponent(query.trim());
+
+  const [moviesRes, seriesRes] = await Promise.all([
+    fetch(`${API}/posts?search=${q}&per_page=${perPage}&_fields=id,slug,title,date,categories,release-year,excerpt`, {
+      headers: { 'User-Agent': DESKTOP_UA },
+      signal: AbortSignal.timeout(10000),
+    }).then((r) => r.ok ? r.json() : []).catch(() => []),
+    fetch(`${API}/tvshows?search=${q}&per_page=${perPage}&_fields=id,slug,title,date,categories,release-year,excerpt`, {
+      headers: { 'User-Agent': DESKTOP_UA },
+      signal: AbortSignal.timeout(10000),
+    }).then((r) => r.ok ? r.json() : []).catch(() => []),
+  ]);
+
+  const movies = (Array.isArray(moviesRes) ? moviesRes : []).map((r) => formatItem(r, years, 'movie'));
+  const series = (Array.isArray(seriesRes) ? seriesRes : []).map((r) => formatItem(r, years, 'series'));
+
+  return [...movies, ...series];
+}
+
+/**
+ * Parse all seasons & episodes for a TV series from its page.
  */
 export async function fetchSeriesEpisodes(slug) {
   const url = `${BASE}/series/${slug}/`;
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': DESKTOP_UA, Referer: BASE },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return [];
     const doc = await res.text();
@@ -129,135 +258,187 @@ export async function fetchSeriesEpisodes(slug) {
       seen.add(epSlug);
       let title = m[1];
       try { title = JSON.parse(`"${m[1]}"`); } catch {}
+      const season = Number(m[3]);
+      const episode = Number(m[4]);
       out.push({
+        id: `mf:e:${epSlug}`,
         slug: epSlug,
-        title: plain(title).replace(/^.*?\bS\d{1,3}\s*E\d{1,4}\b\s*[-–—:]?\s*/i, '').trim(),
-        season: Number(m[3]),
-        episode: Number(m[4]),
+        title: plain(title).replace(/^.*?\bS\d{1,3}\s*E\d{1,4}\b\s*[-–—:]?\s*/i, '').trim() || `Episode ${episode}`,
+        season,
+        number: episode,
+        episode,
+        sourceUrl: `${BASE}/episodes/${epSlug}/`,
       });
     }
     return out;
-  } catch {
+  } catch (err) {
+    console.warn(`[myflixer] fetchSeriesEpisodes error for ${slug}:`, err.message);
     return [];
   }
 }
 
 /**
- * Fetch documentary posts (films) and tvshows (docuseries) from WordPress REST API.
+ * Get full title details (Movie or TV series, with all seasons and episodes).
  */
-export async function fetchMyflixerCatalog(source, { maxPages = 60 } = {}) {
+export async function getTitleDetails(rawId) {
+  const id = decodeURIComponent(rawId);
+  const isSeries = id.startsWith('mf:s:') || (!id.startsWith('mf:m:') && !id.startsWith('mf:e:') && false);
+  const isMovie = id.startsWith('mf:m:') || (!isSeries && !id.startsWith('mf:e:'));
+  const slug = id.replace(/^mf:[mse]:/, '');
   const years = await loadYearTerms();
-  const films = [];
-  const series = [];
 
-  const LIST_FIELDS = 'id,slug,title,modified,date_gmt,categories,release-year,excerpt';
-
-  // 1. Documentary Films (posts) - batched 6 pages concurrently
-  console.log('[myflixer] paging documentary films (posts)...');
-  for (let first = 1; first <= maxPages; first += 6) {
-    const pages = Array.from({ length: Math.min(6, maxPages - first + 1) }, (_, i) => first + i);
-    const outcomes = await Promise.all(pages.map(async (page) => {
-      try {
-        const res = await fetch(
-          `${API}/posts?categories=${DOCUMENTARY_CAT}&per_page=100&page=${page}&orderby=modified&order=desc&_fields=${LIST_FIELDS}`,
-          { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) }
-        );
-        if (!res.ok) return { ok: false, page, status: res.status };
-        const rows = await res.json();
-        return { ok: true, rows, page };
-      } catch (e) {
-        return { ok: false, page, err: e.message };
-      }
-    }));
-
-    let ended = false;
-    for (const out of outcomes) {
-      if (!out.ok) { ended = true; break; }
-      for (const row of out.rows) {
-        const year = (row['release-year'] || []).map((id) => years.get(id)).find(Boolean);
-        const tags = (row.categories || []).map((id) => CATEGORY_TAG_MAP[id]).filter(Boolean);
-        const id = `mf:m:${row.slug}`;
-        const title = plain(row.title?.rendered);
-        const synopsis = plain(row.excerpt?.rendered);
-        const thumb = posterFor(row.id);
-        const publishedAt = row.date_gmt ? `${row.date_gmt}Z` : (row.modified || null);
-
-        films.push({
-          id,
-          slug: row.slug,
-          kind: 'film',
-          title,
-          synopsis,
-          thumb,
-          year: year ? Number(year) : null,
-          durationSec: 5400, // 90 min default film length
-          views: 75000,
-          publishedAt,
-          tags: tags.length ? tags : ['documentary'],
-          sourceUrl: `${BASE}/${row.slug}/`,
-        });
-      }
-      if (out.rows.length < 100) ended = true;
-    }
-    if (ended) break;
+  // Try fetching as movie or series
+  let item = null;
+  if (isSeries) {
+    const res = await fetch(`${API}/tvshows?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
+      headers: { 'User-Agent': DESKTOP_UA },
+    });
+    const rows = await res.json().catch(() => []);
+    if (rows?.[0]) item = formatItem(rows[0], years, 'series');
+  } else {
+    const res = await fetch(`${API}/posts?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
+      headers: { 'User-Agent': DESKTOP_UA },
+    });
+    const rows = await res.json().catch(() => []);
+    if (rows?.[0]) item = formatItem(rows[0], years, 'movie');
   }
-  console.log(`[myflixer] fetched ${films.length} documentary films.`);
 
-  // 2. Documentary Series (tvshows) - all pages
-  console.log('[myflixer] paging documentary series (tvshows)...');
-  const seriesRows = [];
-  for (let page = 1; page <= Math.min(maxPages, 20); page++) {
-    try {
-      const res = await fetch(
-        `${API}/tvshows?categories=${DOCUMENTARY_CAT}&per_page=100&page=${page}&orderby=modified&order=desc&_fields=${LIST_FIELDS}`,
-        { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) }
-      );
-      if (!res.ok) break;
-      const rows = await res.json();
-      if (!Array.isArray(rows) || !rows.length) break;
-      seriesRows.push(...rows);
-      if (rows.length < 100) break;
-    } catch (e) {
-      console.warn(`[myflixer] series page ${page} error:`, e.message);
-      break;
+  // If not found as specified, try the opposite
+  if (!item) {
+    const fallbackRes = await fetch(`${API}/${isSeries ? 'posts' : 'tvshows'}?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
+      headers: { 'User-Agent': DESKTOP_UA },
+    });
+    const fbRows = await fallbackRes.json().catch(() => []);
+    if (fbRows?.[0]) item = formatItem(fbRows[0], years, isSeries ? 'movie' : 'series');
+  }
+
+  if (!item) return null;
+
+  // If series, populate episodes
+  if (item.kind === 'series') {
+    const episodes = await fetchSeriesEpisodes(slug);
+    if (episodes.length > 0) {
+      item.episodes = episodes.map((ep) => ({
+        ...ep,
+        thumbs: { default: item.poster.default, custom: item.poster.default },
+      }));
+      item.episodeCount = episodes.length;
+      const seasonsSet = [...new Set(episodes.map((e) => e.season))].sort((a, b) => a - b);
+      item.seasons = seasonsSet.length ? seasonsSet : [1];
     }
   }
-  console.log(`[myflixer] found ${seriesRows.length} docuseries rows. Resolving episodes with concurrency...`);
 
-  // Concurrent episode resolution (12 workers)
-  const resolvedSeries = await pool(seriesRows, async (row, idx) => {
-    if (idx > 0 && idx % 100 === 0) console.log(`[myflixer] resolved episodes for ${idx}/${seriesRows.length} series...`);
-    const year = (row['release-year'] || []).map((id) => years.get(id)).find(Boolean);
-    const tags = (row.categories || []).map((id) => CATEGORY_TAG_MAP[id]).filter(Boolean);
-    const id = `mf:s:${row.slug}`;
-    const title = plain(row.title?.rendered);
-    const synopsis = plain(row.excerpt?.rendered);
-    const thumb = posterFor(row.id);
-    const publishedAt = row.date_gmt ? `${row.date_gmt}Z` : (row.modified || null);
-
-    const episodes = await fetchSeriesEpisodes(row.slug);
-    return {
-      id,
-      slug: row.slug,
-      kind: 'series',
-      title,
-      synopsis,
-      thumb,
-      year: year ? Number(year) : null,
-      publishedAt,
-      tags: tags.length ? tags : ['documentary'],
-      sourceUrl: `${BASE}/series/${row.slug}/`,
-      episodes: episodes.length ? episodes : [{ slug: row.slug, title: 'Full Series', season: 1, episode: 1 }],
-    };
-  }, 12);
-
-  for (const s of resolvedSeries) {
-    if (s) series.push(s);
-  }
-  console.log(`[myflixer] fetched ${series.length} docuseries.`);
-
-  return { films, series };
+  return item;
 }
+
+/**
+ * Fetch home page content: trending movies, trending series, and top genre rails.
+ */
+let homeCache = null;
+let homeCacheTime = 0;
+export async function fetchHomeContent() {
+  const now = Date.now();
+  if (homeCache && now - homeCacheTime < 300000) { // 5-min cache
+    return homeCache;
+  }
+
+  const [trendingMovies, trendingSeries, action, scifi, comedy, horror] = await Promise.all([
+    fetchMovies({ page: 1, perPage: 16, sort: 'modified' }),
+    fetchSeries({ page: 1, perPage: 16, sort: 'modified' }),
+    fetchMovies({ page: 1, perPage: 12, category: 'action' }),
+    fetchMovies({ page: 1, perPage: 12, category: 'sci-fi' }),
+    fetchMovies({ page: 1, perPage: 12, category: 'comedy' }),
+    fetchMovies({ page: 1, perPage: 12, category: 'horror' }),
+  ]);
+
+  const featured = trendingMovies.items[0] || trendingSeries.items[0] || null;
+
+  homeCache = {
+    featured,
+    trendingMovies: trendingMovies.items,
+    trendingSeries: trendingSeries.items,
+    rails: [
+      { id: 'trending-movies', title: 'Trending Movies', titleAr: 'الأفلام الأكثر رواجاً', items: trendingMovies.items },
+      { id: 'trending-series', title: 'Popular TV Series', titleAr: 'المسلسلات التلفزيونية الشائعة', items: trendingSeries.items },
+      { id: 'action', title: 'Action & Adventure', titleAr: 'أفلام الحركة والمغامرة', items: action.items },
+      { id: 'scifi', title: 'Sci-Fi & Fantasy', titleAr: 'الخيال العلمي والفانتازيا', items: scifi.items },
+      { id: 'comedy', title: 'Comedy', titleAr: 'أفلام الكوميديا', items: comedy.items },
+      { id: 'horror', title: 'Horror & Thriller', titleAr: 'الرعب والإثارة', items: horror.items },
+    ],
+  };
+  homeCacheTime = now;
+  return homeCache;
+}
+
+/**
+ * Fetch a multi-genre catalog snapshot for static export.
+ */
+export async function fetchFullCatalog({ pagesPerGenre = 2 } = {}) {
+  const years = await loadYearTerms();
+  const allShows = [];
+  const seenSlugs = new Set();
+
+  console.log('[myflixer] fetching full movies & series catalog...');
+
+  // 1. Fetch top pages of movies & series generally
+  for (let p = 1; p <= 6; p++) {
+    const [m, s] = await Promise.all([
+      fetchMovies({ page: p, perPage: 50, sort: 'modified' }),
+      fetchSeries({ page: p, perPage: 50, sort: 'modified' }),
+    ]);
+    for (const item of [...m.items, ...s.items]) {
+      if (!seenSlugs.has(item.slug)) {
+        seenSlugs.add(item.slug);
+        allShows.push(item);
+      }
+    }
+  }
+
+  // 2. Fetch specific top genres
+  const topGenreSlugs = ['action', 'comedy', 'drama', 'sci-fi', 'horror', 'thriller', 'animation', 'crime', 'romance', 'adventure'];
+  for (const g of topGenreSlugs) {
+    const res = await fetchMovies({ page: 1, perPage: 30, category: g });
+    for (const item of res.items) {
+      if (!seenSlugs.has(item.slug)) {
+        seenSlugs.add(item.slug);
+        allShows.push(item);
+      }
+    }
+  }
+
+  console.log(`[myflixer] catalog populated with ${allShows.length} titles.`);
+
+  // Resolve episodes for top 100 TV series concurrently
+  const seriesItems = allShows.filter((s) => s.kind === 'series').slice(0, 80);
+  console.log(`[myflixer] resolving episodes for ${seriesItems.length} series...`);
+  await Promise.all(seriesItems.map(async (s) => {
+    try {
+      const eps = await fetchSeriesEpisodes(s.slug);
+      if (eps.length) {
+        s.episodes = eps.map((ep) => ({ ...ep, thumbs: { default: s.poster.default, custom: s.poster.default } }));
+        s.episodeCount = eps.length;
+        s.seasons = [...new Set(eps.map((e) => e.season))].sort((a, b) => a - b);
+      }
+    } catch {}
+  }));
+
+  const tags = GENRES.map((g) => ({
+    id: g.slug,
+    label: g.name,
+    labelEn: g.name,
+    count: allShows.filter((s) => s.tags?.includes(g.slug)).length,
+  }));
+
+  return {
+    shows: allShows,
+    tags,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+// -------------------------------------------------------------------------------------------------
+// STREAMING & PLAYER INTEGRATION (ALL 7 PLAYERS + PROXY)
+// -------------------------------------------------------------------------------------------------
 
 export function rewriteM3u8(content, baseUrl, proxyPrefix) {
   const lines = content.split('\n');
@@ -283,21 +464,20 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
-  if (req.method === 'OPTIONS') return res.status(200).end();
 
   if (!targetUrl || !targetUrl.startsWith('http')) {
-    return res.status(400).send('Invalid url parameter');
+    return res.status(400).send('Invalid target URL');
   }
 
-  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'dahsha.vercel.app';
+  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'localhost';
   const proto = req?.headers?.['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
   const baseOrigin = `${proto}://${host}`;
   const effectivePrefix = proxyPrefix.startsWith('http') ? proxyPrefix : `${baseOrigin}${proxyPrefix}`;
 
   const upstreamHeaders = {
     'User-Agent': DESKTOP_UA,
-    Referer: 'https://sv4.nontongo.day/',
-    Origin: 'https://sv4.nontongo.day',
+    Referer: 'https://sv2.nontongo.stream/',
+    Origin: 'https://sv2.nontongo.stream',
   };
   if (req?.headers?.range) {
     upstreamHeaders.Range = req.headers.range;
@@ -335,9 +515,7 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
     const acceptRanges = upstream.headers.get('accept-ranges');
     if (acceptRanges) res.setHeader('Accept-Ranges', acceptRanges);
 
-    if (!upstream.body) {
-      return res.end();
-    }
+    if (!upstream.body) return res.end();
 
     const reader = upstream.body.getReader();
     while (true) {
@@ -357,7 +535,7 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
   res.setHeader('Content-Security-Policy', 'frame-ancestors *');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
-  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'dahsha.vercel.app';
+  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'localhost';
   const proto = req?.headers?.['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
   const baseOrigin = `${proto}://${host}`;
   const effectivePrefix = proxyPrefix.startsWith('http') ? proxyPrefix : `${baseOrigin}${proxyPrefix}`;
@@ -377,13 +555,13 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .wrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
-    video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-    .srv-bar { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; z-index: 10; background: rgba(0,0,0,0.65); padding: 4px 8px; border-radius: 20px; backdrop-filter: blur(8px); }
-    .srv-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 3px 10px; font-size: 11px; border-radius: 12px; cursor: pointer; transition: all 0.2s; font-weight: 600; }
-    .srv-btn.active { background: #06b6d4; border-color: #06b6d4; color: #000; }
-    .msg { color: #f87171; text-align: center; padding: 20px; font-size: 14px; }
+    .srv-bar { position: absolute; top: 10px; right: 10px; z-index: 50; display: flex; gap: 4px; background: rgba(10,11,13,0.85); backdrop-filter: blur(10px); padding: 4px 8px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); max-width: calc(100% - 20px); overflow-x: auto; scrollbar-width: none; }
+    .srv-bar::-webkit-scrollbar { display: none; }
+    .srv-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+    .srv-btn.active { background: #38d7dd; color: #000; border-color: #38d7dd; box-shadow: 0 0 8px rgba(56,215,221,0.5); }
+    .msg { color: #fff; text-align: center; font-size: 14px; opacity: 0.8; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.11/dist/hls.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -472,6 +650,7 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
 
 /**
  * Resolve playback streams and player embed for an episode or film.
+ * Extracts all 7 player providers from Myflixer.
  */
 export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
   const isMovie = id.startsWith('mf:m:');
@@ -545,12 +724,11 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
 
     // 2. All player providers from Myflixer (Player 1, Player 2, Player 3, Player 4, Player 5, Player 6, Player 7)
     tabs.forEach((tab) => {
-      // Avoid duplicate Player 1 if already present as direct HLS
       const isSoapHls = hlsStreams.length > 0 && tab.name.toLowerCase().includes('player 1') && tab.url.includes('soap/');
       if (!isSoapHls) {
         servers.push({
           id: `tab_${tab.id}`,
-          name: tab.name, // e.g. "Player 2", "Player 3", etc.
+          name: tab.name, // "Player 2", "Player 3", etc.
           type: 'embed',
           embedUrl: tab.url,
           rawEmbedUrl: tab.url,
@@ -558,7 +736,6 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
       }
     });
 
-    // Fallback if no tabs found
     if (!servers.length && playerUrl) {
       servers.push({
         id: 'p1',
@@ -589,7 +766,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
       })),
     };
   } catch (e) {
-    console.warn(`[myflixer] resolveMyflixerStream error for ${id}:`, e.message, e.cause || '');
+    console.warn(`[myflixer] resolveMyflixerStream error for ${id}:`, e.message);
     return {
       id,
       sourceUrl: url,

@@ -56,11 +56,10 @@ export default function Header() {
         </Link>
         <nav className={`hdr__nav ${open ? 'is-open' : ''}`} onClick={() => setOpen(false)}>
           <NavLink to="/" end>{t('nav_home')}</NavLink>
-          <NavLink to="/browse" className={({ isActive }) => (isActive && params.get('sort') !== 'latest' && params.get('kind') !== 'film' ? 'active' : '')}>{t('nav_browse')}</NavLink>
-          <NavLink to="/browse?kind=film" className={({ isActive }) => (isActive && params.get('kind') === 'film' ? 'active' : '')}>{t('nav_films')}</NavLink>
-          <NavLink to="/browse?sort=latest" className={({ isActive }) => (isActive && params.get('sort') === 'latest' && !params.get('kind') ? 'active' : '')}>{t('nav_latest')}</NavLink>
+          <NavLink to="/browse" className={({ isActive }) => (isActive && !params.get('kind') ? 'active' : '')}>{t('nav_browse')}</NavLink>
+          <NavLink to="/browse?kind=film" className={({ isActive }) => (isActive && params.get('kind') === 'film' ? 'active' : '')}>{t('nav_movies')}</NavLink>
+          <NavLink to="/browse?kind=series" className={({ isActive }) => (isActive && params.get('kind') === 'series' ? 'active' : '')}>{t('nav_series')}</NavLink>
           <NavLink to="/my">{t('nav_my')}</NavLink>
-          <NavLink to="/sources">{t('nav_sources')}</NavLink>
           <button className="hdr__lang hdr__lang--mobile" onClick={switchLang}><span className="hdr__lang-full">{t('lang_switch')}</span></button>
         </nav>
         <form className="hdr__search" onSubmit={submit} role="search">

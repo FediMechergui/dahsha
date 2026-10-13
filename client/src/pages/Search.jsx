@@ -1,14 +1,14 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ShowCard from '../components/ShowCard.jsx';
 import EpisodeCard from '../components/EpisodeCard.jsx';
-import { EmptyState } from '../components/Bits.jsx';
+import { EmptyState, Spinner } from '../components/Bits.jsx';
 import { useCatalog } from '../hooks/useCatalog.jsx';
 import { useLang } from '../lib/i18n.jsx';
+import { api } from '../lib/api.js';
 
-const TASHKEEL = /[ؐ-ًؚ-ٰٟۖ-ۭـ]/g;
 function norm(s = '') {
-  return s.replace(TASHKEEL, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/[’']/g, "'").toLowerCase();
+  return String(s).toLowerCase().trim();
 }
 
 export default function Search() {
@@ -16,31 +16,72 @@ export default function Search() {
   const q = params.get('q') || '';
   const { catalog } = useCatalog();
   const { t } = useLang();
+  const [liveResults, setLiveResults] = useState([]);
+  const [searching, setSearching] = useState(false);
 
-  const { shows, episodes } = useMemo(() => {
-    if (!catalog || !q.trim()) return { shows: [], episodes: [] };
+  // 1. Live search directly from Myflixer API
+  useEffect(() => {
+    if (!q.trim()) {
+      setLiveResults([]);
+      setSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    api.search(q)
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.items)) {
+          setLiveResults(data.items);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSearching(false);
+      });
+    return () => { cancelled = true; };
+  }, [q]);
+
+  // 2. Local search within loaded catalog
+  const { localShows, episodes } = useMemo(() => {
+    if (!catalog || !q.trim()) return { localShows: [], episodes: [] };
     const terms = norm(q).split(/\s+/).filter(Boolean);
     const hit = (text) => { const n = norm(text); return terms.every((x) => n.includes(x)); };
-    const found = catalog.shows.filter((s) => hit(s.title) || s.altTitles.some(hit) || hit(s.synopsis || '') || hit(s.channel?.name || s.channel?.short || ''));
+    const found = catalog.shows.filter((s) => hit(s.title) || (s.altTitles && s.altTitles.some(hit)) || hit(s.synopsis || ''));
     const eps = [];
-    for (const s of catalog.shows) for (const e of s.episodes) if (s.kind !== 'film' && (hit(e.title) || hit(e.synopsis || '') || (hit(s.title) && !found.includes(s)))) eps.push({ show: s, episode: e });
-    return { shows: found.slice(0, 60), episodes: eps.slice(0, 80) };
+    for (const s of catalog.shows) {
+      if (Array.isArray(s.episodes)) {
+        for (const e of s.episodes) {
+          if (hit(e.title) || hit(e.synopsis || '')) eps.push({ show: s, episode: e });
+        }
+      }
+    }
+    return { localShows: found, episodes: eps.slice(0, 40) };
   }, [catalog, q]);
 
-  if (!catalog) return null;
-  const none = !shows.length && !episodes.length;
+  // Merge local shows and live API results (deduplicating by slug/id)
+  const allShows = useMemo(() => {
+    const map = new Map();
+    for (const s of liveResults) map.set(s.id || s.slug, s);
+    for (const s of localShows) if (!map.has(s.id || s.slug)) map.set(s.id || s.slug, s);
+    return Array.from(map.values());
+  }, [liveResults, localShows]);
+
+  const none = !searching && !allShows.length && !episodes.length;
 
   return (
     <div className="page container">
       <header className="page__head">
-        <h1 className="page__title">{t('search_results')} «{q}»</h1>
-        <p className="page__sub">{shows.length} {t('shows_label')} • {episodes.length} {t('episodes_label')}</p>
+        <h1 className="page__title">
+          {t('search_results')} «{q}»
+          {searching && <span style={{ marginInlineStart: 12, display: 'inline-flex' }}><Spinner size={18} /></span>}
+        </h1>
+        <p className="page__sub">{allShows.length} {t('shows_label')} • {episodes.length} {t('episodes_label')}</p>
       </header>
       {none && <EmptyState title={t('no_results')} body={t('no_results_body')} />}
-      {shows.length > 0 && (
+      {allShows.length > 0 && (
         <section className="search__section">
           <h2 className="row__title">{t('shows_label')}</h2>
-          <div className="grid">{shows.map((s, i) => <ShowCard key={s.id} show={s} index={i} />)}</div>
+          <div className="grid">{allShows.map((s, i) => <ShowCard key={s.id || s.slug} show={s} index={i} />)}</div>
         </section>
       )}
       {episodes.length > 0 && (

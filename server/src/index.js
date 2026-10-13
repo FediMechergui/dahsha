@@ -1,12 +1,20 @@
-// HTTP API + Server-Sent Events + static hosting of the built client.
+// Movies & TV Shows Streaming API Server
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
-import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { Catalogue } from './scheduler.js';
-import { readJson, writeJson } from './store.js';
-import { resolveMyflixerStream, handleStreamProxy, handleEmbedPlayer } from './myflixer.js';
+import {
+  GENRES,
+  fetchMovies,
+  fetchSeries,
+  searchContent,
+  getTitleDetails,
+  fetchHomeContent,
+  fetchFullCatalog,
+  resolveMyflixerStream,
+  handleStreamProxy,
+  handleEmbedPlayer,
+} from './myflixer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 4545);
@@ -16,91 +24,85 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json());
 
-const catalogue = new Catalogue();
-
-// ---- SSE ------------------------------------------------------------------------------------
-const clients = new Set();
-function broadcast(event, data) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of clients) res.write(payload);
-}
-catalogue.on('status', (s) => broadcast('status', s));
-catalogue.on('update', (u) => broadcast('update', u));
-setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 25e3).unref();
-
-app.get('/api/events', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  });
-  res.write(`event: status\ndata: ${JSON.stringify(catalogue.getStatus())}\n\n`);
-  clients.add(res);
-  req.on('close', () => clients.delete(res));
+// CORS for local dev / mobile testing
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  next();
 });
 
-// ---- REST -----------------------------------------------------------------------------------
-app.get('/api/status', (_req, res) => res.json(catalogue.getStatus()));
+// ---- REST API -----------------------------------------------------------------------------------
+app.get('/api/genres', (_req, res) => res.json({ genres: GENRES }));
 
-import { resolveMyflixerStream } from './myflixer.js';
-
-// The catalogue list is served in a lean form (thumbnail URLs are derived from ids on the client,
-// synopses are truncated, per-episode synopses omitted). /api/shows/:id returns everything.
-const slimEpisode = ({ fullTitle, playlistIds, viewsText, publishedApprox, addedAt, ...e }) => e;
-const slimShow = ({ key, promos, playlistIds, posterVideoId, ...s }) => ({ ...s, episodes: s.episodes.map(slimEpisode) });
-const liteEpisode = (e) => ({
-  id: e.id,
-  title: e.title,
-  number: e.number,
-  season: e.season,
-  durationSec: e.durationSec,
-  publishedAt: e.publishedAt,
-  views: e.views,
-  thumbs: e.thumbs?.custom ? e.thumbs : undefined,
-  sourceUrl: e.sourceUrl || undefined,
-  embedUrl: e.embedUrl || undefined,
-});
-const liteShow = (s) => ({
-  id: s.id, title: s.title, kind: s.kind, channelId: s.channel?.id, lang: s.lang, contentLang: s.contentLang, tags: s.tags, primaryTag: s.primaryTag,
-  episodeCount: s.episodeCount, posterId: s.posterVideoId, latestAt: s.latestAt, firstAt: s.firstAt, totalViews: s.totalViews,
-  totalDurationSec: s.totalDurationSec, seasons: s.seasons, synopsisGenerated: s.synopsisGenerated,
-  poster: s.poster?.custom ? s.poster : undefined, portrait: s.portrait || undefined, tmdbId: s.tmdbId || undefined,
-  blurb: (s.synopsis || '').length > 220 ? `${s.synopsis.slice(0, 220).replace(/\s+\S*$/, '')}…` : s.synopsis,
-  altTitles: (s.altTitles || []).slice(0, 3), episodes: s.episodes.map(liteEpisode),
+app.get('/api/home', async (_req, res) => {
+  try {
+    const data = await fetchHomeContent();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// One cached (and gzipped) lean payload per language section, plus "all".
-const liteCache = new Map(); // key → { generatedAt, json, gz }
-function liteCatalog(lang) {
-  const c = catalogue.getCatalog();
-  if (!c) return null;
-  const key = lang || 'all';
-  const hit = liteCache.get(key);
-  if (hit && hit.generatedAt === c.generatedAt) return hit;
-  const shows = lang ? c.shows.filter((s) => (s.lang || 'ar') === lang) : c.shows;
-  const channels = lang ? c.channels.filter((ch) => (ch.lang || 'ar') === lang) : c.channels;
-  const json = Buffer.from(JSON.stringify({ ...c, lite: true, lang: lang || null, channels, shows: shows.map(liteShow) }));
-  const entry = { generatedAt: c.generatedAt, json, gz: zlib.gzipSync(json, { level: 6 }) };
-  liteCache.set(key, entry);
-  return entry;
-}
-
-app.get('/api/catalog', (req, res) => {
-  const lang = /^(ar|en)$/.test(req.query.lang || '') ? req.query.lang : null;
-  const lc = liteCatalog(lang);
-  if (!lc) return res.status(503).json({ building: true, status: catalogue.getStatus() });
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Vary', 'Accept-Encoding');
-  if (/\bgzip\b/.test(req.headers['accept-encoding'] || '')) { res.setHeader('Content-Encoding', 'gzip'); return res.end(lc.gz); }
-  res.end(lc.json);
+app.get('/api/movies', async (req, res) => {
+  try {
+    const page = Number(req.query.page || 1);
+    const perPage = Number(req.query.perPage || 24);
+    const category = req.query.category || req.query.genre || null;
+    const year = req.query.year || null;
+    const search = req.query.q || req.query.search || null;
+    const data = await fetchMovies({ page, perPage, category, year, search });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/shows/:id', (req, res) => {
-  const s = catalogue.getShow(req.params.id);
-  if (!s) return res.status(404).json({ error: 'not found' });
-  res.json(slimShow(s));
+app.get('/api/series', async (req, res) => {
+  try {
+    const page = Number(req.query.page || 1);
+    const perPage = Number(req.query.perPage || 24);
+    const category = req.query.category || req.query.genre || null;
+    const year = req.query.year || null;
+    const search = req.query.q || req.query.search || null;
+    const data = await fetchSeries({ page, perPage, category, year, search });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/search', async (req, res) => {
+  try {
+    const q = req.query.q || '';
+    if (!q.trim()) return res.json({ items: [] });
+    const items = await searchContent(q);
+    res.json({ items });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/title/:id', async (req, res) => {
+  try {
+    const details = await getTitleDetails(req.params.id);
+    if (!details) return res.status(404).json({ error: 'Title not found' });
+    res.json(details);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Backwards-compatible /api/shows/:id route
+app.get('/api/shows/:id', async (req, res) => {
+  try {
+    const details = await getTitleDetails(req.params.id);
+    if (!details) return res.status(404).json({ error: 'Title not found' });
+    res.json(details);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/stream/:id?', async (req, res) => {
@@ -132,38 +134,29 @@ app.get('/api/stream/:id?', async (req, res) => {
       return res.status(500).json({ error: e.message });
     }
   }
-  res.status(404).json({ error: 'not supported' });
+  res.status(404).json({ error: 'Stream not found' });
 });
 
-app.post('/api/refresh', async (req, res) => {
-  const full = req.query.full === '1' || req.body?.full === true;
-  if (catalogue.status.refreshing) return res.status(202).json({ ok: true, alreadyRunning: true });
-  catalogue.refresh({ full }).catch(() => {});
-  res.status(202).json({ ok: true });
-});
-
-app.get('/api/sources', (_req, res) => res.json({ sources: catalogue.sources }));
-app.post('/api/sources', async (req, res) => {
+// Cached catalog for static fallback / offline apps
+let catalogCache = null;
+app.get('/api/catalog', async (_req, res) => {
   try {
-    const src = await catalogue.addSource(String(req.body?.url || ''));
-    res.status(201).json(src);
-  } catch (e) { res.status(400).json({ error: e.message }); }
-});
-app.delete('/api/sources/:id', (req, res) => {
-  try { catalogue.removeSource(req.params.id); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); }
+    if (!catalogCache) {
+      const catFile = path.resolve(__dirname, '../../client/public/data/catalog.json');
+      if (fs.existsSync(catFile)) {
+        catalogCache = JSON.parse(fs.readFileSync(catFile, 'utf8'));
+      } else {
+        catalogCache = await fetchFullCatalog({ pagesPerGenre: 1 });
+      }
+    }
+    res.json(catalogCache);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Manual curation: tags / synopsis / title / poster per show, persisted to overrides.json.
-app.get('/api/overrides', (_req, res) => res.json(catalogue.overrides));
-app.put('/api/overrides/shows/:id', (req, res) => {
-  const ov = readJson('overrides.json', catalogue.overrides);
-  ov.shows = ov.shows || {};
-  const patch = {};
-  for (const k of ['title', 'synopsis', 'tags', 'poster', 'hidden']) if (k in (req.body || {})) patch[k] = req.body[k];
-  ov.shows[req.params.id] = { ...(ov.shows[req.params.id] || {}), ...patch };
-  writeJson('overrides.json', ov);
-  catalogue.rebuild();
-  res.json(ov.shows[req.params.id]);
+app.get('/api/status', (_req, res) => {
+  res.json({ ok: true, version: '1.0.0', service: 'flixer-api' });
 });
 
 // ---- static client ----------------------------------------------------------------------------
@@ -174,7 +167,7 @@ if (fs.existsSync(CLIENT_DIST)) {
     res.sendFile(path.join(CLIENT_DIST, 'index.html'));
   });
 } else {
-  app.get('/', (_req, res) => res.type('text').send('Client not built. Run "npm run build" in /client, or use "npm run dev" for the Vite dev server.'));
+  app.get('/', (_req, res) => res.type('text').send('Flixer API is running. Client not built. Run "npm run build" in /client or "npm run dev".'));
 }
 
 app.use((err, _req, res, _next) => {
@@ -183,6 +176,5 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[server] http://localhost:${PORT}`);
-  catalogue.start();
+  console.log(`[flixer] Server running at http://localhost:${PORT}`);
 });

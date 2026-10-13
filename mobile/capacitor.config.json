@@ -1,6 +1,6 @@
 {
-  "appId": "app.dahsha.docs",
-  "appName": "Dahsha",
+  "appId": "app.flixer.stream",
+  "appName": "Flixer",
   "webDir": "www",
   "backgroundColor": "#0a0b0d",
   "android": {

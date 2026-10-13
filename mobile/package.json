@@ -1,8 +1,8 @@
 {
-  "name": "dahsha-mobile",
+  "name": "flixer-mobile",
   "version": "1.0.0",
   "private": true,
-  "description": "Dahsha Android app (Capacitor wrapper around the static web build).",
+  "description": "Flixer Android app (Capacitor wrapper around the static web build).",
   "scripts": {
     "build:web": "node ../scripts/build-static.js --mobile --out ../mobile/www",
     "sync": "npx cap sync android",
