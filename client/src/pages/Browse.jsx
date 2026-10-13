@@ -19,6 +19,7 @@ export default function Browse() {
   const kind = params.get('kind') || '';
   const sort = params.get('sort') || 'latest';
   const q = params.get('q') || '';
+  const source = params.get('source') || '';
 
   const SORTS = [
     { id: 'latest', label: t('sort_latest') }, { id: 'title', label: t('sort_title') }, { id: 'episodes', label: t('sort_episodes') },
@@ -37,8 +38,10 @@ export default function Browse() {
     let list = catalog.shows;
     if (channel) list = list.filter((s) => s.channel?.id === channel);
     if (kind) list = list.filter((s) => s.kind === kind);
+    if (source === 'myflixer') list = list.filter((s) => s.channel?.id === 'myflixer' || s.id.startsWith('mf:'));
+    if (source === 'youtube') list = list.filter((s) => !s.id.startsWith('mf:') && s.channel?.id !== 'myflixer');
     return list;
-  }, [catalog, channel, kind]);
+  }, [catalog, channel, kind, source]);
 
   const shows = useMemo(() => {
     let list = base;

@@ -4,7 +4,11 @@
 //    from VITE_DATA_BASE (defaults to the site origin) under /data/.
 export const STATIC = import.meta.env.VITE_STATIC === '1';
 export const DATA_BASE = (import.meta.env.VITE_DATA_BASE || '').replace(/\/$/, '');
-const isMobileApp = typeof window !== 'undefined' && (window.location.protocol === 'capacitor:' || (window.location.hostname === 'localhost' && window.Capacitor));
+const isMobileApp = import.meta.env.VITE_MOBILE === '1' || (typeof window !== 'undefined' && (
+  window.location.protocol === 'capacitor:' ||
+  (window.location.hostname === 'localhost' && (window.Capacitor || !window.location.port)) ||
+  window.location.origin.startsWith('file:')
+));
 const defaultBase = isMobileApp ? 'https://dahsha.vercel.app' : '';
 export const API_BASE = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
 

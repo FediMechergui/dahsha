@@ -289,11 +289,17 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
     return res.status(400).send('Invalid url parameter');
   }
 
+  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'dahsha.vercel.app';
+  const proto = req?.headers?.['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
+  const baseOrigin = `${proto}://${host}`;
+  const effectivePrefix = proxyPrefix.startsWith('http') ? proxyPrefix : `${baseOrigin}${proxyPrefix}`;
+
   const upstreamHeaders = {
     'User-Agent': DESKTOP_UA,
     Referer: 'https://sv4.nontongo.day/',
+    Origin: 'https://sv4.nontongo.day',
   };
-  if (req.headers?.range) {
+  if (req?.headers?.range) {
     upstreamHeaders.Range = req.headers.range;
   }
 
@@ -303,17 +309,25 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
     const status = upstream.status;
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    if (!upstream.ok) {
+      res.status(status);
+      if (cType) res.setHeader('Content-Type', cType);
+      const errText = await upstream.text().catch(() => 'Upstream stream error');
+      return res.send(errText);
+    }
 
     if (cType.includes('mpegurl') || targetUrl.includes('.m3u8') || targetUrl.includes('file.m3u8')) {
       const text = await upstream.text();
-      const rewritten = rewriteM3u8(text, targetUrl, proxyPrefix);
+      const rewritten = rewriteM3u8(text, targetUrl, effectivePrefix);
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       return res.status(200).send(rewritten);
     }
 
     res.status(status);
     if (cType) res.setHeader('Content-Type', cType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
     const contentLen = upstream.headers.get('content-length');
     if (contentLen) res.setHeader('Content-Length', contentLen);
     const contentRange = upstream.headers.get('content-range');
@@ -329,7 +343,7 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      res.write(value);
+      res.write(Buffer.from(value));
     }
     return res.end();
   } catch (err) {
@@ -343,9 +357,14 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
   res.setHeader('Content-Security-Policy', 'frame-ancestors *');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
+  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'dahsha.vercel.app';
+  const proto = req?.headers?.['x-forwarded-proto'] || (host.includes('localhost') ? 'http' : 'https');
+  const baseOrigin = `${proto}://${host}`;
+  const effectivePrefix = proxyPrefix.startsWith('http') ? proxyPrefix : `${baseOrigin}${proxyPrefix}`;
+
   try {
-    const data = await resolveMyflixerStream(id, proxyPrefix);
-    const streamSrc = data.streamUrl || '';
+    const data = await resolveMyflixerStream(id, effectivePrefix);
+    const serversJson = JSON.stringify(data.servers || []);
     const title = id.replace(/^mf:[me]:/, '').replace(/-/g, ' ');
 
     const html = `<!DOCTYPE html>
@@ -356,41 +375,75 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
   <title>${title}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .wrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
     video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-    .msg { color: #aaa; text-align: center; padding: 20px; font-family: sans-serif; font-size: 14px; }
+    .srv-bar { position: absolute; top: 12px; right: 12px; display: flex; gap: 8px; z-index: 10; background: rgba(0,0,0,0.65); padding: 4px 8px; border-radius: 20px; backdrop-filter: blur(8px); }
+    .srv-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 3px 10px; font-size: 11px; border-radius: 12px; cursor: pointer; transition: all 0.2s; font-weight: 600; }
+    .srv-btn.active { background: #06b6d4; border-color: #06b6d4; color: #000; }
+    .msg { color: #f87171; text-align: center; padding: 20px; font-size: 14px; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.11/dist/hls.min.js"></script>
 </head>
 <body>
-  <video id="player" controls playsinline preload="auto"></video>
+  <div class="wrap">
+    <div class="srv-bar" id="srvBar"></div>
+    <video id="player" controls playsinline preload="auto"></video>
+  </div>
   <script>
     (function() {
+      var servers = ${serversJson};
       var v = document.getElementById('player');
-      var src = ${JSON.stringify(streamSrc)};
-      if (!src) {
-        document.body.innerHTML = '<div class="msg">Video stream not available</div>';
+      var srvBar = document.getElementById('srvBar');
+      var hls = null;
+      var currentIdx = 0;
+
+      if (!servers.length) {
+        document.body.innerHTML = '<div class="msg">No playback stream found</div>';
         return;
       }
-      if (v.canPlayType('application/vnd.apple.mpegurl')) {
-        v.src = src;
-        v.play().catch(function() {});
-      } else if (window.Hls && Hls.isSupported()) {
-        var hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-        hls.loadSource(src);
-        hls.attachMedia(v);
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-          v.play().catch(function() {});
+
+      function renderBar() {
+        if (servers.length <= 1) { srvBar.style.display = 'none'; return; }
+        srvBar.innerHTML = '';
+        servers.forEach(function(s, idx) {
+          var btn = document.createElement('button');
+          btn.className = 'srv-btn' + (idx === currentIdx ? ' active' : '');
+          btn.textContent = s.name || ('Server ' + (idx + 1));
+          btn.onclick = function() { loadStream(idx); };
+          srvBar.appendChild(btn);
         });
-        hls.on(Hls.Events.ERROR, function(e, data) {
-          if (data.fatal) {
-            console.warn('[embed] HLS fatal error', data);
-          }
-        });
-      } else {
-        v.src = src;
-        v.play().catch(function() {});
       }
+
+      function loadStream(idx) {
+        currentIdx = idx;
+        renderBar();
+        var s = servers[idx];
+        if (!s || !s.streamUrl) return;
+
+        if (hls) { hls.destroy(); hls = null; }
+
+        if (v.canPlayType('application/vnd.apple.mpegurl')) {
+          v.src = s.streamUrl;
+          v.play().catch(function() {});
+        } else if (window.Hls && Hls.isSupported()) {
+          hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+          hls.loadSource(s.streamUrl);
+          hls.attachMedia(v);
+          hls.on(Hls.Events.MANIFEST_PARSED, function() { v.play().catch(function() {}); });
+          hls.on(Hls.Events.ERROR, function(e, data) {
+            if (data.fatal && currentIdx + 1 < servers.length) {
+              console.warn('[embed] failing over to next server');
+              loadStream(currentIdx + 1);
+            }
+          });
+        } else {
+          v.src = s.streamUrl;
+          v.play().catch(function() {});
+        }
+      }
+
+      loadStream(0);
     })();
   </script>
 </body>
@@ -448,7 +501,14 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
     }
 
     const rawStream = hlsStreams[0]?.uri || null;
-    const streamUrl = rawStream ? `${proxyPrefix}?proxy=1&url=${encodeURIComponent(rawStream)}` : null;
+    const servers = hlsStreams.map((s, idx) => ({
+      id: idx,
+      name: s.quality || `Server ${idx + 1}`,
+      streamUrl: `${proxyPrefix}?proxy=1&url=${encodeURIComponent(s.uri)}`,
+      rawStreamUrl: s.uri,
+    }));
+
+    const streamUrl = servers[0]?.streamUrl || null;
     const embedUrl = `${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`;
 
     return {
@@ -458,12 +518,16 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
       rawEmbedUrl: playerUrl || url,
       streamUrl,
       rawStreamUrl: rawStream,
-      streams: hlsStreams.map((s) => ({
+      servers,
+      streams: hlsStreams.map((s, idx) => ({
         ...s,
+        id: idx,
+        name: s.quality || `Server ${idx + 1}`,
         proxyUri: `${proxyPrefix}?proxy=1&url=${encodeURIComponent(s.uri)}`,
       })),
     };
   } catch (e) {
+    console.warn(`[myflixer] resolveMyflixerStream error for ${id}:`, e.message, e.cause || '');
     return {
       id,
       sourceUrl: url,
@@ -471,6 +535,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
       rawEmbedUrl: url,
       streamUrl: null,
       rawStreamUrl: null,
+      servers: [],
       streams: [],
       error: e.message,
     };

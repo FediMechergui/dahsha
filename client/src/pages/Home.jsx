@@ -4,6 +4,7 @@ import Hero from '../components/Hero.jsx';
 import Row from '../components/Row.jsx';
 import ShowCard from '../components/ShowCard.jsx';
 import EpisodeCard from '../components/EpisodeCard.jsx';
+import NewReleasesWindow from '../components/NewReleasesWindow.jsx';
 import { useCatalog } from '../hooks/useCatalog.jsx';
 import { useProgress, continueWatching } from '../hooks/useProgress.js';
 import { useLang } from '../lib/i18n.jsx';
@@ -65,6 +66,8 @@ export default function Home() {
         <div><b>{fmtNumber(catalog.stats.totalHours, lang)}</b><span>{t('stat_hours')}</span></div>
         <div><b>{fmtNumber(catalog.stats.channels, lang)}</b><span>{t('stat_channels')}</span></div>
       </div>
+
+      <NewReleasesWindow />
 
       <div className="container">
         {cont.length > 0 && (

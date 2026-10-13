@@ -33,6 +33,9 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
   const [errorCode, setErrorCode] = useState(null);
   const [streamUrl, setStreamUrl] = useState(null);
   const [embedSrc, setEmbedSrc] = useState(null);
+  const [servers, setServers] = useState([]);
+  const [activeServerIdx, setActiveServerIdx] = useState(0);
+  const [serverNotice, setServerNotice] = useState(null);
   const [loading, setLoading] = useState(false);
   const [streamFailed, setStreamFailed] = useState(false);
   const { t, lang } = useLang();
@@ -45,11 +48,13 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     if (!isMyflixer) {
       setStreamUrl(null);
       setEmbedSrc(null);
+      setServers([]);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setStreamFailed(false);
+    setServerNotice(null);
 
     api.stream(videoId)
       .then((data) => {
@@ -61,11 +66,49 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
           return `${API_BASE}${url}`;
         };
 
-        const directHls = toAbsolute(data?.streamUrl);
+        const resolvedServers = [];
+        if (Array.isArray(data?.servers) && data.servers.length) {
+          data.servers.forEach((s, idx) => {
+            const url = toAbsolute(s.streamUrl || s.rawStreamUrl);
+            if (url) {
+              resolvedServers.push({
+                id: s.id ?? idx,
+                name: s.name || `Server ${idx + 1}`,
+                streamUrl: url,
+              });
+            }
+          });
+        }
+
+        if (!resolvedServers.length && Array.isArray(data?.streams) && data.streams.length) {
+          data.streams.forEach((s, idx) => {
+            const url = toAbsolute(s.proxyUri || s.uri);
+            if (url) {
+              resolvedServers.push({
+                id: idx,
+                name: s.quality || s.name || `Server ${idx + 1}`,
+                streamUrl: url,
+              });
+            }
+          });
+        }
+
+        if (!resolvedServers.length && data?.streamUrl) {
+          resolvedServers.push({
+            id: 0,
+            name: 'Soap2Cloud',
+            streamUrl: toAbsolute(data.streamUrl),
+          });
+        }
+
+        setServers(resolvedServers);
+        setActiveServerIdx(0);
+
+        const primaryStream = resolvedServers[0]?.streamUrl || null;
         const embed = toAbsolute(data?.embedUrl);
 
-        if (directHls) {
-          setStreamUrl(directHls);
+        if (primaryStream) {
+          setStreamUrl(primaryStream);
           if (embed) setEmbedSrc(embed);
         } else if (embed) {
           setEmbedSrc(embed);
@@ -83,6 +126,45 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     return () => { cancelled = true; };
   }, [videoId, isMyflixer]);
 
+  // Switch to specific server
+  const switchServer = (idx) => {
+    if (!servers[idx]) return;
+    setActiveServerIdx(idx);
+    setStreamUrl(servers[idx].streamUrl);
+    setStreamFailed(false);
+  };
+
+  // Automatic failover to next server when an HLS stream fails
+  const failoverToNext = () => {
+    if (activeServerIdx + 1 < servers.length) {
+      const nextIdx = activeServerIdx + 1;
+      const nextSrv = servers[nextIdx];
+      const curName = servers[activeServerIdx]?.name || `Server ${activeServerIdx + 1}`;
+      const nextName = nextSrv?.name || `Server ${nextIdx + 1}`;
+      console.warn(`[player] server ${curName} unavailable, failing over to ${nextName}`);
+      setServerNotice(
+        lang === 'ar'
+          ? `السيرفر ${curName} غير متاح. جاري التبديل إلى ${nextName}...`
+          : `Server ${curName} unavailable. Switching to ${nextName}...`
+      );
+      setTimeout(() => {
+        switchServer(nextIdx);
+        setServerNotice(null);
+      }, 700);
+    } else {
+      console.warn('[player] all HLS servers exhausted');
+      setStreamFailed(true);
+    }
+  };
+
+  const retryPlayback = () => {
+    setStreamFailed(false);
+    setActiveServerIdx(0);
+    if (servers[0]?.streamUrl) {
+      setStreamUrl(servers[0].streamUrl);
+    }
+  };
+
   // 2. Attach Hls.js or native HLS to HTML5 <video>
   useEffect(() => {
     if (!isMyflixer || !streamUrl || streamFailed) return;
@@ -93,6 +175,12 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       video.currentTime = startAt;
     }
 
+    const onNativeError = () => {
+      console.warn('[player] native video tag error, attempting failover');
+      failoverToNext();
+    };
+    video.addEventListener('error', onNativeError);
+
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native HLS (Safari / iOS)
       video.src = streamUrl;
@@ -102,6 +190,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
+        backBufferLength: 90,
       });
       hlsRef.current = hls;
       hls.loadSource(streamUrl);
@@ -111,8 +200,8 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       });
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
-          console.warn('[player] HLS fatal playback error, falling back:', data.type);
-          setStreamFailed(true);
+          console.warn('[player] HLS fatal error:', data.type, data.details);
+          failoverToNext();
         }
       });
     } else {
@@ -121,12 +210,13 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     }
 
     return () => {
+      video.removeEventListener('error', onNativeError);
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
     };
-  }, [isMyflixer, streamUrl, autoplay, startAt, streamFailed]);
+  }, [isMyflixer, streamUrl, autoplay, startAt, streamFailed, activeServerIdx, servers]);
 
   // 3. YouTube player initialization
   useEffect(() => {
@@ -190,10 +280,38 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     if (streamUrl && !streamFailed) {
       return (
         <div className="player player--video">
+          {servers.length > 1 && (
+            <div className="player__servers">
+              <span className="player__servers-title">
+                <i className="dot" />
+                {lang === 'ar' ? 'السيرفر' : 'Server'}:
+              </span>
+              <div className="player__servers-list">
+                {servers.map((s, idx) => (
+                  <button
+                    key={s.id ?? idx}
+                    type="button"
+                    className={`player__server-btn ${idx === activeServerIdx ? 'is-active' : ''}`}
+                    onClick={() => switchServer(idx)}
+                    title={`Switch to ${s.name}`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {serverNotice && (
+            <div className="player__notice">
+              <span className="spinner" style={{ width: 14, height: 14 }} />
+              <span>{serverNotice}</span>
+            </div>
+          )}
           <video
             ref={videoRef}
             controls
             playsInline
+            crossOrigin="anonymous"
             poster={poster}
             onTimeUpdate={handleTimeUpdate}
             onEnded={handleEnded}
@@ -229,13 +347,20 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       );
     }
 
-    // Final fallback if both fail
+    // Final fallback if all servers fail
     return (
       <div className="player player--error" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0a0b0d', color: '#fff', gap: 14, padding: 20, textAlign: 'center' }}>
-        <p>{t('stream_error') || 'Unable to play this stream directly.'}</p>
-        <a className="btn btn--primary" href={episode?.sourceUrl || `https://myflixerz.day/${mfSlug}/`} target="_blank" rel="noreferrer">
-          {t('open_myflixer')} ↗
-        </a>
+        <p>{lang === 'ar' ? 'تعذر تشغيل البث المباشر لجميع السيرفرات حالياً.' : (t('stream_error') || 'Unable to play this stream directly across all servers.')}</p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+          {servers.length > 0 && (
+            <button type="button" className="btn btn--ghost" onClick={retryPlayback}>
+              {lang === 'ar' ? 'إعادة المحاولة' : 'Retry Servers'}
+            </button>
+          )}
+          <a className="btn btn--primary" href={episode?.sourceUrl || `https://myflixerz.day/${mfSlug}/`} target="_blank" rel="noreferrer">
+            {t('open_myflixer')} ↗
+          </a>
+        </div>
       </div>
     );
   }
