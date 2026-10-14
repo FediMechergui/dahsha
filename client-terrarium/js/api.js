@@ -103,7 +103,7 @@
       episodeCount: s.episodeCount || episodes.length || (type === "movie" ? 1 : 0),
       firstEpisodeId: episodes[0] ? episodes[0].id : s.id,
       sourceUrl: s.sourceUrl || (type === "tv" ? `${SOURCE}/series/${s.slug}/` : `${SOURCE}/${s.slug}/`),
-      universes: UNI.detect(title),
+      universes: [...new Set([...UNI.detect(title), ...(s._uni || [])])],
       stem: UNI.stem(title)
     };
   }
@@ -263,12 +263,43 @@
           shows.forEach(s => this._byId.set(s.id, s));
           const delta = store.get("delta", []);
           if (Array.isArray(delta)) delta.forEach(s => { if (!this._byId.has(s.id)) { shows.push(s); this._byId.set(s.id, s); } });
+          // Universes from Wikidata (data/universes.json): logos, descriptions, services, watch order.
+          try {
+            const { body: u } = await getJson(`${DATA_BASE}/data/universes.json?v=${Math.floor(Date.now() / 600000)}`, 30000);
+            this._universeData = new Map((u.universes || []).map(x => [x.id, x]));
+            this._catalog.universesAt = u.generatedAt || null;
+            this._universeData.forEach(x => x.members.forEach(m => { if (m.id && this._byId.has(m.id)) { const s = this._byId.get(m.id); s._uni = s._uni || []; if (!s._uni.includes(x.id)) s._uni.push(x.id); } }));
+          } catch (e) { this._universeData = new Map(); console.warn("[flixer] universes data unavailable:", e.message); }
           this._reindex();
           this._startSync();
           return this._catalog;
         })().catch(e => { this._loading = null; throw e; });
       }
       return this._loading;
+    }
+    /* ----- Universe pages ----- */
+    async universeList() {
+      const c = await this.catalog();
+      return UNI.UNIVERSES.map(u => ({ id: u.id, name: u.name, short: u.short })).concat([...(this._universeData || new Map()).values()].filter(x => !UNI.byId(x.id)).map(x => ({ id: x.id, name: x.name, short: x.short })))
+        .map(u => { const d = this._universeData && this._universeData.get(u.id); return { id: u.id, name: d ? d.name : u.name, short: d ? d.short : u.short, count: c.universeCounts.get(u.id) || 0, logo: d ? d.logo : null, isLogo: d ? d.isLogo : false, description: d ? d.description : "", home: d ? d.home : [], services: d ? d.services : [], total: d ? d.members.length : 0, inFlixer: d ? d.inFlixer : 0 }; })
+        .filter(u => u.count || u.total)
+        .sort((a, b) => b.count - a.count || b.total - a.total);
+    }
+    async universe(id) {
+      const c = await this.catalog();
+      const base = UNI.byId(id) || { id, name: id, short: id };
+      const d = this._universeData && this._universeData.get(id);
+      const inIndex = c.items.filter(i => i.universes.includes(id));
+      const seen = new Set();
+      // Watch order: Wikidata members by release date (numbered where ordinals exist), then titles that
+      // only the title patterns found, by year.
+      const members = (d ? d.members : []).map(m => { const item = m.id ? c.items.find(i => i.id === m.id) : null; if (item) seen.add(item.id); return { q: m.q, title: item ? item.title : m.title, year: m.year || (item ? +item.year : null), date: m.date, type: m.type, ordinal: m.ordinal, item }; });
+      inIndex.filter(i => !seen.has(i.id)).sort((a, b) => (+a.year || 0) - (+b.year || 0)).forEach(i => members.push({ q: null, title: i.title, year: +i.year || null, date: i.date, type: i.type, ordinal: null, item: i }));
+      // Services: TVmaze network / web channel of every series in this universe (in the index).
+      const services = new Map();
+      inIndex.forEach(i => { if (i.service) services.set(i.service, (services.get(i.service) || 0) + 1); });
+      (d ? d.services : []).forEach(s => { if (!services.has(s.name)) services.set(s.name, s.count); });
+      return { id, name: d ? d.name : base.name, short: d ? d.short : base.short, description: d ? d.description : "", logo: d ? d.logo : null, isLogo: d ? d.isLogo : false, wiki: d ? d.wiki : null, home: d ? d.home : [], services: [...services].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count })), numbered: !!(d && d.numbered), members, inFlixer: members.filter(m => m.item).length, generatedAt: c.universesAt };
     }
     _reindex() {
       const c = this._catalog;

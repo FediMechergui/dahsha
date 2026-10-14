@@ -21,7 +21,8 @@
     info: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
     prev: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>',
     next: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>',
-    ext: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6"/></svg>'
+    ext: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 13v6H5V6h6"/></svg>',
+    star: '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="m12 2 3 7 7 .6-5.3 4.7 1.7 7L12 17.6 5.6 21.3l1.7-7L2 9.6 9 9z"/></svg>'
   };
   const SORT_OPTIONS = {
     movie: [["added", "Recently added", "Newest in the catalogue first"], ["year", "Release year", "Newest releases first"], ["oldest", "Oldest first", "Classics first"], ["title", "Title A–Z", ""]],
@@ -175,7 +176,7 @@
   });
 
   /* ---------- Router ---------- */
-  const TAB_RENDERERS = { home: renderHome, movies: v => renderBrowse(v, "movie"), shows: v => renderBrowse(v, "tv"), search: renderSearch, library: renderLibrary };
+  const TAB_RENDERERS = { home: renderHome, movies: v => renderBrowse(v, "movie"), shows: v => renderBrowse(v, "tv"), search: renderSearch, library: renderLibrary, universes: renderUniverses };
 
   function route() {
     const h = location.hash || "#/home";
@@ -191,6 +192,13 @@
       if (!state.renderedTab) renderTab("home");
       closeSheet(); closeDetails();
       openDetails(m[1], decodeURIComponent(m[2]));
+      return;
+    }
+    const uv = h.match(/^#\/universe\/([^/?]+)/);
+    if (uv) {
+      if (!state.renderedTab) renderTab("home");
+      closeSheet(); closeDetails();
+      openUniverse(decodeURIComponent(uv[1]));
       return;
     }
     closeSheet(); closeDetails();
@@ -275,8 +283,8 @@
       <div class="row">${mg.map(g => `<button class="chip" data-genre="${esc(g.id)}">${esc(g.name)} <span class="chip__val">${g.count}</span></button>`).join("")}</div></section>` : "";
     // Universes row: shared universes and franchises found in the index.
     const universes = (await api.universes()).filter(u => u.count > 0);
-    const universeRow = universes.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Universes</h2><span class="section__sub eyebrow">Shared universes and franchises · tap to browse</span></div></div>
-      <div class="row">${universes.map(u => `<button class="chip" data-universe="${esc(u.id)}">${esc(u.short)} <span class="chip__val">${u.count}</span></button>`).join("")}</div></section>` : "";
+    const universeRow = universes.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Universes</h2><span class="section__sub eyebrow">Shared universes and franchises · watch orders</span></div><a class="section__link" href="#/universes">See all</a></div>
+      <div class="row">${universes.map(u => `<a class="chip" href="#/universe/${esc(u.id)}">${esc(u.short)} <span class="chip__val">${u.count}</span></a>`).join("")}</div></section>` : "";
     const [popularTv, ratedTv, topUni] = await Promise.all([api.popular("tv", 14), api.topRated("tv", 14), api.topUniverses(3)]);
     const uniRails = await Promise.all(topUni.map(async u => section(u.name, `${u.count} titles in Flixer`, await api.universeRail(u.id, 14), { showType: true, rating: true })));
     if (state.renderedTab !== "home") return;
@@ -296,10 +304,71 @@
     $$("[data-genre]", view).forEach(b => b.addEventListener("click", () => {
       state.filters.movie = Object.assign(defaultFilters(), { genres: [b.dataset.genre] }); saveFilters(); location.hash = "#/movies";
     }));
-    $$("[data-universe]", view).forEach(b => b.addEventListener("click", () => {
-      const id = b.dataset.universe;
-      state.filters.movie = Object.assign(defaultFilters(), { universe: id }); state.filters.tv = Object.assign(defaultFilters(), { universe: id, sort: "popularity" }); saveFilters(); location.hash = "#/movies";
-    }));
+  }
+
+  /* ---------- Universes: all of them, and one universe in watch order ---------- */
+  const uniLogo = (u, cls) => u.logo ? `<img src="${esc(u.logo)}" alt="${esc(u.name)}" loading="lazy" onerror="this.outerHTML='<span class=\\'ucard__mono\\'>'+this.alt.replace(/</g,'')+'</span>'">` : `<span class="${cls || "ucard__mono"}">${esc(u.short)}</span>`;
+  async function renderUniverses(view) {
+    view.innerHTML = `<div class="section__head" style="margin-top:14px"><div><h2 class="section__title">Universes</h2><span class="section__sub eyebrow">Shared universes and franchises · logos and orders from Wikidata</span></div></div><div class="ugrid">${Array(6).fill('<div class="ucard"><div class="ucard__logo skel" style="height:56px"></div><div class="skel skel-line"></div></div>').join("")}</div>`;
+    const list = await api.universeList();
+    if (state.renderedTab !== "universes") return;
+    $(".ugrid", view).innerHTML = list.map(u => `<a class="ucard" href="#/universe/${esc(u.id)}">
+        <div class="ucard__logo">${uniLogo(u)}</div>
+        <p class="ucard__name">${esc(u.name)}</p>
+        <div class="meta ucard__meta"><b>${u.count}</b> in Flixer${u.total ? ` · ${u.total} known` : ""}</div>
+        ${u.home.length ? `<div class="ucard__home">${u.home.map(h => `<span>${esc(h)}</span>`).join("")}</div>` : ""}
+      </a>`).join("") || emptyState("No universes yet", "Universe data is built with the catalogue.");
+  }
+
+  async function openUniverse(id) {
+    const r = root();
+    const el = document.createElement("div"); el.className = "detail"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true");
+    el.innerHTML = `<button class="detail__back" data-back aria-label="Back">${ICON.back}</button><div style="height:70px"></div><div class="uhead"><div class="uhead__logo skel" style="height:84px;width:60%"></div><div class="skel skel-line" style="width:40%"></div></div>`;
+    r.appendChild(el); syncRoot();
+    $("[data-back]", el).addEventListener("click", goBack);
+    let u;
+    try { u = await api.universe(id); } catch (e) { el.innerHTML = `<button class="detail__back" data-back aria-label="Back">${ICON.back}</button><div style="height:80px"></div>${emptyState("Could not open this universe", e.message)}`; $("[data-back]", el).addEventListener("click", goBack); return; }
+    if (!el.isConnected) return;
+    document.title = `${u.name} — Flixer`;
+    let order = u.numbered ? "numbered" : "release", kind = "all";
+    const paintList = () => {
+      let list = u.members.filter(m => kind === "all" || m.type === kind);
+      if (order === "numbered") list = list.slice().sort((a, b) => (a.ordinal == null) - (b.ordinal == null) || (a.ordinal || 0) - (b.ordinal || 0) || String(a.date || "9999").localeCompare(String(b.date || "9999")));
+      else if (order === "flixer") list = list.filter(m => m.item);
+      $("#uorder", el).innerHTML = list.map((m, i) => {
+        const it = m.item;
+        const n = order === "numbered" && m.ordinal != null ? m.ordinal : i + 1;
+        const inner = `<span class="orow__n">${n}</span>
+          <div class="orow__art">${it && it.poster ? `<img src="${esc(it.poster)}" alt="" loading="lazy" data-art="${esc(it.id)}">` : ""}</div>
+          <div><p class="orow__title">${esc(m.title)}</p><div class="meta orow__meta">${esc(m.year || "—")} · ${m.type === "tv" ? "Series" : "Film"}${it && it.rating ? ` · ${ICON.star} ${it.rating.toFixed(1)}` : ""}${it && it.service ? ` · ${esc(it.service)}` : ""}</div></div>
+          ${it ? `<span class="orow__go" title="Play">${ICON.play}</span>` : "<span></span>"}`;
+        return it ? `<a class="orow" href="#/${it.type}/${esc(it.id)}">${inner}</a>` : `<div class="orow orow--out">${inner}</div>`;
+      }).join("") || `<p class="empty__text" style="padding:12px 0">Nothing in this view.</p>`;
+    };
+    const svc = [...u.home.map(h => ({ name: h, home: true })), ...u.services.filter(s => !u.home.includes(s.name)).map(s => ({ name: s.name, count: s.count }))];
+    el.innerHTML = `
+      <button class="detail__back" data-back aria-label="Back">${ICON.back}</button>
+      <div style="height:70px"></div>
+      <div class="uhead">
+        <div class="uhead__logo">${uniLogo(u, "h-display")}</div>
+        <div class="eyebrow">Universe · <b>${u.inFlixer}</b> of ${u.members.length} titles in Flixer${u.generatedAt ? ` · updated ${esc(String(u.generatedAt).slice(0, 10))}` : ""}</div>
+        <h1 class="h-display detail__title" style="margin-top:6px">${esc(u.name)}</h1>
+        ${u.description ? `<p class="uhead__desc">${esc(u.description.charAt(0).toUpperCase() + u.description.slice(1))}${u.wiki ? ` · <a href="${esc(u.wiki)}" target="_blank" rel="noopener" style="color:var(--amber)">Wikipedia</a>` : ""}</p>` : ""}
+        ${svc.length ? `<section class="sub-section"><h3 class="sub-section__title">Where it streams</h3><div class="providers">${svc.map(s => `<span class="provider" ${s.home ? 'style="border:1px solid rgba(124,203,149,.5)"' : ""}>${esc(s.name)}${s.home ? ` <span class="opt__hint" style="color:var(--fern)">home</span>` : s.count ? ` <span class="opt__hint">${s.count} series</span>` : ""}</span>`).join("")}</div><p class="attrib">Home services are curated; the rest come from TVmaze for the series in Flixer.</p></section>` : ""}
+        <div class="detail__actions" style="margin-top:14px">
+          <a class="btn btn--primary" href="#/movies" data-browse>${ICON.play} Browse in Flixer</a>
+        </div>
+      </div>
+      <div class="pills" style="margin-top:10px">${[["release", "Release order"], ...(u.numbered ? [["numbered", "Numbered order"]] : []), ["flixer", "Only in Flixer"]].map(([k, l]) => `<button class="pill ${order === k ? "is-active" : ""}" data-order="${k}">${l}</button>`).join("")}</div>
+      <div class="pills" style="padding-top:0">${[["all", "All"], ["movie", "Films"], ["tv", "Series"]].map(([k, l]) => `<button class="pill ${kind === k ? "is-active" : ""}" data-kind="${k}">${l}</button>`).join("")}</div>
+      <div class="order" id="uorder"></div>
+      <div style="height:40px"></div>`;
+    $("[data-back]", el).addEventListener("click", goBack);
+    $("[data-browse]", el).addEventListener("click", () => { state.filters.movie = Object.assign(defaultFilters(), { universe: id }); state.filters.tv = Object.assign(defaultFilters(), { universe: id, sort: "popularity" }); saveFilters(); state.renderedTab = null; });
+    $$("[data-order]", el).forEach(b => b.addEventListener("click", () => { order = b.dataset.order; $$("[data-order]", el).forEach(x => x.classList.toggle("is-active", x === b)); paintList(); }));
+    $$("[data-kind]", el).forEach(b => b.addEventListener("click", () => { kind = b.dataset.kind; $$("[data-kind]", el).forEach(x => x.classList.toggle("is-active", x === b)); paintList(); }));
+    paintList();
+    el.scrollTop = 0;
   }
 
   async function continueWatchingRow() {
@@ -622,7 +691,7 @@
           ${d.seasons.length > 1 ? `<select class="season-select" id="season">${d.seasons.map(s => `<option value="${s.season_number}">${esc(s.name)} · ${s.episode_count} episodes</option>`).join("")}</select>` : ""}
           <div id="episodes" style="margin-top:6px"></div></section>` : ""}
 
-        ${d.universes && d.universes.length ? `<div class="tags">${d.universes.map(u => `<button class="tag" data-universe="${esc(u)}" style="color:var(--amber)">${esc(universeName(u))}</button>`).join("")}</div>` : ""}
+        ${d.universes && d.universes.length ? `<div class="tags">${d.universes.map(u => `<a class="tag" href="#/universe/${esc(u)}" style="color:var(--amber)">${esc(universeName(u) || u)} · watch order</a>`).join("")}</div>` : ""}
         <div id="extras">${type === "tv" ? `<div class="loader">Loading rating, network and cast…</div>` : ""}</div>
         <div id="related"><div class="loader">Finding related titles…</div></div>
 
