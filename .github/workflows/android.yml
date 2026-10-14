@@ -44,6 +44,8 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
       - name: Install
         run: npm ci --prefix client && npm ci --prefix mobile
+      - name: Set increasing Android version code
+        run: echo "APP_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
       - name: Build web (static, pointing at the hosted data)
         run: node scripts/build-static.js --mobile --out ../mobile/www --data-base "$DATA_BASE"
       - name: Sync Capacitor
