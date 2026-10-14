@@ -26,7 +26,7 @@ jobs:
     env:
       APP_PRODUCT: ${{ matrix.product }}
       VITE_PRODUCT: ${{ matrix.product }}
-      DATA_BASE: ${{ matrix.product == 'dahsha' && (vars.DATA_BASE || 'https://dahsha.vercel.app') || (vars.FLIXER_DATA_BASE || 'https://flixer-fedimechergui.vercel.app') }}
+      DATA_BASE: ${{ matrix.product == 'dahsha' && (vars.DATA_BASE || 'https://dahsha.vercel.app') || (vars.FLIXER_DATA_BASE || 'https://flixer-mu.vercel.app') }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       APP_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
       APP_VERSION_CODE: ${{ github.run_number }}
