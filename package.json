@@ -3,18 +3,29 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Dahsha (دهشة): full-length documentaries in Arabic and English from YouTube, grouped by show and topic, refreshed automatically.",
+  "description": "Dahsha documentaries and Flixer movies/TV: independent apps with shared playback infrastructure.",
   "scripts": {
     "setup": "npm install --prefix server && npm install --prefix client",
     "dev": "node scripts/dev.js",
     "build": "npm run build --prefix client",
     "start": "npm run build --prefix client && npm start --prefix server",
-    "rebuild-catalog": "npm run rebuild --prefix server",
+    "rebuild-catalog": "node server/src/cli.js build",
     "refresh-data": "node server/src/cli.js refresh",
     "export": "node server/src/export.js",
     "build:static": "node scripts/build-static.js",
     "publish": "npm run refresh-data && npm run export && npm run build:static && vercel deploy --prod --yes",
     "snapshot:save": "node scripts/snapshot.js save",
-    "snapshot:restore": "node scripts/snapshot.js restore"
+    "snapshot:restore": "node scripts/snapshot.js restore",
+    "dev:dahsha": "node scripts/product.js dahsha dev",
+    "dev:flixer": "node scripts/product.js flixer dev",
+    "start:dahsha": "node scripts/product.js dahsha start",
+    "start:flixer": "node scripts/product.js flixer start",
+    "export:dahsha": "node scripts/product.js dahsha export",
+    "export:flixer": "node scripts/product.js flixer export",
+    "build:dahsha": "node scripts/product.js dahsha build",
+    "build:flixer": "node scripts/product.js flixer build",
+    "test": "node --test server/test/*.test.js",
+    "refresh:providers": "node scripts/refresh-providers.js --product both",
+    "refresh:providers:full": "node scripts/refresh-providers.js --product both --full"
   }
 }

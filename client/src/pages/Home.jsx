@@ -31,7 +31,7 @@ export default function Home() {
     if (featured.length < 3) featured = [...featured, ...shows.filter((x) => !featured.includes(x) && !x.synopsisGenerated).sort(byLatest).slice(0, 6 - featured.length)];
     const newest = [...shows].filter((s) => s.kind === 'series').sort(byLatest).slice(0, ROW);
     const filmsList = [...shows].filter((s) => s.kind === 'film').sort(byLatest).slice(0, ROW);
-    const popular = [...shows].sort((a, b) => (b.totalViews || 0) - (a.totalViews || 0)).slice(0, ROW);
+    const popular = shows.filter(s => s.totalViews > 0).sort((a, b) => b.totalViews - a.totalViews).slice(0, ROW);
     const byChannel = (catalog.channels || [])
       .map((c) => ({ channel: c, shows: shows.filter((s) => s.channel?.id === c.id).sort(byLatest).slice(0, ROW) }))
       .filter((x) => x.shows.length >= 2);
@@ -63,7 +63,7 @@ export default function Home() {
         <div><b>{fmtNumber(catalog.stats.series, lang)}</b><span>{t('stat_series')}</span></div>
         <div><b>{fmtNumber(catalog.stats.films, lang)}</b><span>{t('stat_films')}</span></div>
         <div><b>{fmtNumber(catalog.stats.episodes, lang)}</b><span>{t('stat_episodes')}</span></div>
-        <div><b>{fmtNumber(catalog.stats.totalHours, lang)}</b><span>{t('stat_hours')}</span></div>
+        {catalog.stats.totalHours > 0 && <div><b>{fmtNumber(catalog.stats.totalHours, lang)}</b><span>{t('stat_hours')}</span></div>}
         <div><b>{fmtNumber(catalog.stats.channels, lang)}</b><span>{t('stat_channels')}</span></div>
       </div>
 
@@ -98,9 +98,9 @@ export default function Home() {
           </Row>
         ))}
 
-        <Row title={t('row_popular')} to="/browse?sort=views">
+        {popular.length > 0 && <Row title={t('row_popular')} to="/browse?sort=views">
           {popular.map((s, i) => <ShowCard key={s.id} show={s} index={i} />)}
-        </Row>
+        </Row>}
 
         {byTag.map(({ tag, shows }) => (
           <Row key={tag.id} title={tag.label} sub={titlesLabel(tag.count, lang)} to={`/browse?tag=${tag.id}`}>

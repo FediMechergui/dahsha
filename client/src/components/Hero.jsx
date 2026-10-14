@@ -36,12 +36,12 @@ export default function Hero({ shows }) {
         <h1 className="hero__title">{show.title}</h1>
         <p className="hero__meta">
           <span>{episodesLabel(show.episodeCount, lang)}</span>
-          <span>{fmtDuration(show.totalDurationSec, lang)}</span>
+          {show.totalDurationSec > 0 && <span>{fmtDuration(show.totalDurationSec, lang)}</span>}
           {show.latestAt && <span>{t('hero_last_episode')} {fmtRelative(show.latestAt, lang)}</span>}
         </p>
         <p className="hero__synopsis">{show.synopsis}</p>
         <div className="hero__actions">
-          <Link to={`/watch/${show.id}/${first.id}`} className="btn btn--primary"><PlayIcon /> {t('hero_watch')}</Link>
+          <Link to={first ? `/watch/${show.id}/${first.id}` : `/show/${show.id}`} className="btn btn--primary"><PlayIcon /> {t('hero_watch')}</Link>
           <Link to={`/show/${show.id}`} className="btn btn--ghost">{t('hero_details')}</Link>
         </div>
       </div>

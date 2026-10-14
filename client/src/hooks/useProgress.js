@@ -1,8 +1,9 @@
 // Watch progress + favourites, kept in localStorage and shared app-wide through a tiny store.
 import { useSyncExternalStore } from 'react';
 
-const KEY_PROGRESS = 'ng.progress.v1';
-const KEY_FAV = 'ng.favorites.v1';
+import { PRODUCT } from '../lib/product.js';
+const KEY_PROGRESS = `${PRODUCT}.progress.v1`;
+const KEY_FAV = `${PRODUCT}.favorites.v1`;
 
 function load(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -57,7 +58,7 @@ export function useFavorites() {
 export function continueWatching(progressMap, catalog, limit = 12) {
   if (!catalog) return [];
   const byEp = new Map();
-  for (const s of catalog.shows) for (const e of s.episodes) byEp.set(e.id, { show: s, episode: e });
+  for (const s of catalog.shows) for (const e of s.episodes) { byEp.set(e.id, {show:s,episode:e}); for (const offering of e.offerings || []) byEp.set(offering.id,{show:s,episode:e}); }
   return Object.entries(progressMap)
     .filter(([id, p]) => !p.finished && p.position > 30 && byEp.has(id))
     .sort((a, b) => b[1].at - a[1].at)

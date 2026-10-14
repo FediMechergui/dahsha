@@ -1,4 +1,7 @@
+import { validPlaybackId, unifiedStream } from '../server/src/library-service.js';
 import { resolveMyflixerStream, handleStreamProxy, handleEmbedPlayer } from '../server/src/myflixer.js';
+import { PRODUCT } from '../server/src/product.js';
+import { exportedDocumentaryId } from '../server/src/documentary-playback.js';
 
 export default async function handler(req, res) {
   // CORS headers
@@ -18,35 +21,16 @@ export default async function handler(req, res) {
   // 1. Proxy Mode: Streams master playlists, media playlists, and video chunks
   if (req.query?.proxy === '1') {
     const rawUrl = req.query?.url || '';
-    const targetUrl = typeof rawUrl === 'string' ? decodeURIComponent(rawUrl) : '';
+    const targetUrl = typeof rawUrl === 'string' ? rawUrl : '';
     return handleStreamProxy(targetUrl, req, res, streamPrefix);
   }
 
-  // 2. Embed Mode: Returns clean, self-contained player HTML for iframes
-  if (req.query?.embed === '1') {
-    const rawEmbedId = req.query?.id || '';
-    const embedId = typeof rawEmbedId === 'string' ? decodeURIComponent(rawEmbedId) : '';
-    if (!embedId || !embedId.startsWith('mf:')) {
-      return res.status(400).send('Invalid or missing stream ID');
-    }
-    return handleEmbedPlayer(embedId, req, res, streamPrefix);
-  }
-
-  // 3. Resolution Mode: Resolves metadata and stream URLs
-  const rawId = req.query?.id || req.url?.split('?')[0]?.split('/').filter(Boolean).pop() || '';
-  const id = decodeURIComponent(rawId);
-  if (!id || !id.startsWith('mf:')) {
-    return res.status(400).json({ error: 'Missing or invalid stream id (expected mf:* ID)' });
-  }
-
+  const id = req.query.id;
+  if (!validPlaybackId(id)) return res.status(400).json({error:'Invalid stream ID'});
   try {
-    const data = await resolveMyflixerStream(id, streamPrefix);
-    // Never cache dynamic tokenized streams on CDN; always serve fresh session URLs
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
+    const data = await unifiedStream(id, {showId:req.query.showId,source:req.query.source,prefix:streamPrefix});
+    if (!data) return res.status(404).json({error:'Episode not found in this catalogue'});
+    res.setHeader('Cache-Control','no-store');
     return res.status(200).json(data);
-  } catch (err) {
-    return res.status(500).json({ error: err.message || 'Stream resolution failed' });
-  }
+  } catch(e) { return res.status(502).json({error:e.message}); }
 }

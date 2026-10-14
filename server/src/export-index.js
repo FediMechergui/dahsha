@@ -7,12 +7,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeCatalog } from './export-catalog.js';
 import { fetchMovies, fetchSeries, fetchSeriesEpisodes, GENRES } from './myflixer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? Number(args[i + 1]) : def; };
-const outDir = path.resolve(args.find((a) => !a.startsWith('--') && !/^\d+$/.test(a)) || path.join(__dirname, '../../client/public/data'));
+const outDir = path.resolve(args.find((a) => !a.startsWith('--') && !/^\d+$/.test(a)) || path.join(__dirname, '../../client/public/data-flixer'));
 const EPISODES_FOR = opt('--episodes', 300);
 const CONCURRENCY = opt('--concurrency', 4);
 const PER_PAGE = 100;
@@ -21,14 +22,14 @@ async function pool(items, fn, n) {
   const out = new Array(items.length);
   let i = 0;
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (i < items.length) { const k = i++; try { out[k] = await fn(items[k], k); } catch (e) { out[k] = null; } }
+    while (i < items.length) { const k = i++; try { out[k] = await fn(items[k], k); } catch (e) { throw e; } }
   }));
   return out;
 }
 
 function lean(s) {
   const o = { id: s.id, wpId: s.wpId, slug: s.slug, kind: s.kind, title: s.title, year: s.year, tags: s.tags, publishedAt: s.publishedAt };
-  if (s.kind === 'series' && s.episodes?.length > 1) { o.episodes = s.episodes.map((e) => ({ id: e.id, slug: e.slug, title: e.title, season: e.season, number: e.number })); o.episodeCount = s.episodes.length; }
+  if (s.kind === 'series' && s.episodes?.length > 0) { o.episodes = s.episodes.map((e) => ({ id: e.id, slug: e.slug, title: e.title, season: e.season, number: e.number })); o.episodeCount = s.episodes.length; }
   return o;
 }
 
@@ -42,8 +43,7 @@ async function walk(kind, fetchPage) {
       if (r.items.length || r.totalPages === 0) return r.items;
       await new Promise((res) => setTimeout(res, 800 * attempt));
     }
-    console.warn(`[index] ${kind} page ${page}: gave up`);
-    return [];
+    throw new Error(`[index] ${kind} page ${page}: incomplete export`);
   }, CONCURRENCY);
   let done = 0;
   const all = [...first.items];
@@ -69,12 +69,9 @@ async function run() {
   console.log(`[index] episodes resolved for ${resolved} series`);
 
   const tags = GENRES.map((g) => ({ id: g.slug, label: g.name, labelEn: g.name, count: shows.filter((s) => s.tags?.includes(g.slug)).length }));
-  const payload = { generatedAt: new Date().toISOString(), lite: true, shows: shows.map(lean), tags, channels: [{ id: 'myflixer', title: 'Flixer Cinema', name: 'Flixer Cinema' }] };
+  const payload = { product: 'flixer', generatedAt: new Date().toISOString(), lite: true, shows: shows.map(lean), tags, channels: [{ id: 'myflixer', title: 'Flixer Cinema', name: 'Flixer Cinema' }] };
 
-  fs.rmSync(outDir, { recursive: true, force: true });
-  fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(path.join(outDir, 'catalog.json'), JSON.stringify(payload));
-  fs.writeFileSync(path.join(outDir, 'status.json'), JSON.stringify({ static: true, lite: true, generatedAt: payload.generatedAt, refreshing: false, stats: { shows: shows.length, films: movies.length, series: series.length } }));
+  writeCatalog(outDir, payload, 'flixer');
   const mb = (fs.statSync(path.join(outDir, 'catalog.json')).size / 1048576).toFixed(1);
   console.log(`[index] wrote ${shows.length} titles (${movies.length} films, ${series.length} series) to ${outDir} — ${mb} MB in ${Math.round((Date.now() - t0) / 1000)}s`);
 }

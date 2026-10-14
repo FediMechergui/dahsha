@@ -1,3 +1,4 @@
+import { configureMobile } from './configure-mobile.js';
 // Builds the Terrarium-based Flixer client (client-terrarium/) into a static folder.
 //   node scripts/build-terrarium.js [--out <dir>] [--data-base <url>] [--api-base <url>] [--mobile]
 // --mobile writes into mobile/www (the Capacitor webDir) and bundles the exported data unless
@@ -14,11 +15,13 @@ const src = path.join(root, 'client-terrarium');
 const out = path.resolve(root, opt('--out', mobile ? 'mobile/www' : 'client-terrarium/dist'));
 const dataBase = opt('--data-base', process.env.VITE_DATA_BASE || '');
 const apiBase = opt('--api-base', process.env.VITE_API_BASE || dataBase || '');
-const dataDir = path.join(root, 'client', 'public', 'data');
+if (dataBase && /dahsha\.vercel\.app/.test(dataBase)) throw new Error('Flixer must use its own data host');
+const dataDir = path.join(root, 'client', 'public', 'data-flixer');
 
 if (!path.relative(root, out) || path.relative(root, out).startsWith('..')) { console.error('[terrarium] refusing to build outside the project'); process.exit(1); }
+if (!dataBase && fs.existsSync(path.join(dataDir, 'catalog.json')) && JSON.parse(fs.readFileSync(path.join(dataDir, 'catalog.json'), 'utf8')).product !== 'flixer') throw new Error('Re-export Flixer data first');
 if (!dataBase && !fs.existsSync(path.join(dataDir, 'catalog.json'))) {
-  console.error('[terrarium] no exported data (client/public/data/catalog.json). Run "node server/src/export.js" first, or pass --data-base <url>.');
+  console.error('[terrarium] no Flixer data (client/public/data-flixer/catalog.json). Run "npm run export:flixer" first, or pass --data-base <url>.');
   process.exit(1);
 }
 
@@ -64,3 +67,5 @@ fs.writeFileSync(path.join(out, 'config.js'), `window.FLIXER_CONFIG = ${JSON.str
 
 const count = (d) => fs.readdirSync(d, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? count(path.join(d, e.name)) : 1), 0);
 console.log(`[terrarium] built ${count(out)} files into ${path.relative(root, out)}${dataBase ? ` (data from ${dataBase})` : ' (data bundled)'}`);
+
+if (mobile) configureMobile('flixer');

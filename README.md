@@ -1,4 +1,58 @@
-# دهشة · Dahsha
+# Dahsha and Flixer
+
+This repository contains two independent apps. **Dahsha is for documentaries only**;
+**Flixer is for movies and TV shows across all genres**. They share playback code,
+but use separate catalogues, branding, storage keys and build outputs.
+
+Dahsha remains the default app for the existing Vercel project and Android release.
+
+See [Scraper behaviour and adding providers](docs/SCRAPERS.md) for discovery,
+refresh, episode parsing, playback resolution, and the proposed provider contract.
+
+| Command | Dahsha | Flixer |
+|---|---|---|
+| Develop | `npm run dev:dahsha` | `npm run dev:flixer` |
+| Production server | `npm run start:dahsha` | `npm run start:flixer` |
+| Export catalogue | `npm run export:dahsha` | `npm run export:flixer` |
+| Static build | `npm run build:dahsha` | `npm run build:flixer` |
+| Exported data | `client/public/data/` | `client/public/data-flixer/` |
+| Build output | `client/dist/` | `client/dist-flixer/` |
+| Vercel configuration | `vercel.json` | `vercel.flixer.json` |
+
+Run one development server at a time, or give the second one distinct `PORT` and
+`API_PORT` values. Direct server/build entry points select the app with
+`APP_PRODUCT=dahsha` (default) or `APP_PRODUCT=flixer`.
+
+Flixer's alternative vanilla frontend is in `client-terrarium/`; build it with
+`node scripts/build-terrarium.js` after exporting Flixer data. Its TVmaze, service,
+universe and episode-splitting tools also operate on `data-flixer/`.
+
+For a separate Flixer Vercel project, use `vercel --local-config vercel.flixer.json`
+and set `APP_PRODUCT=flixer` for both build and runtime. Do not point Flixer's
+`VITE_DATA_BASE` or `VITE_API_BASE` at Dahsha's host.
+
+Before deploying either app's Myflixer playback, set **`STREAM_PROXY_SECRET`** to
+a strong random secret in the server environment. For example, generate a value
+with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`.
+All serverless instances must share this value. Local development uses an ephemeral
+key automatically. Stream proxy URLs are signed and expire after six hours;
+private destinations and unsafe redirects are blocked. Dahsha additionally restricts
+stream resolution to documentary IDs in its export.
+
+Source administration is enabled for local requests. Remote administration requires
+`ADMIN_TOKEN` and an `Authorization: Bearer <token>` header. Static hosting is read-only.
+
+In `mobile/`, `npm run build:web` builds Dahsha and `npm run build:web:flixer` builds
+Flixer; both accept `-- --data-base <the-app-host>`. Run `npm run sync` afterward.
+They use different Android application IDs, so the apps can coexist on a device.
+`npm run build:terra` builds the Flixer alternative frontend. Web builds update the
+native name and application ID before syncing; always build before generating an APK.
+
+Run `npm test` for catalogue isolation, export safety, routing, SSE and playback security
+regressions. The Flixer exporter walks all upstream pages; failures abort the export
+and preserve the previous static data.
+
+## Dahsha
 
 **Documentaries that amaze.** A bilingual (Arabic-first, English) streaming catalogue of full-length documentaries from YouTube: every full episode of every show, grouped into series (with seasons) or standalone films, tagged by topic, with posters and synopses, refreshed automatically.
 
@@ -49,6 +103,23 @@ npm run apk:release                                           # mobile/android/a
 Release signing reads `mobile/keystore.properties` (not committed). The `android.yml` workflow builds and attaches a signed APK to a GitHub Release whenever a `v*` tag is pushed (keystore in repository secrets).
 
 ## How the catalogue is built
+
+FMovies and HDToday now share a provider registry with the existing library. Confirmed
+matches add servers to existing episodes; uncertain matches appear as selectable
+versions inside one title page. Dahsha admits verified documentaries, while Flixer
+admits movies and TV series across genres. Provider failures retain cached records.
+
+`npm run refresh:providers` advances historical discovery and checks new releases.
+`npm run refresh:providers:full` resumes the full crawl from its saved cursors.
+The `providerSync` catalogue field reports coverage and upstream failures. HDToday
+movie redirects resolve to their public player URLs; verification and rate limits
+on other routes remain upstream limitations, with backoff and other servers retained.
+
+Build web apps with `npm run build:dahsha` and `npm run build:flixer`. For Android,
+run the matching `node scripts/product.js <product> mobile-web --data-base <host>`,
+then `npx cap sync android` in `mobile`, followed by `gradlew assembleRelease` in
+`mobile/android`. The default product remains Dahsha. Each product has its own app ID,
+catalogue, branding, hosting and saved progress.
 
 ```
 server/

@@ -14,7 +14,7 @@ function norm(s = '') {
 export default function Search() {
   const [params] = useSearchParams();
   const q = params.get('q') || '';
-  const { catalog } = useCatalog();
+  const { catalog, registerShows } = useCatalog();
   const { t } = useLang();
   const [liveResults, setLiveResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -32,6 +32,7 @@ export default function Search() {
       .then((data) => {
         if (!cancelled && Array.isArray(data?.items)) {
           setLiveResults(data.items);
+          registerShows(data.items);
         }
       })
       .catch(() => {})

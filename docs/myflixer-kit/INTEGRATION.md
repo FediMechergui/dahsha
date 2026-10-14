@@ -1,5 +1,13 @@
 # Myflixer module — integration guide
 
+The `server/myflixer.js` and `vercel/stream.js` files now re-export the maintained
+repository implementation. This avoids separate copies drifting from security fixes.
+For use outside this repository, copy `server/src/myflixer.js`,
+`server/src/stream-security.js`, and (for documentary-only catalogues)
+`server/src/documentaries.js`, then adjust imports. Set `STREAM_PROXY_SECRET` in
+production; proxy URLs now require an unexpired signature. The documentary adapter
+only accepts category 212. Flixer uses the all-genre adapter separately.
+
 This folder is a self-contained copy of the Myflixer documentary source as it ships in the
 Dahsha app (https://github.com/FediMechergui/dahsha). It is written so that an AI coding
 assistant (or a developer) can drop the module into another streaming app with minimal

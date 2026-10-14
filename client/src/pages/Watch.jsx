@@ -18,7 +18,7 @@ export default function Watch() {
   const [countdown, setCountdown] = useState(null);
 
   const show = useFullShow(showId);
-  const idx = show ? show.episodes.findIndex((e) => e.id === epId) : -1;
+  const idx = show ? show.episodes.findIndex((e) => e.id === epId || e.offerings?.some(o => o.id === epId)) : -1;
   const episode = idx >= 0 ? show.episodes[idx] : null;
   const next = idx >= 0 ? show.episodes[idx + 1] : null;
   const prev = idx > 0 ? show.episodes[idx - 1] : null;
@@ -26,7 +26,7 @@ export default function Watch() {
   const sl = show?.lang || lang;
   const tagMap = useMemo(() => new Map((all?.tags || []).map((x) => [x.id, { ...x, label: sl === 'en' ? (x.labelEn || x.label) : x.label }])), [all, sl]);
 
-  const saved = progress[epId];
+  const saved = progress[epId] || episode?.offerings?.map(o => progress[o.id]).find(Boolean);
   const startAt = useMemo(() => (saved && !saved.finished && saved.position > 15 && saved.duration - saved.position > 30 ? saved.position : 0), [epId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { document.title = episode ? `${film ? show.title : `${episode.title} — ${show.title}`} — ${appName}` : appName; return () => { document.title = appName; }; }, [episode, show, film, appName]);
@@ -49,6 +49,7 @@ export default function Watch() {
   }, [countdown, nav, showId, next]);
 
   if (!catalog) return null;
+  if (show?.detailsLoading && !episode) return <div className="page container" role="status">{t('loading')}</div>;
   if (!show || !episode) return <div className="page container"><EmptyState title={t('episode_missing')} action={<Link className="btn btn--ghost" to="/browse">{t('back_to_browse')}</Link>} /></div>;
 
   return (
@@ -93,8 +94,8 @@ export default function Watch() {
                   <span>{t('autoplay_next')}</span>
                 </label>
               )}
-              {episode.id?.startsWith('mf:') ? (
-                <a className="btn btn--text" href={episode.sourceUrl || `https://myflixerz.day/${episode.id.replace(/^mf:[me]:/, '')}/`} target="_blank" rel="noreferrer">{t('open_myflixer')} ↗</a>
+              {/^(mf|fm|hd):/.test(episode.id || '') ? (
+                <a className="btn btn--text" href={episode.sourceUrl || `https://myflixerz.day/${episode.id.replace(/^mf:[me]:/, '')}/`} target="_blank" rel="noreferrer">{lang === 'ar' ? t('open_myflixer') : 'Open source'} ↗</a>
               ) : (
                 <a className="btn btn--text" href={`https://www.youtube.com/watch?v=${episode.id}`} target="_blank" rel="noreferrer">{t('open_youtube')} ↗</a>
               )}

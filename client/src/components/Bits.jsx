@@ -1,9 +1,11 @@
+import { DOCUMENTARIES } from '../lib/product.js';
 import { Link } from 'react-router-dom';
 import { channelColor } from '../lib/channels.js';
 import { useLang } from '../lib/i18n.jsx';
 
 /** The Dahsha mark: an eye with a golden iris. */
 export function Logo({ size = 28 }) {
+  if (!DOCUMENTARIES) return <img className="logo" src={`${import.meta.env.BASE_URL}favicon.svg`} width={size} height={size} alt="" />;
   return (
     <svg className="logo" width={size} height={size} viewBox="0 0 64 64" aria-hidden>
       <rect width="64" height="64" rx="14" fill="#ffcc00" />

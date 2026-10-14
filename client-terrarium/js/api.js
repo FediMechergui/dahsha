@@ -92,6 +92,9 @@
     const title = decodeEntities(s.title);
     return {
       id: s.id,
+      offerings: s.offerings || [],
+      versions: s.versions || [],
+      sourceUrl: s.sourceUrl,
       type,
       title,
       date,
@@ -133,6 +136,8 @@
     const slug = e.slug || String(e.id || "").replace(/^mf:[mse]:/, "");
     return {
       id: e.id,
+      offerings: e.offerings || [],
+      showId: show.id,
       n: e.number || e.episode || i + 1,
       season: e.season || 1,
       title: decodeEntities(episodeTitle(e.title, show, isMovie)),
@@ -191,6 +196,11 @@
     },
     async list(kind, { page = 1, perPage = 50, category, search, fields } = {}) {
       if (await this.serverOk()) {
+        if (search) {
+          const {body} = await getJson(`${API_BASE}/api/search?q=${encodeURIComponent(search)}`);
+          const items=(Array.isArray(body)?body:body.items || []).filter(s=>s.kind===(kind==='movie'?'film':'series'));
+          return {items,total:items.length,totalPages:1};
+        }
         const p = new URLSearchParams({ page: String(page), perPage: String(perPage) });
         if (category) p.set("category", category);
         if (search) p.set("q", search);
@@ -205,11 +215,13 @@
       const { body, headers } = await getJson(`${WP}/${kind === "movie" ? "posts" : "tvshows"}?${p}`);
       return { items: (Array.isArray(body) ? body : []).map(r => this.format(r, years, kind)), total: Number(headers.get("x-wp-total") || 0), totalPages: Number(headers.get("x-wp-totalpages") || 1) };
     },
-    async details(id) {
+    async details(id, sources = []) {
       const isSeries = id.startsWith("mf:s:");
       const slug = id.replace(/^mf:[mse]:/, "");
       if (await this.serverOk()) {
-        const { body } = await getJson(`${API_BASE}/api/title/${encodeURIComponent(id)}`);
+        const params = new URLSearchParams({id});
+        sources.filter(Boolean).forEach(source => params.append('source', source));
+        const { body } = await getJson(`${API_BASE}/api/title?${params}`);
         return body;
       }
       const years = await this.yearTerms();
@@ -267,6 +279,7 @@
       if (!this._loading) {
         this._loading = (async () => {
           const { body: c } = await getJson(`${DATA_BASE}/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`, 60000);
+          if (c.product !== 'flixer') throw new Error('Flixer requires its own exported catalogue');
           const shows = Array.isArray(c.shows) ? c.shows : [];
           this._catalog = { shows, items: [], genres: { movie: [], tv: [] }, years: [1900, new Date().getFullYear()], generatedAt: c.generatedAt || null, tvmazeAt: c.tvmazeAt || null, lite: !!c.lite, tagLabels: new Map((c.tags || []).map(t => [t.id, t.labelEn || t.label || titleCase(t.id)])) };
           this._byId = new Map();
@@ -465,7 +478,11 @@
           if (r.publishedAt) cur.publishedAt = r.publishedAt;
           if (r.wpId) cur.wpId = r.wpId;
           if (r.tvm) cur.tvm = r.tvm;
-          if (Array.isArray(r.episodes) && r.episodes.length > (cur.episodes || []).length) { cur.episodes = r.episodes; cur.episodeCount = r.episodes.length; }
+          if (r.offerings) cur.offerings = r.offerings;
+          if (r.versions) cur.versions = r.versions;
+          if (r.sourceUrl) cur.sourceUrl = r.sourceUrl;
+          if (r.poster) cur.poster = r.poster;
+          if (Array.isArray(r.episodes) && r.episodes.length >= (cur.episodes || []).length) { cur.episodes = r.episodes; cur.episodeCount = r.episodes.length; }
         } else {
           c.shows.push(r); this._byId.set(r.id, r); added += 1;
         }
@@ -476,7 +493,7 @@
     _persistDelta(rows) {
       const delta = store.get("delta", []);
       const known = new Set(delta.map(d => d.id));
-      const lean = rows.filter(r => !known.has(r.id)).map(r => ({ id: r.id, wpId: r.wpId, slug: r.slug, kind: r.kind, title: r.title, year: r.year, tags: r.tags, publishedAt: r.publishedAt }));
+      const lean = rows.filter(r => !known.has(r.id)).map(r => ({ id: r.id, wpId: r.wpId, slug: r.slug, kind: r.kind, title: r.title, year: r.year, tags: r.tags, publishedAt: r.publishedAt, offerings:r.offerings, versions:r.versions,sourceUrl:r.sourceUrl,poster:r.poster,tmdbId:r.tmdbId,documentary:r.documentary }));
       store.set("delta", [...lean, ...delta].slice(0, DELTA_CAP));
     }
 
@@ -573,7 +590,7 @@
       await this.catalog();
       if (this._byId.has(id)) return this._byId.get(id);
       try {
-        const { body } = await getJson(`${DATA_BASE}/data/shows/${encodeURIComponent(id)}.json`, 8000);
+        const { body } = await getJson(`${DATA_BASE}/data/shows/${encodeURIComponent(encodeURIComponent(id))}.json`, 8000);
         this._merge([body]); this._reindex();
         return body;
       } catch { /* not in the bundle */ }
@@ -586,17 +603,17 @@
       // Episode lists live in bundled per-series files (data/shows/<id>.json); pull them in once.
       if (raw.kind === "series" && !(raw.episodes || []).length && !raw._episodesTried) {
         raw._episodesTried = true;
-        try { const { body } = await getJson(`${DATA_BASE}/data/shows/${encodeURIComponent(id)}.json`, 8000); if (body && Array.isArray(body.episodes) && body.episodes.length) { raw.episodes = body.episodes; raw.episodeCount = body.episodes.length; } }
+        try { const { body } = await getJson(`${DATA_BASE}/data/shows/${encodeURIComponent(encodeURIComponent(id))}.json`, 8000); if (body && Array.isArray(body.episodes) && body.episodes.length) { raw.episodes = body.episodes; raw.episodeCount = body.episodes.length; } }
         catch { /* not bundled: the live tier fills it below */ }
       }
-      const needsLive = this.liveEnabled && (!raw.synopsis || (raw.kind === "series" && (raw.episodes || []).length <= 1));
+      const needsLive = this.liveEnabled;
       if (needsLive && !this._details.has(id)) {
         const cached = store.get("title:" + id, null);
         if (cached && Date.now() - cached.t < 6 * 3600e3) { this._merge([cached.show]); }
         else {
           try {
-            const fresh = await live.details(id);
-            if (fresh) { this._merge([fresh]); store.set("title:" + id, { t: Date.now(), show: { id: fresh.id, synopsis: fresh.synopsis, episodes: fresh.episodes || [], year: fresh.year, tags: fresh.tags } }); }
+            const fresh = await live.details(id, [raw.sourceUrl, ...(raw.offerings || []).map(o => o.sourceUrl)]);
+            if (fresh) { this._merge([fresh]); store.set("title:" + id, { t: Date.now(), show: fresh }); }
           } catch (e) { console.warn("[flixer] live details unavailable:", e.message); }
         }
         this._details.set(id, true);
@@ -678,15 +695,18 @@
     }
 
     /* ----- Playback sources (unchanged contract) ----- */
-    async stream(id, sourceUrl) {
+    async stream(id, sourceUrl, show = {}) {
       const toAbsolute = url => !url ? null : (/^https?:\/\//.test(url) ? url : API_BASE + url);
       try {
-        const { body: data } = await getJson(`${API_BASE}/api/stream?id=${encodeURIComponent(id)}`, 20000);
+        const params = new URLSearchParams({id});
+        if (show.id) params.set('showId',show.id);
+        [show.sourceUrl, ...(show.offerings || []).map(o => o.sourceUrl)].filter(Boolean).forEach(source => params.append('source',source));
+        const { body: data } = await getJson(`${API_BASE}/api/stream?${params}`, 45000);
         const servers = [];
         (Array.isArray(data.servers) ? data.servers : []).forEach((s, idx) => {
           const streamUrl = toAbsolute(s.streamUrl || s.rawStreamUrl);
           const embedUrl = toAbsolute(s.embedUrl || s.rawEmbedUrl);
-          if (streamUrl || embedUrl) servers.push({ id: s.id != null ? s.id : idx, name: s.name || "Player " + (idx + 1), type: s.type || (streamUrl ? "hls" : "embed"), streamUrl, embedUrl });
+          if (streamUrl || embedUrl) servers.push({ ...s, id: s.id != null ? s.id : idx, name: s.name || "Player " + (idx + 1), type: s.type || (streamUrl ? "hls" : "embed"), streamUrl, embedUrl });
         });
         if (!servers.length && Array.isArray(data.streams)) data.streams.forEach((s, idx) => { const u = toAbsolute(s.proxyUri || s.uri); if (u) servers.push({ id: idx, name: s.quality || s.name || "Server " + (idx + 1), type: "hls", streamUrl: u }); });
         if (!servers.length && data.streamUrl) servers.push({ id: 0, name: "Player 1 (HLS)", type: "hls", streamUrl: toAbsolute(data.streamUrl) });

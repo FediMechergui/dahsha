@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const topIdx = argv.indexOf('--top');
 const TOP = topIdx >= 0 ? Number(argv[topIdx + 1]) : 60;
-const dataDir = path.resolve(argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--top') || path.join(__dirname, '../../client/public/data'));
+const dataDir = path.resolve(argv.find((a, i) => !a.startsWith('--') && argv[i - 1] !== '--top') || path.join(__dirname, '../../client/public/data-flixer'));
 const UA = 'Flixer/1.4 (https://github.com/FediMechergui/flixer; catalogue build)';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

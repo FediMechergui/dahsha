@@ -1,6 +1,6 @@
 // Comprehensive Myflixer Scraper & Streaming Engine for Movies and TV Series.
 // Supports all genres, full catalog paging, search, trending, episode resolution, and all 7 streaming players.
-import path from 'node:path';
+import { proxyUrl, verifyProxy, validMediaId, escapeHtml, scriptJson, safeRemoteFetch } from './stream-security.js';
 
 const BASE = 'https://myflixerz.day';
 const API = `${BASE}/wp-json/wp/v2`;
@@ -127,8 +127,14 @@ function formatItem(row, yearsMap, kind = 'movie') {
     },
     portrait: poster,
     publishedAt: row.date || row.date_gmt || null,
+    firstAt: row.date || null,
+    latestAt: row.modified || row.date || null,
+    totalDurationSec: null,
+    totalViews: null,
+    channelId: 'myflixer',
+    altTitles: [],
     sourceUrl: isMovie ? `${BASE}/${slug}/` : `${BASE}/series/${slug}/`,
-    episodeCount: isMovie ? 1 : (row.episodeCount || 1),
+    episodeCount: isMovie ? 1 : (row.episodeCount || 0),
     seasons: isMovie ? [1] : (row.seasons || [1]),
     episodes: isMovie ? [{
       id,
@@ -147,6 +153,8 @@ function formatItem(row, yearsMap, kind = 'movie') {
  */
 export async function fetchMovies({ page = 1, perPage = 24, category, year, sort = 'modified', order = 'desc', search } = {}) {
   const years = await loadYearTerms();
+  page = Math.max(1, Math.floor(Number(page) || 1));
+  perPage = Math.max(1, Math.min(100, Math.floor(Number(perPage) || 24)));
   const params = new URLSearchParams({
     per_page: String(perPage),
     page: String(page),
@@ -159,12 +167,17 @@ export async function fetchMovies({ page = 1, perPage = 24, category, year, sort
     const catId = typeof category === 'number' ? category : GENRE_SLUG_TO_ID[category.toLowerCase()];
     if (catId) params.set('categories', String(catId));
   }
+  if (year) {
+    const term = [...years].find(([, name]) => String(name) === String(year));
+    if (!term) return { items: [], total: 0, totalPages: 0, page };
+    params.set('release-year', String(term[0]));
+  }
   if (search) params.set('search', search);
 
   const url = `${API}/posts?${params.toString()}`;
   try {
     const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) });
-    if (!res.ok) return { items: [], total: 0, totalPages: 0, page };
+    if (!res.ok) throw new Error(`Catalogue upstream HTTP ${res.status}`);
     const total = Number(res.headers.get('x-wp-total') || 0);
     const totalPages = Number(res.headers.get('x-wp-totalpages') || 1);
     const rows = await res.json();
@@ -172,7 +185,7 @@ export async function fetchMovies({ page = 1, perPage = 24, category, year, sort
     return { items, total, totalPages, page };
   } catch (err) {
     console.warn('[myflixer] fetchMovies error:', err.message);
-    return { items: [], total: 0, totalPages: 0, page };
+    throw err;
   }
 }
 
@@ -181,6 +194,8 @@ export async function fetchMovies({ page = 1, perPage = 24, category, year, sort
  */
 export async function fetchSeries({ page = 1, perPage = 24, category, year, sort = 'modified', order = 'desc', search } = {}) {
   const years = await loadYearTerms();
+  page = Math.max(1, Math.floor(Number(page) || 1));
+  perPage = Math.max(1, Math.min(100, Math.floor(Number(perPage) || 24)));
   const params = new URLSearchParams({
     per_page: String(perPage),
     page: String(page),
@@ -193,12 +208,17 @@ export async function fetchSeries({ page = 1, perPage = 24, category, year, sort
     const catId = typeof category === 'number' ? category : GENRE_SLUG_TO_ID[category.toLowerCase()];
     if (catId) params.set('categories', String(catId));
   }
+  if (year) {
+    const term = [...years].find(([, name]) => String(name) === String(year));
+    if (!term) return { items: [], total: 0, totalPages: 0, page };
+    params.set('release-year', String(term[0]));
+  }
   if (search) params.set('search', search);
 
   const url = `${API}/tvshows?${params.toString()}`;
   try {
     const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000) });
-    if (!res.ok) return { items: [], total: 0, totalPages: 0, page };
+    if (!res.ok) throw new Error(`Catalogue upstream HTTP ${res.status}`);
     const total = Number(res.headers.get('x-wp-total') || 0);
     const totalPages = Number(res.headers.get('x-wp-totalpages') || 1);
     const rows = await res.json();
@@ -206,7 +226,7 @@ export async function fetchSeries({ page = 1, perPage = 24, category, year, sort
     return { items, total, totalPages, page };
   } catch (err) {
     console.warn('[myflixer] fetchSeries error:', err.message);
-    return { items: [], total: 0, totalPages: 0, page };
+    throw err;
   }
 }
 
@@ -281,7 +301,8 @@ export async function fetchSeriesEpisodes(slug) {
  * Get full title details (Movie or TV series, with all seasons and episodes).
  */
 export async function getTitleDetails(rawId) {
-  const id = decodeURIComponent(rawId);
+  const id = rawId;
+  if (!validMediaId(id)) return null;
   const isSeries = id.startsWith('mf:s:') || (!id.startsWith('mf:m:') && !id.startsWith('mf:e:') && false);
   const isMovie = id.startsWith('mf:m:') || (!isSeries && !id.startsWith('mf:e:'));
   const slug = id.replace(/^mf:[mse]:/, '');
@@ -291,13 +312,13 @@ export async function getTitleDetails(rawId) {
   let item = null;
   if (isSeries) {
     const res = await fetch(`${API}/tvshows?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
-      headers: { 'User-Agent': DESKTOP_UA },
+      headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000),
     });
     const rows = await res.json().catch(() => []);
     if (rows?.[0]) item = formatItem(rows[0], years, 'series');
   } else {
     const res = await fetch(`${API}/posts?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
-      headers: { 'User-Agent': DESKTOP_UA },
+      headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000),
     });
     const rows = await res.json().catch(() => []);
     if (rows?.[0]) item = formatItem(rows[0], years, 'movie');
@@ -306,7 +327,7 @@ export async function getTitleDetails(rawId) {
   // If not found as specified, try the opposite
   if (!item) {
     const fallbackRes = await fetch(`${API}/${isSeries ? 'posts' : 'tvshows'}?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
-      headers: { 'User-Agent': DESKTOP_UA },
+      headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000),
     });
     const fbRows = await fallbackRes.json().catch(() => []);
     if (fbRows?.[0]) item = formatItem(fbRows[0], years, isSeries ? 'movie' : 'series');
@@ -373,65 +394,33 @@ export async function fetchHomeContent() {
 /**
  * Fetch a multi-genre catalog snapshot for static export.
  */
-export async function fetchFullCatalog({ pagesPerGenre = 2 } = {}) {
-  const years = await loadYearTerms();
-  const allShows = [];
-  const seenSlugs = new Set();
-
-  console.log('[myflixer] fetching full movies & series catalog...');
-
-  // 1. Fetch top pages of movies & series generally
-  for (let p = 1; p <= 6; p++) {
-    const [m, s] = await Promise.all([
-      fetchMovies({ page: p, perPage: 50, sort: 'modified' }),
-      fetchSeries({ page: p, perPage: 50, sort: 'modified' }),
-    ]);
-    for (const item of [...m.items, ...s.items]) {
-      if (!seenSlugs.has(item.slug)) {
-        seenSlugs.add(item.slug);
-        allShows.push(item);
-      }
+export async function fetchFullCatalog({ maxPages = Infinity, episodeLimit = 80, category } = {}) {
+  const shows = new Map();
+  for (const fetchPage of [fetchMovies, fetchSeries]) {
+    let totalPages = 1;
+    for (let page = 1; page <= Math.min(totalPages, maxPages); page++) {
+      const result = await fetchPage({ page, perPage: 100, category });
+      totalPages = result.totalPages;
+      for (const item of result.items) shows.set(item.id, item);
     }
   }
-
-  // 2. Fetch specific top genres
-  const topGenreSlugs = ['action', 'comedy', 'drama', 'sci-fi', 'horror', 'thriller', 'animation', 'crime', 'romance', 'adventure'];
-  for (const g of topGenreSlugs) {
-    const res = await fetchMovies({ page: 1, perPage: 30, category: g });
-    for (const item of res.items) {
-      if (!seenSlugs.has(item.slug)) {
-        seenSlugs.add(item.slug);
-        allShows.push(item);
-      }
+  const allShows = [...shows.values()];
+  if (!allShows.length) throw new Error('Refusing to export an empty catalogue');
+  const series = allShows.filter(s => s.kind === 'series').slice(0, episodeLimit);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(4, series.length) }, async () => {
+    while (cursor < series.length) {
+      const show = series[cursor++];
+      const episodes = await fetchSeriesEpisodes(show.slug);
+      show.episodes = episodes;
+      show.episodeCount = episodes.length;
+      show.seasons = [...new Set(episodes.map(e => e.season))].sort((a,b) => a-b);
     }
-  }
-
-  console.log(`[myflixer] catalog populated with ${allShows.length} titles.`);
-
-  // Resolve episodes for top 100 TV series concurrently
-  const seriesItems = allShows.filter((s) => s.kind === 'series').slice(0, 80);
-  console.log(`[myflixer] resolving episodes for ${seriesItems.length} series...`);
-  await Promise.all(seriesItems.map(async (s) => {
-    try {
-      const eps = await fetchSeriesEpisodes(s.slug);
-      if (eps.length) {
-        s.episodes = eps.map((ep) => ({ ...ep, thumbs: { default: s.poster.default, custom: s.poster.default } }));
-        s.episodeCount = eps.length;
-        s.seasons = [...new Set(eps.map((e) => e.season))].sort((a, b) => a - b);
-      }
-    } catch {}
   }));
-
-  const tags = GENRES.map((g) => ({
-    id: g.slug,
-    label: g.name,
-    labelEn: g.name,
-    count: allShows.filter((s) => s.tags?.includes(g.slug)).length,
-  }));
-
   return {
-    shows: allShows,
-    tags,
+    product: 'flixer', shows: allShows,
+    channels: [{ id: 'myflixer', title: 'Flixer Cinema', name: 'Flixer Cinema' }],
+    tags: GENRES.map(g => ({ id: g.slug, label: g.name, labelEn: g.name, count: allShows.filter(s => s.tags.includes(g.slug)).length })),
     generatedAt: new Date().toISOString(),
   };
 }
@@ -449,24 +438,26 @@ export function rewriteM3u8(content, baseUrl, proxyPrefix) {
       if (trimmed.includes('URI="')) {
         return trimmed.replace(/URI="([^"]+)"/g, (_, uri) => {
           const full = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
-          return `URI="${proxyPrefix}?proxy=1&url=${encodeURIComponent(full)}"`;
+          return `URI="${proxyUrl(proxyPrefix, full)}"`;
         });
       }
       return line;
     }
     const full = trimmed.startsWith('http') ? trimmed : new URL(trimmed, baseUrl).href;
-    return `${proxyPrefix}?proxy=1&url=${encodeURIComponent(full)}`;
+    return proxyUrl(proxyPrefix, full);
   });
   return rewritten.join('\n');
 }
 
 export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api/stream') {
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
 
-  if (!targetUrl || !targetUrl.startsWith('http')) {
-    return res.status(400).send('Invalid target URL');
+  if (!targetUrl || !verifyProxy(targetUrl, req.query?.expires, req.query?.sig)) {
+    return res.status(403).send('Invalid or expired stream token');
   }
 
   const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'localhost';
@@ -484,7 +475,7 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
   }
 
   try {
-    const upstream = await fetch(targetUrl, { headers: upstreamHeaders });
+    const upstream = await safeRemoteFetch(targetUrl, { headers: upstreamHeaders });
     const cType = upstream.headers.get('content-type') || '';
     const status = upstream.status;
 
@@ -493,18 +484,22 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
     if (!upstream.ok) {
       res.status(status);
       if (cType) res.setHeader('Content-Type', cType);
-      const errText = await upstream.text().catch(() => 'Upstream stream error');
-      return res.send(errText);
+      await upstream.body?.cancel();
+      return res.type('text/plain').send('Upstream stream error');
     }
 
     if (cType.includes('mpegurl') || targetUrl.includes('.m3u8') || targetUrl.includes('file.m3u8')) {
       const text = await upstream.text();
-      const rewritten = rewriteM3u8(text, targetUrl, effectivePrefix);
+      const rewritten = rewriteM3u8(text, upstream.url || targetUrl, effectivePrefix);
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       return res.status(200).send(rewritten);
     }
 
+    if (cType.includes('text/html') || cType.includes('javascript') || cType.includes('svg')) {
+      await upstream.body?.cancel();
+      return res.status(415).send('Unsupported stream content');
+    }
     res.status(status);
     if (cType) res.setHeader('Content-Type', cType);
     res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
@@ -518,18 +513,27 @@ export async function handleStreamProxy(targetUrl, req, res, proxyPrefix = '/api
     if (!upstream.body) return res.end();
 
     const reader = upstream.body.getReader();
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
-    }
+    const cancel = () => { reader.cancel().catch(() => {}); };
+    res.on('close', cancel);
+    try {
+      while (!res.destroyed) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!res.write(Buffer.from(value))) await new Promise(resolve => {
+          const done = () => { res.off('drain', done); res.off('close', done); resolve(); };
+          res.once('drain', done); res.once('close', done);
+        });
+      }
+    } finally { res.off('close', cancel); await reader.cancel().catch(() => {}); }
     return res.end();
   } catch (err) {
-    return res.status(500).send(err.message || 'Stream proxy error');
+    if (res.headersSent) return res.destroy(err);
+    return res.status(502).type('text/plain').send('Stream proxy error');
   }
 }
 
 export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream') {
+  if (!validMediaId(id)) return res.status(400).send('Invalid stream ID');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('X-Frame-Options', 'ALLOWALL');
   res.setHeader('Content-Security-Policy', 'frame-ancestors *');
@@ -542,7 +546,7 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
 
   try {
     const data = await resolveMyflixerStream(id, effectivePrefix);
-    const serversJson = JSON.stringify(data.servers || []);
+    const serversJson = scriptJson(data.servers || []);
     const title = id.replace(/^mf:[me]:/, '').replace(/-/g, ' ');
 
     const html = `<!DOCTYPE html>
@@ -550,7 +554,7 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>${title}</title>
+  <title>${escapeHtml(title)}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; background: #000; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -610,7 +614,13 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
 
         if (s.type === 'embed' || (!s.streamUrl && (s.embedUrl || s.rawEmbedUrl))) {
           var embedSrc = s.embedUrl || s.rawEmbedUrl;
-          content.innerHTML = '<iframe src="' + embedSrc + '" style="width:100%;height:100%;border:none;" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>';
+          var frame = document.createElement('iframe');
+          frame.src = embedSrc;
+          frame.style.cssText = 'width:100%;height:100%;border:none;';
+          frame.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
+          frame.allowFullscreen = true;
+          frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation');
+          content.replaceChildren(frame);
           return;
         }
 
@@ -653,12 +663,13 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
  * Extracts all 7 player providers from Myflixer.
  */
 export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
+  if (!validMediaId(id)) throw new Error('Invalid stream ID');
   const isMovie = id.startsWith('mf:m:');
   const slug = id.replace(/^mf:[mse]:/, '');
   const url = isMovie ? `${BASE}/${slug}/` : `${BASE}/episodes/${slug}/`;
 
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': DESKTOP_UA, Referer: BASE } });
+    const res = await safeRemoteFetch(url, { headers: { 'User-Agent': DESKTOP_UA, Referer: BASE } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const doc = await res.text();
 
@@ -680,7 +691,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
     let hlsStreams = [];
     if (playerUrl && playerUrl.includes('soap/')) {
       try {
-        const outer = await fetch(playerUrl, { headers: { 'User-Agent': DESKTOP_UA, Referer: url } });
+        const outer = await safeRemoteFetch(playerUrl, { headers: { 'User-Agent': DESKTOP_UA, Referer: url } });
         const outerText = await outer.text();
         const cfgMatch = /const cfg\s*=\s*(\{[\s\S]*?\});/.exec(outerText);
         if (cfgMatch) {
@@ -691,7 +702,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
               .replace('{tmdb_id}', String(cfg.tmdbId))
               .replace('{season}', String(cfg.season ?? 1))
               .replace('{episode}', String(cfg.episode ?? 1));
-            const innerRes = await fetch(inner, { headers: { 'User-Agent': DESKTOP_UA, Referer: playerUrl } });
+            const innerRes = await safeRemoteFetch(inner, { headers: { 'User-Agent': DESKTOP_UA, Referer: playerUrl } });
             const innerDoc = await innerRes.text();
             const listed = JSON.parse(/const sources\s*=\s*(\[[\s\S]*?\]);/.exec(innerDoc)?.[1] ?? '[]');
             hlsStreams = listed.filter((s) => typeof s.file === 'string' && /^https:\/\//.test(s.file)).map((s) => ({
@@ -716,7 +727,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
           id: `hls_${idx}`,
           name: `${s.quality || `Server ${idx + 1}`} (HLS)`,
           type: 'hls',
-          streamUrl: `${proxyPrefix}?proxy=1&url=${encodeURIComponent(s.uri)}`,
+          streamUrl: proxyUrl(proxyPrefix, s.uri),
           rawStreamUrl: s.uri,
         });
       });
@@ -762,7 +773,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
         ...s,
         id: idx,
         name: s.quality || `Server ${idx + 1}`,
-        proxyUri: `${proxyPrefix}?proxy=1&url=${encodeURIComponent(s.uri)}`,
+        proxyUri: proxyUrl(proxyPrefix, s.uri),
       })),
     };
   } catch (e) {

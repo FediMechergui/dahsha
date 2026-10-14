@@ -1,3 +1,4 @@
+import { DOCUMENTARIES } from '../lib/product.js';
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useCatalog } from '../hooks/useCatalog.jsx';
@@ -19,7 +20,7 @@ export default function Sources() {
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = () => api.sources().then((r) => setSources(r.sources)).catch(() => setSources([]));
+  const load = () => Promise.resolve().then(() => DOCUMENTARIES ? api.sources() : { sources: [] }).then((r) => setSources(r.sources)).catch(() => setSources([]));
   useEffect(() => { load(); }, []);
 
   const add = async (e) => {
@@ -49,13 +50,13 @@ export default function Sources() {
     <div className="page container page--sources">
       <header className="page__head">
         <h1 className="page__title">{t('sources_title')}</h1>
-        <p className="page__sub">{api.static ? t('sources_static_sub', { date: generated ? fmtDate(generated, lang) : '—' }) : t('sources_sub', { refresh: status?.refreshMinutes ?? 15, feed: status?.feedMinutes ?? 3 })}</p>
+        <p className="page__sub">{(api.static || !DOCUMENTARIES) ? t('sources_static_sub', { date: generated ? fmtDate(generated, lang) : '—' }) : t('sources_sub', { refresh: status?.refreshMinutes ?? 15, feed: status?.feedMinutes ?? 3 })}</p>
       </header>
 
       <section className="panel">
         <div className="panel__head">
           <h2>{t('refresh_status')}</h2>
-          {!api.static && (
+          {!api.static && DOCUMENTARIES && (
             <div className="panel__actions">
               <button className="btn btn--primary" disabled={status?.refreshing} onClick={() => refresh(false)}>{t('refresh_now')}</button>
               <button className="btn btn--ghost" disabled={status?.refreshing} onClick={() => { if (window.confirm(t('full_rebuild_confirm'))) refresh(true); }}>{t('full_rebuild')}</button>
@@ -63,12 +64,12 @@ export default function Sources() {
           )}
         </div>
         <div className="stat-grid">
-          <div className="stat"><span>{t('connection')}</span><b className={connected ? 'ok' : 'bad'}>{connected ? (api.static ? t('status_static') : t('connected')) : t('disconnected')}</b></div>
-          {!api.static && <div className="stat"><span>{t('state')}</span><b>{status?.refreshing ? <><Spinner size={14} /> {stageLabel[status.stage] || status.stage}</> : t('idle')}</b></div>}
-          {!api.static && <div className="stat"><span>{t('progress')}</span><b>{status?.progress ? `${status.progress.done} / ${status.progress.total}` : '—'}</b></div>}
+          <div className="stat"><span>{t('connection')}</span><b className={connected ? 'ok' : 'bad'}>{connected ? ((api.static || !DOCUMENTARIES) ? t('status_static') : t('connected')) : t('disconnected')}</b></div>
+          {!api.static && DOCUMENTARIES && <div className="stat"><span>{t('state')}</span><b>{status?.refreshing ? <><Spinner size={14} /> {stageLabel[status.stage] || status.stage}</> : t('idle')}</b></div>}
+          {!api.static && DOCUMENTARIES && <div className="stat"><span>{t('progress')}</span><b>{status?.progress ? `${status.progress.done} / ${status.progress.total}` : '—'}</b></div>}
           <div className="stat"><span>{t('last_update')}</span><b title={fmtDate(status?.lastRefreshAt || generated, lang)}>{(status?.lastRefreshAt || generated) ? fmtRelative(status?.lastRefreshAt || generated, lang) : '—'}</b></div>
-          {!api.static && <div className="stat"><span>{t('next_update')}</span><b>{status?.nextRefreshAt ? fmtRelative(status.nextRefreshAt, lang) : '—'}</b></div>}
-          {!api.static && <div className="stat"><span>{t('last_error')}</span><b className={status?.lastError ? 'bad' : ''}>{status?.lastError || t('none')}</b></div>}
+          {!api.static && DOCUMENTARIES && <div className="stat"><span>{t('next_update')}</span><b>{status?.nextRefreshAt ? fmtRelative(status.nextRefreshAt, lang) : '—'}</b></div>}
+          {!api.static && DOCUMENTARIES && <div className="stat"><span>{t('last_error')}</span><b className={status?.lastError ? 'bad' : ''}>{status?.lastError || t('none')}</b></div>}
         </div>
         {all && (
           <div className="stat-grid stat-grid--catalog">
@@ -84,7 +85,7 @@ export default function Sources() {
 
       <section className="panel">
         <div className="panel__head"><h2>{t('sources')}</h2></div>
-        {api.static ? <p className="hint">{t('static_readonly')}</p> : (
+        {(api.static || !DOCUMENTARIES) ? <p className="hint">{t('static_readonly')}</p> : (
           <form className="form-row" onSubmit={add}>
             <input className="input" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={t('add_placeholder')} dir="ltr" />
             <button className="btn btn--primary" disabled={busy || !url.trim()}>{busy ? <Spinner size={16} /> : t('add')}</button>
@@ -106,7 +107,7 @@ export default function Sources() {
                       {c ? ` • ${c.series} ${t('series_').toLowerCase()}, ${c.films} ${t('films_').toLowerCase()}, ${c.episodes} ${t('episodes_count')}` : ` • ${t('not_indexed')}`}
                     </small>
                   </div>
-                  {!api.static && <button className="btn btn--text danger" onClick={() => remove(s)}>{t('remove')}</button>}
+                  {!api.static && DOCUMENTARIES && <button className="btn btn--text danger" disabled={s.managed} onClick={() => remove(s)}>{t('remove')}</button>}
                 </li>
               );
             })}
@@ -114,7 +115,7 @@ export default function Sources() {
         )}
       </section>
 
-      {!api.static && (
+      {!api.static && DOCUMENTARIES && (
         <section className="panel panel--muted">
           <div className="panel__head"><h2>{t('curation')}</h2></div>
           <p className="hint">{t('curation_hint')}</p>

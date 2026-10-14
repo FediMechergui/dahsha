@@ -25,3 +25,14 @@ build.log
 
 .vercel
 .env*
+
+client/public/data-flixer/
+client-terrarium/dist/
+client-terrarium/dist-*/
+docs/research/fmovies/
+
+server/data/providers-*.json
+server/data/provider-*.json
+server/data/flixer-catalog.json
+docs/research/hdtoday/
+artifacts/

@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const onlyIdx = argv.indexOf('--only');
 const ONLY = onlyIdx >= 0 ? new Set(argv[onlyIdx + 1].split(',')) : null;
-const dataDir = path.resolve(argv.find((a) => !a.startsWith('--') && (onlyIdx < 0 || a !== argv[onlyIdx + 1])) || path.join(__dirname, '../../client/public/data'));
+const dataDir = path.resolve(argv.find((a) => !a.startsWith('--') && (onlyIdx < 0 || a !== argv[onlyIdx + 1])) || path.join(__dirname, '../../client/public/data-flixer'));
 const UA = 'Flixer/1.2 (https://github.com/FediMechergui/flixer; catalogue build)';
 const SPARQL = 'https://query.wikidata.org/sparql';
 

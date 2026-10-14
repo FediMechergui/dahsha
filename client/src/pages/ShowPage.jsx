@@ -32,6 +32,7 @@ export default function ShowPage() {
   }, [catalog, show]);
 
   if (!catalog) return null;
+  if (show?.detailsLoading && !show.title) return <div className="page container" role="status">{t('loading')}</div>;
   if (!show) return <div className="page container"><EmptyState title={t('show_missing')} body={t('show_missing_body')} action={<Link className="btn btn--ghost" to="/browse">{t('back_to_browse')}</Link>} /></div>;
 
   const film = show.kind === 'film';
@@ -39,7 +40,7 @@ export default function ShowPage() {
   const next = inProgress?.e || show.episodes.find((e) => !progress[e.id]?.finished) || show.episodes[0];
   const isFav = favs.includes(show.id);
   const years = [yearOf(show.firstAt), yearOf(show.latestAt)].filter(Boolean);
-  const yearLabel = years.length ? (years[0] === years[1] ? `${years[0]}` : `${years[0]}–${years[1]}`) : null;
+  const yearLabel = show.year ? String(show.year) : years.length ? (years[0] === years[1] ? `${years[0]}` : `${years[0]}–${years[1]}`) : null;
   const seasons = show.seasons || [];
   const sl = show.lang || lang; // formatting language for this show's content
 
@@ -61,17 +62,25 @@ export default function ShowPage() {
           </p>
           <h1 className="show__title">{show.title}</h1>
           <p className="show__meta">
-            {film ? <span>{fmtDuration(show.totalDurationSec, lang)}</span> : <span>{episodesLabel(show.episodeCount, lang)}{seasons.length > 1 ? ` • ${seasons.length} ${t('seasons')}` : ''}</span>}
-            {!film && <span>{fmtDuration(show.totalDurationSec, lang)}</span>}
+            {film ? (show.totalDurationSec ? <span>{fmtDuration(show.totalDurationSec, lang)}</span> : null) : <span>{episodesLabel(show.episodeCount, lang)}{seasons.length > 1 ? ` • ${seasons.length} ${t('seasons')}` : ''}</span>}
+            {!film && show.totalDurationSec > 0 && <span>{fmtDuration(show.totalDurationSec, lang)}</span>}
             {yearLabel && <span>{yearLabel}</span>}
             {show.totalViews ? <span>{fmtCompact(show.totalViews, lang)} {t('views')}</span> : null}
           </p>
           <div className="show__tags">{show.tags.map((x) => <TagPill key={x} tag={tagMap.get(x)} />)}</div>
           <p className={`show__synopsis ${show.synopsisGenerated ? 'is-generated' : ''}`}>{show.synopsis}</p>
+          {show.versions?.length > 0 && <section aria-label="Available versions">
+            <h2>{lang === 'ar' ? 'نسخ أخرى بنفس العنوان' : 'Other versions with this title'}</h2>
+            <p>{lang === 'ar' ? 'قد تكون هذه نسخاً مختلفة. اختر النسخة التي تريد مشاهدتها.' : 'These may be different editions. Choose which one to open.'}</p>
+            <div className="show__actions">{show.versions.map(version => <Link className="btn btn--ghost" key={version.id} to={`/show/${version.id}${version.sourceUrl ? `?source=${encodeURIComponent(version.sourceUrl)}` : ''}`}>
+              {version.title} {version.year || ''} · {version.offerings?.[0]?.provider || version.channelId || 'Source'}
+            </Link>)}</div>
+          </section>}
           <div className="show__actions">
-            <Link to={`/watch/${show.id}/${next.id}`} className="btn btn--primary">
+            {next && <Link to={`/watch/${show.id}/${next.id}${/^(fm|hd):/.test(show.id) && show.sourceUrl ? `?source=${encodeURIComponent(show.sourceUrl)}` : ''}`} className="btn btn--primary">
               <PlayIcon /> {inProgress ? t('continue_watching') : film ? t('watch_film') : t('watch_now')}
-            </Link>
+            </Link>}
+            {!next && <p role="status">{show.detailsLoading ? t('loading') : show.detailsError || t('episode_missing')}</p>}
             <button className={`btn btn--ghost fav-btn ${isFav ? 'is-active' : ''}`} onClick={() => favoritesStore.toggle(show.id)}>
               <HeartIcon filled={isFav} /> {isFav ? t('in_my_list') : t('add_to_list')}
             </button>

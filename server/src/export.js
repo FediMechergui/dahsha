@@ -1,45 +1,40 @@
-// Exports the Flixer catalog as static JSON files for Vercel / mobile builds
-import fs from 'node:fs';
+import { mergeCachedProviders, refreshProviders, saveMergeReport } from './provider-sync.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { fetchFullCatalog } from './myflixer.js';
+import { PRODUCT } from './product.js';
+import { writeCatalog } from './export-catalog.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const outDir = path.resolve(process.argv[2] || path.join(__dirname, '../../client/public/data'));
-
-async function run() {
-  console.log('[export] fetching movies and tv series catalog for static deployment...');
-  const cat = await fetchFullCatalog({ pagesPerGenre: 1 });
-
-  fs.rmSync(outDir, { recursive: true, force: true });
-  fs.mkdirSync(path.join(outDir, 'shows'), { recursive: true });
-
-  const payload = {
-    generatedAt: cat.generatedAt,
-    shows: cat.shows,
-    tags: cat.tags,
-    channels: [{ id: 'myflixer', title: 'Flixer Cinema', name: 'Flixer Cinema' }],
-  };
-
-  fs.writeFileSync(path.join(outDir, 'catalog.json'), JSON.stringify(payload));
-  fs.writeFileSync(path.join(outDir, 'catalog.en.json'), JSON.stringify(payload));
-  fs.writeFileSync(path.join(outDir, 'catalog.ar.json'), JSON.stringify(payload));
-
-  for (const s of cat.shows) {
-    fs.writeFileSync(path.join(outDir, 'shows', `${encodeURIComponent(s.id)}.json`), JSON.stringify(s));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const args=process.argv.slice(2);
+const out = path.resolve(args.find(a=>!a.startsWith('--')) || path.join(root, 'client/public', PRODUCT === 'dahsha' ? 'data' : 'data-flixer'));
+try {
+  let catalog;
+  if (PRODUCT === 'dahsha') {
+    const { Catalogue } = await import('./scheduler.js');
+    const c = new Catalogue();
+    if (!c.getCatalog()) c.rebuild();
+    catalog = c.getCatalog();
+  } else {
+    const { fetchFullCatalog } = await import('./myflixer.js');
+    const { readJson, writeJson } = await import('./store.js');
+    const file=path.join(root,'client/public/data-flixer/catalog.json');
+    const fs=await import('node:fs');
+    const previous=readJson('flixer-catalog.json',fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):null);
+    if(args.includes('--cached') && previous) catalog=previous;
+    else {
+      const fresh=await fetchFullCatalog();
+      const byId=new Map((previous?.shows||[]).map(show=>[show.id,show]));
+      const { mergeShow } = await import('./merge-library.js');
+      for(const show of fresh.shows)byId.set(show.id,byId.has(show.id)?mergeShow(byId.get(show.id),show):show);
+      catalog={...fresh,shows:[...byId.values()]};
+    }
+    writeJson('flixer-catalog.json',catalog);
   }
-
-  fs.writeFileSync(path.join(outDir, 'status.json'), JSON.stringify({
-    static: true,
-    generatedAt: cat.generatedAt,
-    refreshing: false,
-    stats: { shows: cat.shows.length, episodes: cat.shows.reduce((acc, s) => acc + (s.episodeCount || 1), 0) },
-  }));
-
-  console.log(`[export] exported ${cat.shows.length} titles to ${outDir}`);
+  const merged = mergeCachedProviders(catalog, PRODUCT);
+  catalog = merged.catalog; saveMergeReport(PRODUCT, merged.report);
+  writeCatalog(out, catalog, PRODUCT);
+  console.log(`[${PRODUCT}] exported ${catalog.shows.length} titles to ${out}`);
+} catch (error) {
+  console.error(`[${PRODUCT}] export failed: ${error.message}`);
+  process.exitCode = 1;
 }
-
-run().catch((err) => {
-  console.error('[export] failed:', err);
-  process.exit(1);
-});

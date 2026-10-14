@@ -1,7 +1,6 @@
 // Hybrid Player: YouTube IFrame Player for YouTube videos, and native HTML5/Hls.js Video Player
 // for direct documentary streams (e.g. Myflixer HLS .m3u8), with fallback to clean player embed.
 import { useEffect, useRef, useState } from 'react';
-import Hls from 'hls.js';
 import { useLang } from '../lib/i18n.jsx';
 import { api, API_BASE } from '../lib/api.js';
 
@@ -40,7 +39,10 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
   const [streamFailed, setStreamFailed] = useState(false);
   const { t, lang } = useLang();
 
-  const isMyflixer = videoId?.startsWith('mf:');
+  const isMyflixer = /^(mf|fm|hd):/.test(videoId || '') || episode?.offerings?.some(o => o.provider !== 'youtube');
+  const youtubeServer = servers[activeServerIdx]?.type === 'youtube' ? servers[activeServerIdx] : null;
+  const youtubeId = youtubeServer?.videoId || videoId;
+  const playYoutube = !isMyflixer || !!youtubeServer;
   const mfSlug = isMyflixer ? videoId.replace(/^mf:[me]:/, '') : '';
 
   const containerRef = useRef(null);
@@ -90,7 +92,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     setStreamFailed(false);
     setServerNotice(null);
 
-    api.stream(videoId)
+    api.stream(videoId, { sources: episode?.offerings?.map(o=>o.sourceUrl).filter(Boolean) || [], showId: episode?.showId, source: episode?.offerings?.find(o => ['fmovies', 'hdtoday'].includes(o.provider))?.sourceUrl || episode?.sourceUrl })
       .then((data) => {
         if (cancelled) return;
         setLoading(false);
@@ -105,13 +107,14 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
           data.servers.forEach((s, idx) => {
             const streamUrl = s.streamUrl ? toAbsolute(s.streamUrl) : (s.rawStreamUrl ? toAbsolute(s.rawStreamUrl) : null);
             const embedUrl = s.embedUrl ? toAbsolute(s.embedUrl) : (s.rawEmbedUrl ? toAbsolute(s.rawEmbedUrl) : null);
-            if (streamUrl || embedUrl) {
+            if (streamUrl || embedUrl || s.type === 'youtube') {
               resolvedServers.push({
                 id: s.id ?? idx,
                 name: s.name || `Player ${idx + 1}`,
                 type: s.type || (streamUrl ? 'hls' : 'embed'),
                 streamUrl,
                 embedUrl,
+                videoId: s.videoId, sandbox: s.sandbox, provider: s.provider,
               });
             }
           });
@@ -154,7 +157,8 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
         // Prioritize Player 2 (Medmedia) as initial active server: it provides multi-CDN sources,
         // full video controls, subtitles, and is completely free of Soap2Day token/CSP blocks.
         const p2Idx = resolvedServers.findIndex((s) => s.name?.toLowerCase().includes('player 2'));
-        const initialIdx = p2Idx !== -1 ? p2Idx : 0;
+        const ytIdx = resolvedServers.findIndex(s => s.type === 'youtube');
+        const initialIdx = /^[\w-]{11}$/.test(videoId) && ytIdx !== -1 ? ytIdx : p2Idx !== -1 ? p2Idx : 0;
         setActiveServerIdx(initialIdx);
 
         const initialSrv = resolvedServers[initialIdx];
@@ -164,61 +168,10 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
           setStreamUrl(null);
         }
       })
-      .catch(async (err) => {
+      .catch(err => {
         if (cancelled) return;
-        console.warn('[player] stream resolution notice:', err.message);
-
-        // Integrated client-side scraper fallback (works standalone inside APK / offline without server)
-        try {
-          const targetUrl = episode?.sourceUrl || `https://myflixerz.day/${mfSlug}/`;
-          const res = await fetch(targetUrl);
-          if (res.ok) {
-            const html = await res.text();
-            const tabs = [];
-            const reTab = /<button[^>]*class="[^"]*player-tab-btn[^"]*"[^>]*data-player-url="([^"]+)"[^>]*>([\s\S]*?)<\/button>/gi;
-            let mTab;
-            while ((mTab = reTab.exec(html)) !== null) {
-              const pUrl = mTab[1].trim().replace(/&#038;/g, '&');
-              const pName = mTab[2].replace(/<[^>]+>/g, '').trim() || `Player ${tabs.length + 1}`;
-              if (pUrl && !tabs.some((t) => t.url === pUrl)) {
-                tabs.push({ id: tabs.length + 1, name: pName, url: pUrl });
-              }
-            }
-            if (tabs.length > 0) {
-              const fallbackServers = tabs.map((tab) => ({
-                id: `tab_${tab.id}`,
-                name: tab.name,
-                type: 'embed',
-                embedUrl: tab.url,
-                rawEmbedUrl: tab.url,
-              }));
-              setServers(fallbackServers);
-              const p2Idx = fallbackServers.findIndex((s) => s.name?.toLowerCase().includes('player 2'));
-              setActiveServerIdx(p2Idx !== -1 ? p2Idx : 0);
-              setLoading(false);
-              return;
-            }
-          }
-        } catch (e2) {
-          console.warn('[player] client fallback scrape error:', e2.message);
-        }
-
-        // Direct episode embed fallback if available
-        if (episode?.embedUrl || episode?.sourceUrl) {
-          const fb = [{
-            id: 'embed_fallback',
-            name: 'Player (Direct)',
-            type: 'embed',
-            embedUrl: episode.embedUrl || episode.sourceUrl,
-          }];
-          setServers(fb);
-          setActiveServerIdx(0);
-          setLoading(false);
-          return;
-        }
-
-        setLoading(false);
-        setStreamFailed(true);
+        console.warn('[player] provider resolution failed:', err.message);
+        setLoading(false); setStreamFailed(true);
       });
 
     return () => { cancelled = true; };
@@ -290,12 +243,16 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       failoverToNext();
     };
     video.addEventListener('error', onNativeError);
+    let cancelled = false;
+    const attach = async () => {
+    const Hls = video.canPlayType('application/vnd.apple.mpegurl') ? null : (await import('hls.js')).default;
+    if (cancelled) return;
 
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Native HLS (Safari / iOS)
       video.src = streamUrl;
       if (autoplay) video.play().catch(() => {});
-    } else if (Hls.isSupported()) {
+    } else if (Hls?.isSupported()) {
       // Hls.js (Chrome, Firefox, Edge, Android)
       const hls = new Hls({
         enableWorker: true,
@@ -319,7 +276,10 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       if (autoplay) video.play().catch(() => {});
     }
 
+    };
+    attach().catch(() => { if (!cancelled) failoverToNext(); });
     return () => {
+      cancelled = true;
       video.removeEventListener('error', onNativeError);
       if (hlsRef.current) {
         hlsRef.current.destroy();
@@ -330,7 +290,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
 
   // 3. YouTube player initialization
   useEffect(() => {
-    if (isMyflixer) return; // YouTube only
+    if (!playYoutube) return;
     let cancelled = false;
     setErrorCode(null);
     const mount = document.createElement('div');
@@ -347,7 +307,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     loadApi().then((YT) => {
       if (cancelled) return;
       player.current = new YT.Player(mount, {
-        videoId,
+        videoId: youtubeId,
         host: 'https://www.youtube-nocookie.com',
         playerVars: { autoplay: autoplay ? 1 : 0, rel: 0, modestbranding: 1, playsinline: 1, hl: lang, cc_lang_pref: lang, start: Math.floor(startAt) || 0, origin: window.location.origin },
         events: {
@@ -369,7 +329,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
       player.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId, isMyflixer]);
+  }, [youtubeId, playYoutube]);
 
   // Handle native <video> timeupdate & ended
   const handleTimeUpdate = (e) => {
@@ -383,13 +343,6 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
     cbs.current.onEnded?.();
   };
 
-  if (isMyflixer) {
-    const poster = episode?.thumbs?.custom || (episode?.thumbs?.default?.startsWith('http') ? episode.thumbs.default : null);
-    const curServer = servers[activeServerIdx] || null;
-    const isHls = curServer?.type === 'hls' && streamUrl && !streamFailed;
-    const currentEmbed = curServer?.embedUrl || (!isHls && curServer?.rawEmbedUrl ? curServer.rawEmbedUrl : embedSrc);
-
-    // Shared server switcher button bar
     const renderServerBar = () => (
       <div className="player__overlay-bar">
         {servers.length > 1 && (
@@ -431,6 +384,15 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
         </button>
       </div>
     );
+
+  if (isMyflixer && !playYoutube) {
+    const poster = episode?.thumbs?.custom || (episode?.thumbs?.default?.startsWith('http') ? episode.thumbs.default : null);
+    const curServer = servers[activeServerIdx] || null;
+    const isHls = curServer?.type === 'hls' && streamUrl && !streamFailed;
+    const currentEmbed = curServer?.embedUrl || (!isHls && curServer?.rawEmbedUrl ? curServer.rawEmbedUrl : embedSrc);
+
+    // Shared server switcher button bar
+
 
     // 1. Primary: Native HTML5 video with Hls.js stream
     if (isHls) {
@@ -474,6 +436,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
             title={episode?.title || 'Player'}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
             allowFullScreen
+            sandbox={curServer?.sandbox === null ? undefined : "allow-scripts allow-same-origin allow-forms allow-presentation"}
             frameBorder="0"
             style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
           />
@@ -531,6 +494,7 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
         )}
       </button>
       <div className="player__mount" ref={host} style={{ width: '100%', height: '100%' }} />
+      {isMyflixer && renderServerBar()}
       {message && (
         <div className="player__error">
           <p>{message}</p>

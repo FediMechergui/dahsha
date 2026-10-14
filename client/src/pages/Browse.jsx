@@ -1,3 +1,4 @@
+import { api } from '../lib/api.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -11,7 +12,7 @@ import { titlesLabel } from '../lib/format.js';
 import { channelColor } from '../lib/channels.js';
 
 export default function Browse() {
-  const { catalog, tagMap, channelMap } = useCatalog();
+  const { catalog, tagMap, channelMap, registerShows } = useCatalog();
   const { t, lang } = useLang();
   const [params, setParams] = useSearchParams();
   const tag = params.get('tag');
@@ -60,6 +61,16 @@ export default function Browse() {
   // Progressive rendering: a few dozen cards first, more as the sentinel scrolls into view.
   const [limit, setLimit] = useState(PAGE);
   const sentinel = useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (channel || source === 'youtube' || source === 'myflixer') return undefined;
+    const page = Math.ceil(limit / PAGE);
+    if (page > 500) return undefined;
+    Promise.allSettled((kind ? [kind] : ['film', 'series']).map(k => api.discover({ kind:k, page, genre:tag })))
+      .then(results => { if (!cancelled) registerShows(results.flatMap(r => r.status === 'fulfilled' ? r.value.items || [] : [])); });
+    return () => { cancelled = true; };
+  }, [kind, tag, channel, source, lang, limit, registerShows]);
+
   useEffect(() => { setLimit(PAGE); }, [tag, channel, kind, sort, q, lang]);
   useEffect(() => {
     const el = sentinel.current;

@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+test('Dahsha starts, serves its own catalogue and sources, and streams status events', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dahsha-server-'));
+  process.env.APP_PRODUCT = 'dahsha'; process.env.DATA_DIR = dir;
+  fs.writeFileSync(path.join(dir, 'sources.json'), JSON.stringify({ sources: [] }));
+  fs.writeFileSync(path.join(dir, 'catalog.json'), JSON.stringify({ shows: [{ id: 'documentary', episodes: [] }], stats: { shows: 1, episodes: 0 } }));
+  const { app } = await import('../src/index.js');
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); fs.rmSync(dir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const catalog = await (await fetch(`${base}/api/catalog`)).json();
+  assert.equal(catalog.product, 'dahsha');
+  assert.equal((await fetch(`${base}/api/sources`)).status, 200);
+  assert.equal((await fetch(`${base}/api/movies`)).status, 404);
+  assert.equal((await fetch(`${base}/api/stream?id=mf:m:action-movie`)).status, 404);
+  assert.equal((await fetch(`${base}/api/stream?proxy=1&url=http://127.0.0.1`)).status, 403);
+  assert.equal((await fetch(`${base}/api/stream/mf:m:test?embed=1&id=bad`)).status, 400);
+  const ctrl = new AbortController();
+  const events = await fetch(`${base}/api/events`, { signal: ctrl.signal });
+  assert.match(events.headers.get('content-type'), /text\/event-stream/);
+  const { value } = await events.body.getReader().read();
+  assert.match(new TextDecoder().decode(value), /event: status/);
+  ctrl.abort();
+  assert.equal((await fetch(`${base}/api/sources`, { method: 'POST', headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' }, body: '{"url":"bad"}' })).status, 403);
+});

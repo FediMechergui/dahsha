@@ -690,6 +690,7 @@
           <button class="btn ${saved ? "btn--ghost is-on" : "btn--ghost"}" data-save>${ICON.bookmark} <span>${saved ? "Saved" : "My list"}</span></button>
         </div>
         <div class="tags">${d.genres.map(g => `<a class="tag" href="#/${type === "tv" ? "shows" : "movies"}" data-genre="${esc(g.id)}">${esc(g.name)}</a>`).join("")}</div>
+        ${d.versions?.length ? `<section class="sub-section"><h3>Other versions with this title</h3><p>These may be different editions. Choose a version to open.</p>${d.versions.map(v=>`<a class="btn btn--ghost" href="#/${type}/${esc(v.id)}">${esc(v.title)} ${esc(v.year || '')} · ${esc(v.offerings?.[0]?.provider || 'Source')}</a>`).join('')}</section>` : ''}
         <p class="overview ${d.overview.length > 220 ? "is-clamped" : ""}" id="ov">${esc(d.overview || "No synopsis available.")}</p>
         ${d.overview.length > 220 ? `<button class="more" data-more>Read more</button>` : ""}
         <div class="facts">${facts.map(([k, v, cls]) => `<div class="fact"><div class="fact__k">${k}</div><div class="fact__v ${cls || ""}">${v}</div></div>`).join("")}</div>
@@ -798,7 +799,7 @@
     paintInfo();
 
     let sources;
-    try { sources = await api.stream(episode.id, episode.sourceUrl); }
+    try { sources = await api.stream(episode.id, episode.sourceUrl, show); }
     catch (e) { sources = { servers: [] }; }
     if (!el.isConnected) return;
 

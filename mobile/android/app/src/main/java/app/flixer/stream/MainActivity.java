@@ -15,7 +15,7 @@ public class MainActivity extends BridgeActivity {
         webView.setWebChromeClient(chromeClient);
 
         android.webkit.WebSettings settings = webView.getSettings();
-        settings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 

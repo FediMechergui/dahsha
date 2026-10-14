@@ -19,3 +19,13 @@ emulator-*.png
 *.log
 data-snapshot.tar.gz
 .git
+
+client-terrarium/dist
+client/public/data-flixer
+client/public/*.stage-*
+client/public/*.backup-*
+server/data/providers-*.json
+server/data/provider-*.json
+server/data/flixer-catalog.json
+artifacts
+docs/research

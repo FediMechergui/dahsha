@@ -1,10 +1,10 @@
 {
-  "appId": "app.flixer.stream",
-  "appName": "Flixer",
+  "appId": "app.dahsha.stream",
+  "appName": "Dahsha",
   "webDir": "www",
   "backgroundColor": "#0a0b0d",
   "android": {
-    "allowMixedContent": true,
+    "allowMixedContent": false,
     "backgroundColor": "#0a0b0d",
     "adjustMarginsForEdgeToEdge": "force"
   },
@@ -12,8 +12,16 @@
     "androidScheme": "https"
   },
   "plugins": {
-    "StatusBar": { "style": "DARK", "backgroundColor": "#0a0b0d", "overlaysWebView": false },
-    "SplashScreen": { "launchShowDuration": 0 },
-    "CapacitorHttp": { "enabled": true }
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0a0b0d",
+      "overlaysWebView": false
+    },
+    "SplashScreen": {
+      "launchShowDuration": 0
+    },
+    "CapacitorHttp": {
+      "enabled": true
+    }
   }
 }

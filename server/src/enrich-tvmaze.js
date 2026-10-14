@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
-const file = path.resolve(args.find((a) => !a.startsWith('--') && a !== opt('--out')) || path.join(__dirname, '../../client/public/data/catalog.json'));
+const file = path.resolve(args.find((a) => !a.startsWith('--') && a !== opt('--out')) || path.join(__dirname, '../../client/public/data-flixer/catalog.json'));
 const out = path.resolve(opt('--out') || file);
 
 const key = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/^(the|a|an)\s+/, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();

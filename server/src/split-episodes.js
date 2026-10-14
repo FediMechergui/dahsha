@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.resolve(process.argv[2] || path.join(__dirname, '../../client/public/data'));
+const dataDir = path.resolve(process.argv[2] || path.join(__dirname, '../../client/public/data-flixer'));
 const file = path.join(dataDir, 'catalog.json');
 const showsDir = path.join(dataDir, 'shows');
 

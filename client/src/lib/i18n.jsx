@@ -1,8 +1,9 @@
+import { DOCUMENTARIES, PRODUCT } from './product.js';
 // Two-language UI (English default, Arabic). Tailored for Movies & TV Series streaming.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-export const APP_NAME = { ar: 'فليكسر', en: 'Flixer' };
-export const TAGLINE = { ar: 'أفلام ومسلسلات بلا حدود', en: 'Movies & TV Series' };
+export const APP_NAME = DOCUMENTARIES ? { ar: 'دهشة', en: 'Dahsha' } : { ar: 'فليكسر', en: 'Flixer' };
+export const TAGLINE = DOCUMENTARIES ? { ar: 'وثائقيات تدهشك', en: 'Documentaries that amaze' } : { ar: 'أفلام ومسلسلات بلا حدود', en: 'Movies & TV Series' };
 
 const STRINGS = {
   ar: {
@@ -61,13 +62,40 @@ const STRINGS = {
   },
 };
 
+if (DOCUMENTARIES) {
+  Object.assign(STRINGS.en, {
+    nav_movies: 'Documentary Films', nav_films: 'Films', nav_series: 'Docuseries', nav_sources: 'Sources',
+    search_placeholder: 'Search documentaries...', stat_films: 'films', stat_channels: 'channels',
+    row_films: 'Documentary Films', row_films_sub: 'Full-length documentaries', row_new_series: 'Recently updated docuseries',
+    browse_title: 'Browse Documentaries', browse_films: 'Documentary Films', browse_series: 'Docuseries',
+    browse_sub: 'Full-length documentaries by show and topic', all_channels: 'All Channels', kind_films: 'Films',
+    kind_film_label: 'Documentary Film', kind_series_label: 'Docuseries', the_film: 'The Film', watch_film: 'Watch Film',
+    sources_title: 'Documentary Sources', sources_sub: 'Manage documentary channels and catalogue refreshes.',
+    sources: 'Sources', sources_hint: 'Add a documentary YouTube channel or playlist.', add_placeholder: 'YouTube channel or playlist URL',
+    remove_confirm: 'Remove this source?', profile: 'Parsing profile', scans_uploads: 'Scans uploads',
+    footer: 'Dahsha - full-length documentaries in Arabic and English. Playback belongs to the original channels.',
+  });
+  Object.assign(STRINGS.ar, {
+    nav_movies: 'أفلام وثائقية', nav_films: 'أفلام', nav_series: 'سلاسل وثائقية', nav_sources: 'المصادر',
+    search_placeholder: 'ابحث عن وثائقي…', stat_films: 'أفلام', stat_channels: 'قنوات',
+    row_films: 'أفلام وثائقية', row_films_sub: 'وثائقيات كاملة', row_new_series: 'سلاسل وثائقية محدثة',
+    browse_title: 'تصفح الوثائقيات', browse_films: 'أفلام وثائقية', browse_series: 'سلاسل وثائقية',
+    browse_sub: 'وثائقيات كاملة مرتبة حسب البرنامج والموضوع', all_channels: 'كل القنوات', kind_films: 'أفلام',
+    kind_film_label: 'فيلم وثائقي', kind_series_label: 'سلسلة وثائقية', the_film: 'الفيلم', watch_film: 'شاهد الفيلم',
+    sources_title: 'مصادر الوثائقيات', sources_sub: 'إدارة القنوات الوثائقية وتحديث الفهرس.',
+    sources: 'المصادر', sources_hint: 'أضف قناة وثائقية أو قائمة تشغيل من يوتيوب.', add_placeholder: 'رابط قناة أو قائمة تشغيل يوتيوب',
+    remove_confirm: 'إزالة هذا المصدر؟', profile: 'نمط التحليل', scans_uploads: 'يفحص الفيديوهات الجديدة',
+    footer: 'دهشة — وثائقيات كاملة بالعربية والإنجليزية. حقوق المحتوى لأصحاب القنوات.',
+  });
+}
+
 const Ctx = createContext(null);
-const KEY = 'dh.lang';
+const KEY = `${PRODUCT}.lang`;
 
 export function LangProvider({ children }) {
   const [lang, setLangState] = useState(() => {
     try { const v = localStorage.getItem(KEY); if (v === 'ar' || v === 'en') return v; } catch { /* no storage */ }
-    return 'ar';
+    return DOCUMENTARIES ? 'ar' : 'en';
   });
   const setLang = useCallback((l) => { setLangState(l); try { localStorage.setItem(KEY, l); } catch { /* ignore */ } }, []);
   useEffect(() => {

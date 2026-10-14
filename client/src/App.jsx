@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { useEffect } from 'react';
 import { Routes, Route, useLocation, Link } from 'react-router-dom';
 import Header from './components/Header.jsx';
@@ -9,7 +10,7 @@ import { useLang } from './lib/i18n.jsx';
 import Home from './pages/Home.jsx';
 import Browse from './pages/Browse.jsx';
 import ShowPage from './pages/ShowPage.jsx';
-import Watch from './pages/Watch.jsx';
+const Watch = lazy(() => import('./pages/Watch.jsx'));
 import Search from './pages/Search.jsx';
 import MyList from './pages/MyList.jsx';
 import Sources from './pages/Sources.jsx';
@@ -61,7 +62,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/browse" element={<Browse />} />
             <Route path="/show/:id" element={<ShowPage />} />
-            <Route path="/watch/:showId/:epId" element={<Watch />} />
+            <Route path="/watch/:showId/:epId" element={<Suspense fallback={<div className="page container" role="status">{t('loading')}</div>}><Watch /></Suspense>} />
             <Route path="/search" element={<Search />} />
             <Route path="/my" element={<MyList />} />
             <Route path="/sources" element={<Sources />} />

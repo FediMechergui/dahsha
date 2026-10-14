@@ -97,7 +97,7 @@
     }
 
     function loadEmbed(s) {
-      stage.innerHTML = `<iframe src="${esc(s.embedUrl)}" title="${esc(opts.title || "Player")}" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen frameborder="0" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+      stage.innerHTML = `<iframe src="${esc(s.embedUrl)}" title="${esc(opts.title || "Player")}" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen ${s.sandbox === null ? "" : 'sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"'} frameborder="0" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
     }
 
     function failover() {

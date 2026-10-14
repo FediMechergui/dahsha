@@ -19,7 +19,7 @@ export default function EpisodeCard({ show, episode, layout = 'grid', index, act
     <Link to={`/watch/${show.id}/${episode.id}`} className={`ep ep--${layout} ${active ? 'ep--active' : ''}`}>
       <div className="ep__media">
         <Thumb thumbs={episode.thumbs} alt="" className="ep__img" start={layout === 'grid' ? 'sd' : 'hq'} />
-        <span className="ep__dur">{fmtClock(episode.durationSec)}</span>
+        {episode.durationSec > 0 && <span className="ep__dur">{fmtClock(episode.durationSec)}</span>}
         {progress?.finished && <span className="ep__done" title={t('watched')}>✓</span>}
         {ratio > 0.01 && !progress?.finished && <div className="ep__progress"><ProgressBar value={ratio} /></div>}
         <span className="ep__play" aria-hidden><PlayIcon size={22} /></span>

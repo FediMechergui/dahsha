@@ -1,3 +1,4 @@
+import { mergeCachedProviders, refreshProviders, saveMergeReport } from './provider-sync.js';
 // Orchestrates refreshes: lists playlists + uploads per channel, detects changes, fetches details,
 // rebuilds the catalogue and emits events that the HTTP layer forwards to browsers over SSE.
 import { EventEmitter } from 'node:events';
@@ -7,7 +8,7 @@ import {
 } from './youtube.js';
 import { buildCatalog, diffCatalog } from './catalog.js';
 import { enrichArtwork, getArtwork, artworkEnabled } from './artwork.js';
-import { fetchMyflixerCatalog } from './myflixer.js';
+import { fetchMyflixerCatalog } from './documentaries.js';
 
 const REFRESH_MINUTES = Number(process.env.REFRESH_MINUTES || 15);
 const FEED_MINUTES = Number(process.env.FEED_MINUTES || 3);
@@ -47,6 +48,7 @@ export class Catalogue extends EventEmitter {
     this.details = readJson('details.json', {});
     this.seen = readJson('seen.json', {});
     this.catalog = readJson('catalog.json', null);
+    if (this.catalog) this.catalog = mergeCachedProviders(this.catalog, 'dahsha').catalog;
     this.status = { refreshing: false, stage: 'idle', progress: null, lastRefreshAt: this.catalog?.generatedAt || null, lastError: null, nextRefreshAt: null };
     this.feedSeen = new Set();
     this._timers = [];
@@ -99,7 +101,9 @@ export class Catalogue extends EventEmitter {
   /** Rebuild the catalogue from cached data only (no network). */
   rebuild() {
     this.overrides = { ...DEFAULT_OVERRIDES, ...readJson('overrides.json', DEFAULT_OVERRIDES) };
-    const next = buildCatalog({ playlists: this.playlists, details: this.details, seen: this.seen, overrides: this.overrides, sources: this.sources, artwork: getArtwork() });
+    const built = buildCatalog({ playlists: this.playlists, details: this.details, seen: this.seen, overrides: this.overrides, sources: this.sources, artwork: getArtwork() });
+    const merged = mergeCachedProviders(built, 'dahsha');
+    const next = merged.catalog; saveMergeReport('dahsha', merged.report);
     const diff = diffCatalog(this.catalog, next);
     this.catalog = next;
     writeJson('catalog.json', next);
@@ -180,6 +184,7 @@ export class Catalogue extends EventEmitter {
             continue;
           }
           const { films, series } = await fetchMyflixerCatalog(src, { maxPages: src.maxPages || 60 });
+          if (!films.length && !series.length) throw new Error('Refusing to replace documentary cache with empty data');
           const videos = [];
           for (const f of films) {
             const v = {
@@ -223,7 +228,7 @@ export class Catalogue extends EventEmitter {
                 parsed: { showTitle: s.title, episodeTitle: ep.title, kind: 'series', number: ep.episode, season: ep.season },
                 durationSec: 3000,
                 durationText: '50:00',
-                views: 50000,
+                views: null,
                 thumb: s.thumb,
                 tags: s.tags,
                 sourceUrl: epUrl,
@@ -235,7 +240,7 @@ export class Catalogue extends EventEmitter {
                 title: ep.title,
                 description: s.synopsis,
                 durationSec: 3000,
-                viewCount: 50000,
+                viewCount: null,
                 publishedAt: s.publishedAt,
                 sourceUrl: epUrl,
                 embedUrl: epUrl,
@@ -283,6 +288,7 @@ export class Catalogue extends EventEmitter {
       }
       writeJson('seen.json', this.seen);
 
+      await refreshProviders({ product: 'dahsha' }).catch(e => console.warn('[providers]', e.message));
       this._setStatus({ stage: 'building', progress: null });
       const diff = this.rebuild();
       await this.enrich().catch((e) => console.warn('[artwork]', e.message));

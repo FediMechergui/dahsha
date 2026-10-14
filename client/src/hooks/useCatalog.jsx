@@ -1,3 +1,4 @@
+import { DOCUMENTARIES } from '../lib/product.js';
 // Loads the catalogue section of the active language, keeps it fresh (SSE in server mode, periodic
 // re-fetch in static mode) and exposes a language-scoped view with localised labels. Sections that
 // were loaded earlier stay cached so switching back is instant.
@@ -7,7 +8,7 @@ import { useLang, channelName } from '../lib/i18n.jsx';
 
 const Ctx = createContext(null);
 
-export const thumbsOf = (videoId) => (videoId && !videoId.startsWith('mf:') ? {
+export const thumbsOf = (videoId) => (videoId && /^[\w-]{11}$/.test(videoId) ? {
   max: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
   sd: `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`,
   hq: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
@@ -19,21 +20,24 @@ function normalizeCatalog(raw) {
   if (!raw || !Array.isArray(raw.shows)) return { shows: [], channels: [], tags: [], stats: {}, generatedAt: null, ...(raw || {}), shows: [] };
   const channelMap = new Map((raw.channels || []).map((c) => [c.id, c]));
   const shows = raw.shows.map((s) => {
-    const channel = s.channel || channelMap.get(s.channelId) || null;
+    const channel = s.channel || channelMap.get(s.channelId || (!DOCUMENTARIES ? 'myflixer' : null)) || null;
+    const sourcePoster = s.poster || (!DOCUMENTARIES && s.wpId ? { custom: `https://myflixerz.day/wp-content/uploads/posters/${s.wpId}_medium.jpg`, hq: `https://myflixerz.day/wp-content/uploads/posters/${s.wpId}.jpg` } : null);
     const show = {
       ...s,
       channel,
       lang: s.lang || channel?.lang || raw.lang || null, // null = language-neutral (Flixer catalogue)
       // Keep the plain YouTube thumbnail set as fallbacks even when a custom poster is present.
-      poster: s.poster ? { ...(thumbsOf(s.posterId) || {}), ...s.poster } : thumbsOf(s.posterId),
+      poster: sourcePoster ? { ...(thumbsOf(s.posterId) || {}), ...sourcePoster } : thumbsOf(s.posterId),
       synopsis: s.synopsis || s.blurb || '',
       altTitles: s.altTitles || [],
       seasons: s.seasons || [],
+      latestAt: s.latestAt || s.publishedAt || null,
+      firstAt: s.firstAt || s.publishedAt || null,
     };
-    show.episodes = (s.episodes || []).map((e) => ({ ...e, showId: s.id, thumbs: e.thumbs || thumbsOf(e.id), synopsis: e.synopsis || '' }));
+    show.episodes = (s.episodes?.length ? s.episodes : !DOCUMENTARIES && s.kind === 'film' ? [{ id: s.id, title: s.title, publishedAt: s.publishedAt }] : []).map((e) => ({ ...e, showId: s.id, thumbs: e.thumbs || thumbsOf(e.id), synopsis: e.synopsis || '' }));
     return show;
   });
-  return { ...raw, shows };
+  return { ...raw, shows, stats: raw.stats || {} };
 }
 
 /** Restrict a catalogue to one language and localise tag/channel labels. */
@@ -41,9 +45,9 @@ function scopeCatalog(all, lang) {
   if (!all) return null;
   // In Flixer, all shows are international movies & TV series.
   // Prioritize matching language if any, otherwise fallback to all shows so nothing is ever hidden.
-  const matching = all.shows.filter((s) => !s.lang || s.lang === lang);
-  const shows = matching.length > 0 ? matching : all.shows;
-  const channels = (all.channels || []).filter((c) => !c.lang || c.lang === lang || matching.length === 0).map((c) => ({ ...c, name: channelName(c, lang) }));
+  const matching = DOCUMENTARIES ? all.shows.filter(s => s.lang === lang) : all.shows;
+  const shows = matching;
+  const channels = (all.channels || []).filter((c) => !DOCUMENTARIES || !c.lang || c.lang === lang).map((c) => ({ ...c, name: channelName(c, lang) }));
   const tags = (all.tags || []).map((t) => ({ ...t, label: lang === 'en' ? (t.labelEn || t.label) : t.label, count: lang === 'en' ? (t.countEn ?? t.count) : (t.countAr ?? t.count) })).filter((t) => t.count > 0);
   const stats = {
     ...all.stats,
@@ -81,7 +85,7 @@ export function CatalogProvider({ children }) {
     try {
       const c = await api.catalog(l);
       const norm = normalizeCatalog(c);
-      setSections((prev) => ({ ...prev, [l]: norm, ar: norm, en: norm }));
+      setSections(prev => DOCUMENTARIES ? ({ ...prev, [l]: norm }) : ({ ...prev, ar: norm, en: norm }));
       setError(null);
       setBuilding(false);
     } catch (e) {
@@ -99,7 +103,7 @@ export function CatalogProvider({ children }) {
   // Server mode: SSE for status + catalogue updates. Static mode: poll status.json every 10 min.
   const generatedAt = sections[lang]?.generatedAt;
   useEffect(() => {
-    if (api.static) {
+    if (api.static || !DOCUMENTARIES) {
       let stop = false;
       const tick = async () => {
         try {
@@ -116,8 +120,9 @@ export function CatalogProvider({ children }) {
     let es;
     let retry = 1000;
     let closed = false;
+    let reconnectTimer;
     const connect = () => {
-      es = new EventSource('/api/events');
+      es = new EventSource(`${import.meta.env.VITE_API_BASE || ''}/api/events`);
       es.onopen = () => { setConnected(true); retry = 1000; };
       es.addEventListener('status', (ev) => setStatus(JSON.parse(ev.data)));
       es.addEventListener('update', (ev) => {
@@ -140,18 +145,18 @@ export function CatalogProvider({ children }) {
       es.onerror = () => {
         setConnected(false);
         es.close();
-        if (!closed) setTimeout(connect, Math.min(retry *= 2, 30000));
+        if (!closed) reconnectTimer = setTimeout(connect, Math.min(retry *= 2, 30000));
       };
     };
     connect();
-    return () => { closed = true; es?.close(); };
+    return () => { closed = true; clearTimeout(reconnectTimer); es?.close(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadAll, pushToast, generatedAt]);
 
   const refresh = useCallback(async (full = false) => {
-    try { await api.refresh(full); pushToast({ kind: 'info', title: t('toast_refreshing'), body: t('toast_refreshing_body'), ttl: 5000 }); }
+    try { if (!DOCUMENTARIES) { reloadAll(); return; } await api.refresh(full); pushToast({ kind: 'info', title: t('toast_refreshing'), body: t('toast_refreshing_body'), ttl: 5000 }); }
     catch (e) { pushToast({ kind: 'error', title: t('toast_refresh_failed'), body: e.message }); }
-  }, [pushToast, t]);
+  }, [pushToast, t, reloadAll]);
 
   // "all" = every section loaded so far (used for cross-language show links and global stats).
   const all = useMemo(() => {
@@ -183,11 +188,30 @@ export function CatalogProvider({ children }) {
     return { tagMap, channelMap, showMap, episodeIndex, recentEpisodes };
   }, [catalog]);
 
-  const allShowMap = useMemo(() => new Map((all?.shows || []).map((s) => [s.id, s])), [all]);
+  const allShowMap = useMemo(() => {
+    const map = new Map();
+    for (const show of all?.shows || []) { map.set(show.id,show); for (const offering of show.offerings || []) map.set(offering.id,show); }
+    return map;
+  }, [all]);
+
+  const registerShows = useCallback(rows => {
+    if (!rows?.length) return;
+    setSections(previous => {
+      const next = { ...previous };
+      for (const key of Object.keys(previous)) {
+        const section = previous[key];
+        const normalized = normalizeCatalog({ ...section, shows: rows }).shows;
+        const map = new Map(section.shows.map(show => [show.id, show]));
+        for (const show of normalized) map.set(show.id, { ...map.get(show.id), ...show });
+        next[key] = { ...section, shows: [...map.values()] };
+      }
+      return next;
+    });
+  }, []);
 
   const value = useMemo(() => ({
-    catalog, all, allShowMap, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, reload: reloadAll, ...derived,
-  }), [catalog, all, allShowMap, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, reloadAll, derived]);
+    catalog, all, allShowMap, registerShows, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, reload: reloadAll, ...derived,
+  }), [catalog, all, allShowMap, registerShows, error, status, connected, loading, building, toasts, pushToast, dismissToast, refresh, reloadAll, derived]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -207,19 +231,23 @@ export function useFullShow(id) {
   const { allShowMap, all } = useCatalog();
   const lite = allShowMap.get(id) || null;
   const [full, setFull] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   useEffect(() => {
     let cancelled = false;
     setFull(null);
     if (!id) return undefined;
-    api.show(id).then((s) => {
+    setLoading(true); setError(null);
+    api.show(id, { sources: lite?.offerings?.map(o=>o.sourceUrl).filter(Boolean) || [], source: lite?.offerings?.find(o => ['fmovies', 'hdtoday'].includes(o.provider))?.sourceUrl || lite?.sourceUrl }).then((s) => {
       if (cancelled) return;
       const channel = s.channel || lite?.channel || null;
-      const show = { ...s, channel, lang: s.lang || channel?.lang || null, poster: s.poster || thumbsOf(s.posterVideoId), altTitles: s.altTitles || [], seasons: s.seasons || [] };
-      show.episodes = (s.episodes || []).map((e) => ({ ...e, showId: s.id, thumbs: e.thumbs || thumbsOf(e.id) }));
+      const show = { ...s, requestedId:id, channel, lang: s.lang || channel?.lang || null, poster: s.poster || thumbsOf(s.posterVideoId), altTitles: s.altTitles || [], seasons: s.seasons || [] };
+      show.episodes = (s.episodes?.length ? s.episodes : !DOCUMENTARIES && s.kind === 'film' ? [{ id: s.id, title: s.title, publishedAt: s.publishedAt }] : []).map((e) => ({ ...e, showId: s.id, thumbs: e.thumbs || thumbsOf(e.id) }));
       setFull(show);
-    }).catch(() => {});
+    }).catch(e => { if (!cancelled) setError(e.message); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, all?.generatedAt]);
-  return full && full.id === id ? full : lite;
+  const show = full && full.requestedId === id ? full : lite;
+  return show ? { ...show, detailsLoading: loading, detailsError: error } : loading ? { id, episodes: [], tags: [], altTitles: [], detailsLoading: true } : null;
 }

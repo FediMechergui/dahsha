@@ -1,4 +1,5 @@
-import { searchContent } from '../server/src/myflixer.js';
+import { PRODUCT } from '../server/src/product.js';
+import { unifiedSearch } from '../server/src/library-service.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -9,7 +10,7 @@ export default async function handler(req, res) {
   try {
     const q = req.query.q || '';
     if (!q.trim()) return res.status(200).json({ items: [] });
-    const items = await searchContent(q);
+    const items = await unifiedSearch(q);
     res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
     return res.status(200).json({ items });
   } catch (err) {

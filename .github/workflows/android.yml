@@ -20,8 +20,13 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      matrix:
+        product: [dahsha, flixer]
     env:
-      DATA_BASE: ${{ vars.DATA_BASE || 'https://dahsha.vercel.app' }}
+      APP_PRODUCT: ${{ matrix.product }}
+      VITE_PRODUCT: ${{ matrix.product }}
+      DATA_BASE: ${{ matrix.product == 'dahsha' && (vars.DATA_BASE || 'https://dahsha.vercel.app') || (vars.FLIXER_DATA_BASE || 'https://flixer-eight.vercel.app') }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       APP_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
       APP_VERSION_CODE: ${{ github.run_number }}
@@ -38,7 +43,7 @@ jobs:
       - name: Android SDK licences
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
       - name: Install
-        run: npm install --prefix client && npm install --prefix mobile
+        run: npm ci --prefix client && npm ci --prefix mobile
       - name: Build web (static, pointing at the hosted data)
         run: node scripts/build-static.js --mobile --out ../mobile/www --data-base "$DATA_BASE"
       - name: Sync Capacitor
@@ -62,11 +67,11 @@ jobs:
         run: |
           mkdir -p out
           f=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
-          cp "$f" "out/dahsha-${{ inputs.tag || github.ref_name }}.apk"
+          cp "$f" "out/${{ matrix.product }}-${{ inputs.tag || github.ref_name }}.apk"
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          name: Dahsha ${{ inputs.tag || github.ref_name }}
+          name: Dahsha and Flixer ${{ inputs.tag || github.ref_name }}
           files: out/*.apk
           generate_release_notes: true

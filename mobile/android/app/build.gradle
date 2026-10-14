@@ -12,7 +12,7 @@ android {
     namespace "app.flixer.stream"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "app.flixer.stream"
+        applicationId new groovy.json.JsonSlurper().parse(rootProject.file('../capacitor.config.json')).appId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode appVersionCode

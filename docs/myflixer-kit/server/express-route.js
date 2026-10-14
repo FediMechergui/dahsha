@@ -1,16 +1,19 @@
-app.get('/api/stream/:id?', async (req, res) => {
+import { handleStreamProxy, handleEmbedPlayer, resolveMyflixerStream } from './myflixer.js';
+
+export function installPlayback(app, PORT = 4545) {
+app.get(['/api/stream', '/api/stream/:id'], async (req, res) => {
   const host = req.headers?.host || `localhost:${PORT}`;
   const proto = req.protocol || 'http';
   const baseOrigin = `${proto}://${host}`;
   const streamPrefix = `${baseOrigin}/api/stream`;
 
   if (req.query?.proxy === '1') {
-    const targetUrl = req.query?.url ? decodeURIComponent(req.query.url) : '';
+    const targetUrl = req.query?.url ? req.query.url : '';
     return handleStreamProxy(targetUrl, req, res, streamPrefix);
   }
 
   if (req.query?.embed === '1') {
-    const embedId = decodeURIComponent(req.query?.id || req.params?.id || '');
+    const embedId = req.query?.id || req.params?.id || '';
     if (!embedId || !embedId.startsWith('mf:')) {
       return res.status(400).send('Invalid or missing stream ID');
     }
@@ -28,3 +31,6 @@ app.get('/api/stream/:id?', async (req, res) => {
     }
   }
   res.status(404).json({ error: 'not supported' });
+
+});
+}
