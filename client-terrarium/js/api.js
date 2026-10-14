@@ -268,7 +268,8 @@
             const { body: u } = await getJson(`${DATA_BASE}/data/universes.json?v=${Math.floor(Date.now() / 600000)}`, 30000);
             this._universeData = new Map((u.universes || []).map(x => [x.id, x]));
             this._catalog.universesAt = u.generatedAt || null;
-            this._universeData.forEach(x => x.members.forEach(m => { if (m.id && this._byId.has(m.id)) { const s = this._byId.get(m.id); s._uni = s._uni || []; if (!s._uni.includes(x.id)) s._uni.push(x.id); } }));
+            // Members refreshed live from Wikidata in earlier sessions.
+            this._universeData.forEach(x => { const cached = store.get("uni:" + x.id, null); if (cached && Array.isArray(cached.members)) this._mergeMembers(x, cached.members, cached.t); });
           } catch (e) { this._universeData = new Map(); console.warn("[flixer] universes data unavailable:", e.message); }
           this._reindex();
           this._startSync();
@@ -277,6 +278,105 @@
       }
       return this._loading;
     }
+    /* ----- Universe membership, recomputed on every reindex (so live additions join at once) ----- */
+    _key(s) { return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/^(the|a|an)\s+/, "").replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim(); }
+    _titleIndex() {
+      if (this._titleIdx) return this._titleIdx;
+      const m = new Map();
+      this._catalog.items.forEach(i => { const k = this._key(i.title); if (!k) return; const arr = m.get(k); if (arr) arr.push(i); else m.set(k, [i]); });
+      return (this._titleIdx = m);
+    }
+    _tokenIndex() {
+      if (this._tokIdx) return this._tokIdx;
+      const idx = new Map();
+      this._catalog.items.forEach(i => { new Set(UNI.tokens(i.title)).forEach(t => { let s = idx.get(t); if (!s) idx.set(t, s = []); s.push(i); }); });
+      return (this._tokIdx = idx);
+    }
+    // Match an external record { title, year, type } onto an index item: exact normalised title first,
+    // then fuzzy (shared tokens, containment) with year and type checks.
+    _matchMember(m) {
+      const pickYear = list => (m.year && (list.find(i => +i.year === m.year) || list.find(i => Math.abs(+i.year - m.year) <= 1))) || (list.length === 1 || !m.year ? list[0] : null);
+      const exactAll = this._titleIndex().get(this._key(m.title)) || [];
+      const exact = exactAll.filter(i => !m.type || i.type === m.type);
+      let hit = exact.length ? pickYear(exact) : (exactAll.length === 1 ? exactAll[0] : null);
+      if (hit) return hit;
+      const toks = [...new Set(UNI.tokens(m.title))];
+      if (!toks.length) return null;
+      const counts = new Map();
+      toks.forEach(t => { const list = this._tokenIndex().get(t); if (list && list.length <= 400) list.forEach(i => counts.set(i, (counts.get(i) || 0) + 1)); });
+      let best = null, bestScore = 0;
+      counts.forEach((n, i) => {
+        if (n < Math.ceil(toks.length / 2)) return;
+        if (m.year && +i.year && Math.abs(+i.year - m.year) > 2) return;
+        let s = UNI.similarity(m.title, i.title);
+        if (m.type && i.type !== m.type) s -= 0.15;
+        if (m.year && +i.year === m.year) s += 0.1;
+        if (s > bestScore) { bestScore = s; best = i; }
+      });
+      return bestScore >= 0.6 ? best : null;
+    }
+    _applyUniverses() {
+      const c = this._catalog;
+      this._titleIdx = null; this._tokIdx = null;
+      const data = this._universeData || new Map();
+      // Name-derived patterns for universes that only exist in the Wikidata data.
+      const auto = [...data.values()].filter(u => !UNI.byId(u.id)).map(u => ({ id: u.id, patterns: UNI.autoPatterns(u.name, u.short) })).filter(u => u.patterns.length);
+      if (auto.length) c.items.forEach(i => { const extra = UNI.detect(i.title, auto); if (extra.length > i.universes.length) i.universes = [...new Set([...i.universes, ...extra])]; });
+      // Wikidata members matched onto the live index.
+      const itemById = new Map(c.items.map(i => [i.id, i]));
+      data.forEach(u => {
+        let inFlixer = 0;
+        u.members.forEach(m => {
+          const hit = this._matchMember(m);
+          m.id = hit ? hit.id : null;
+          if (hit) { inFlixer += 1; const it = itemById.get(hit.id); if (it && !it.universes.includes(u.id)) it.universes.push(u.id); }
+        });
+        u.inFlixer = inFlixer;
+      });
+    }
+    _mergeMembers(u, members, at) {
+      const seen = new Set(u.members.map(m => m.q));
+      members.forEach(m => { if (m.q && !seen.has(m.q)) { u.members.push(Object.assign({}, m, { id: null })); seen.add(m.q); } });
+      u.members.sort((a, b) => String(a.date || "9999").localeCompare(String(b.date || "9999")) || a.title.localeCompare(b.title));
+      u.numbered = u.members.filter(m => m.ordinal != null).length >= 3;
+      if (at) u.refreshedAt = at;
+    }
+    // Live refresh of a universe's members from Wikidata (same query as the build), once a day.
+    async refreshUniverse(id) {
+      const u = this._universeData && this._universeData.get(id);
+      if (!u || !u.qids || !u.qids.length) return false;
+      const cached = store.get("uni:" + id, null);
+      if (cached && Date.now() - cached.t < 86400e3) return false;
+      const FILM = ["Q11424", "Q24869", "Q202866", "Q506240", "Q226730", "Q20667187", "Q2431196"], TV = ["Q5398426", "Q581714", "Q63952888", "Q1259759", "Q15416", "Q117467246", "Q21191270", "Q3464665"];
+      const values = u.qids.map(q => "wd:" + q).join(" ");
+      const query = u.mode === "company"
+        ? `SELECT ?item ?itemLabel ?date ?start ?type WHERE { VALUES ?c { ${values} } ?item wdt:P272 ?c . ?item wdt:P31 ?type . FILTER(?type IN (${[...FILM, ...TV].map(t => "wd:" + t).join(",")})) OPTIONAL { ?item wdt:P577 ?date } OPTIONAL { ?item wdt:P580 ?start } SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } }`
+        : `SELECT ?item ?itemLabel ?date ?start ?ordinal ?type WHERE { VALUES ?u { ${values} } { ?item p:P179 ?st . ?st ps:P179 ?u . OPTIONAL { ?st pq:P1545 ?ordinal } } UNION { ?item wdt:P8345 ?u } UNION { ?item wdt:P1434 ?u } UNION { ?item wdt:P361 ?u } OPTIONAL { ?item wdt:P577 ?date } OPTIONAL { ?item wdt:P580 ?start } OPTIONAL { ?item wdt:P31 ?type } SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } }`;
+      const { body } = await getJson(`https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(query)}`, 8000);
+      const map = new Map();
+      ((body.results && body.results.bindings) || []).forEach(b => {
+        const q = b.item.value.split("/").pop();
+        const cur = map.get(q) || { q, title: null, dates: [], ordinal: null, types: new Set() };
+        const label = b.itemLabel && b.itemLabel.value;
+        if (label && label !== q) cur.title = label;
+        if (b.date) cur.dates.push(b.date.value.slice(0, 10));
+        if (b.start) cur.dates.push(b.start.value.slice(0, 10));
+        if (b.ordinal && !Number.isNaN(+b.ordinal.value)) cur.ordinal = +b.ordinal.value;
+        if (b.type) cur.types.add(b.type.value.split("/").pop());
+        map.set(q, cur);
+      });
+      const members = [...map.values()].filter(m => m.title).map(m => {
+        const type = [...m.types].some(t => TV.includes(t)) ? "tv" : [...m.types].some(t => FILM.includes(t)) ? "movie" : (m.types.size ? null : "movie");
+        const date = m.dates.filter(x => /^\d{4}/.test(x)).sort()[0] || null;
+        return { q: m.q, title: m.title, year: date ? +date.slice(0, 4) : null, date, type, ordinal: m.ordinal };
+      }).filter(m => m.type);
+      const before = u.members.length;
+      this._mergeMembers(u, members, Date.now());
+      store.set("uni:" + id, { t: Date.now(), members: members.map(m => ({ q: m.q, title: m.title, year: m.year, date: m.date, type: m.type, ordinal: m.ordinal })) });
+      if (u.members.length !== before) this._applyUniverses(); else { u.members.forEach(m => { const hit = this._matchMember(m); m.id = hit ? hit.id : null; }); u.inFlixer = u.members.filter(m => m.id).length; }
+      return u.members.length !== before;
+    }
+
     /* ----- Universe pages ----- */
     async universeList() {
       const c = await this.catalog();
@@ -288,6 +388,7 @@
     async universe(id) {
       const c = await this.catalog();
       const base = UNI.byId(id) || { id, name: id, short: id };
+      if (this.liveEnabled) { try { await this.refreshUniverse(id); } catch (e) { console.warn("[flixer] universe refresh skipped:", e.message); } }
       const d = this._universeData && this._universeData.get(id);
       const inIndex = c.items.filter(i => i.universes.includes(id));
       const seen = new Set();
@@ -299,7 +400,7 @@
       const services = new Map();
       inIndex.forEach(i => { if (i.service) services.set(i.service, (services.get(i.service) || 0) + 1); });
       (d ? d.services : []).forEach(s => { if (!services.has(s.name)) services.set(s.name, s.count); });
-      return { id, name: d ? d.name : base.name, short: d ? d.short : base.short, description: d ? d.description : "", logo: d ? d.logo : null, isLogo: d ? d.isLogo : false, wiki: d ? d.wiki : null, home: d ? d.home : [], services: [...services].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count })), numbered: !!(d && d.numbered), members, inFlixer: members.filter(m => m.item).length, generatedAt: c.universesAt };
+      return { id, name: d ? d.name : base.name, short: d ? d.short : base.short, description: d ? d.description : "", logo: d ? d.logo : null, isLogo: d ? d.isLogo : false, wiki: d ? d.wiki : null, home: d ? d.home : [], services: [...services].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count })), numbered: !!(d && d.numbered), members, inFlixer: members.filter(m => m.item).length, generatedAt: (d && d.refreshedAt) ? new Date(d.refreshedAt).toISOString() : c.universesAt, live: !!(d && d.refreshedAt) };
     }
     _reindex() {
       const c = this._catalog;
@@ -313,6 +414,7 @@
       let min = Infinity, max = new Date().getFullYear();
       c.items.forEach(i => { const y = +i.year; if (y) { if (y < min) min = y; if (y > max) max = y; } });
       c.years = [min === Infinity ? 1900 : min, max];
+      this._applyUniverses();
       // Services (where series air / stream), universes and franchise stems.
       const svc = new Map();
       c.items.forEach(i => { if (i.service) svc.set(i.service, (svc.get(i.service) || 0) + 1); });

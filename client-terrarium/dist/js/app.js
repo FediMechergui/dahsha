@@ -281,10 +281,10 @@
     const mg = (state.meta.genres.movie || []).slice(0, 12);
     const genreRow = mg.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Browse by genre</h2><span class="section__sub eyebrow">Movies · tap to filter</span></div></div>
       <div class="row">${mg.map(g => `<button class="chip" data-genre="${esc(g.id)}">${esc(g.name)} <span class="chip__val">${g.count}</span></button>`).join("")}</div></section>` : "";
-    // Universes row: shared universes and franchises found in the index.
-    const universes = (await api.universes()).filter(u => u.count > 0);
+    // Universes row: small scrollable logo tiles, in order of how much of each universe Flixer has.
+    const universes = (await api.universeList()).filter(u => u.count > 0);
     const universeRow = universes.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Universes</h2><span class="section__sub eyebrow">Shared universes and franchises · watch orders</span></div><a class="section__link" href="#/universes">See all</a></div>
-      <div class="row">${universes.map(u => `<a class="chip" href="#/universe/${esc(u.id)}">${esc(u.short)} <span class="chip__val">${u.count}</span></a>`).join("")}</div></section>` : "";
+      <div class="ulogos">${universes.map(u => `<a class="utile" href="#/universe/${esc(u.id)}" title="${esc(u.name)}">${u.logo ? `<img src="${esc(u.logo)}" alt="${esc(u.short)}" loading="lazy" onerror="this.outerHTML='<span class=\\'utile__mono\\'>'+this.alt.replace(/</g,'')+'</span>'">` : `<span class="utile__mono">${esc(u.short)}</span>`}<span class="utile__n">${u.count} titles</span></a>`).join("")}</div></section>` : "";
     const [popularTv, ratedTv, topUni] = await Promise.all([api.popular("tv", 14), api.topRated("tv", 14), api.topUniverses(3)]);
     const uniRails = await Promise.all(topUni.map(async u => section(u.name, `${u.count} titles in Flixer`, await api.universeRail(u.id, 14), { showType: true, rating: true })));
     if (state.renderedTab !== "home") return;

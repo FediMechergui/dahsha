@@ -18,19 +18,30 @@
 /* Universes */
 .ugrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0 var(--gutter); }
 @media (min-width: 480px) { .ugrid { grid-template-columns: repeat(3, 1fr); } }
-.ucard { display: block; padding: 14px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); color: inherit; transition: border-color .2s var(--ease), transform .2s var(--ease); }
+.ucard { display: block; padding: 14px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); color: inherit; text-align: center; transition: border-color .2s var(--ease), transform .2s var(--ease); }
 .ucard:active { transform: scale(.98); }
-.ucard__logo { height: 56px; display: flex; align-items: center; justify-content: flex-start; margin-bottom: 10px; }
-.ucard__logo img { max-height: 56px; max-width: 100%; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+.ucard__logo { height: 64px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+.ucard__logo img { max-height: 64px; max-width: 100%; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
 .ucard__logo .ucard__mono { font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: -0.03em; color: var(--amber); }
 .ucard__name { font-weight: 600; font-size: 14px; line-height: 1.25; margin: 0; }
 .ucard__meta { margin-top: 4px; }
-.ucard__home { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.ucard__home { margin-top: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
 .ucard__home span { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(124,203,149,.12); color: var(--fern); }
-.uhead { padding: 0 var(--gutter); margin-top: 8px; }
-.uhead__logo { height: 84px; display: flex; align-items: center; margin-bottom: 10px; }
-.uhead__logo img { max-height: 84px; max-width: 70%; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,.7)); }
+.uhead { padding: 0 var(--gutter); margin-top: 8px; text-align: center; }
+.uhead__logo { height: 96px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+.uhead__logo img { max-height: 96px; max-width: 80%; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(0,0,0,.7)); }
+.uhead__logo .ucard__mono { font-size: 32px; }
+.uhead .providers { justify-content: center; }
+.uhead .detail__actions { justify-content: center; }
 .uhead__desc { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+/* Home: small scrollable logo tiles */
+.ulogos { display: flex; gap: 8px; overflow-x: auto; padding: 4px var(--gutter) 8px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.ulogos::-webkit-scrollbar { display: none; }
+.utile { flex: none; width: 112px; height: 72px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px 8px; color: inherit; scroll-snap-align: start; transition: border-color .2s var(--ease), transform .2s var(--ease); }
+.utile:active { transform: scale(.96); }
+.utile img { max-height: 36px; max-width: 96px; object-fit: contain; filter: drop-shadow(0 1px 4px rgba(0,0,0,.6)); }
+.utile .utile__mono { font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: -0.02em; color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; }
+.utile__n { font-family: var(--mono); font-size: 10px; color: var(--faint); letter-spacing: .06em; }
 .order { padding: 0 var(--gutter); }
 .orow { display: grid; grid-template-columns: 34px 56px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); color: inherit; }
 .orow__n { font-family: var(--mono); font-size: 12px; color: var(--amber); text-align: right; }

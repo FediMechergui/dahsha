@@ -60,11 +60,34 @@
   // "Spider-Man: No Way Home" share "spider man".
   const stem = s => norm(String(s || "").split(/[:–—\-(]/)[0]).replace(/\b(part|chapter|episode|vol|volume)\b.*$/, "").replace(/\b\d+\b$/, "").replace(/\b(ii|iii|iv|v|vi|vii|viii)\b$/, "").trim();
 
-  function detect(title) {
+  function detect(title, extra) {
     const n = norm(title);
     if (!n) return [];
-    return UNIVERSES.filter(u => u.patterns.some(p => p.test(n))).map(u => u.id);
+    const out = UNIVERSES.filter(u => u.patterns.some(p => p.test(n))).map(u => u.id);
+    if (extra) extra.forEach(u => { if (!out.includes(u.id) && u.patterns.some(p => p.test(n))) out.push(u.id); });
+    return out;
+  }
+  // Patterns derived from a universe's name (for universes that only exist in the Wikidata data):
+  // single-word names match as a prefix ("Halloween Kills" yes, "Hubie Halloween" no), longer names
+  // match anywhere as whole words ("Pokémon the Movie: …").
+  function autoPatterns(name, short) {
+    const pats = [];
+    const add = s => { const n = norm(s); if (n.length < 4 || /^[a-z]{1,3}$/.test(n)) return; pats.push(n.includes(" ") ? new RegExp("(^|\\b)" + esc(n) + "(\\b|$)", "i") : new RegExp("^" + esc(n) + "(\\b|$)", "i")); };
+    add(name); if (short && norm(short) !== norm(name)) add(short);
+    return pats;
+  }
+  // Fuzzy title similarity for matching external records (Wikidata labels) onto index titles.
+  const STOP = new Set(["the", "a", "an", "of", "and", "in", "on", "to", "at", "for", "vs", "with", "from", "part", "movie", "film", "series", "season", "le", "la", "les", "de", "du"]);
+  const tokens = s => norm(s).split(" ").filter(t => t && !STOP.has(t));
+  function similarity(a, b) {
+    const A = new Set(tokens(a)), B = new Set(tokens(b));
+    if (!A.size || !B.size) return 0;
+    let inter = 0; A.forEach(t => { if (B.has(t)) inter += 1; });
+    const jaccard = inter / (A.size + B.size - inter);
+    const small = Math.min(A.size, B.size);
+    const contained = inter === small && small >= 2 ? 0.85 : 0; // "Detective Pikachu" ⊂ "Pokémon: Detective Pikachu"
+    return Math.max(jaccard, contained);
   }
 
-  window.FlixerUniverses = { UNIVERSES, detect, norm, stem, byId: id => UNIVERSES.find(u => u.id === id) || null };
+  window.FlixerUniverses = { UNIVERSES, detect, autoPatterns, tokens, similarity, norm, stem, byId: id => UNIVERSES.find(u => u.id === id) || null };
 })();

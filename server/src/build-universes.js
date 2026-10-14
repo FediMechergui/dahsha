@@ -193,7 +193,7 @@ async function run() {
       out.push({
         id: u.id, name: u.name, short: u.short, qids, description: ent.description || '', logo: ent.logo || null, isLogo: !!ent.isLogo, wiki: ent.sitelink ? `https://en.wikipedia.org/wiki/${encodeURIComponent(ent.sitelink.replace(/ /g, '_'))}` : null,
         home: u.home || [], services: [...services].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count })),
-        numbered, members: list, inFlixer: list.filter((m) => m.id).length
+        mode: u.mode || 'franchise', numbered, members: list, inFlixer: list.filter((m) => m.id).length
       });
       console.log(`[universes] ${u.id}: ${qids.join('+')} · ${list.length} titles · ${list.filter((m) => m.id).length} in Flixer${ent.logo ? ' · logo' : ''}`);
       await sleep(400);

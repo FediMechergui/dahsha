@@ -24,7 +24,10 @@ if (!dataBase && !fs.existsSync(path.join(dataDir, 'catalog.json'))) {
 
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
-for (const f of ['index.html', 'manifest.webmanifest']) fs.copyFileSync(path.join(src, f), path.join(out, f));
+// index.html with versioned asset URLs so browsers never keep a stale script or stylesheet.
+const stamp = Date.now().toString(36);
+fs.writeFileSync(path.join(out, 'index.html'), fs.readFileSync(path.join(src, 'index.html'), 'utf8').replace(/(src|href)="((?:js|css)\/[^"]+|config\.js)"/g, `$1="$2?v=${stamp}"`));
+fs.copyFileSync(path.join(src, 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
 fs.cpSync(path.join(src, 'css'), path.join(out, 'css'), { recursive: true });
 fs.cpSync(path.join(src, 'js'), path.join(out, 'js'), { recursive: true });
 // Icons: the Flixer mark in client-terrarium/ (scripts/flixer-icons.js), else the shared ones.
