@@ -52,6 +52,7 @@ export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PR
   if(catalog.product && catalog.product!==product)return null;
   const sourceList=[...new Set((Array.isArray(source)?source:[source]).filter(s=>typeof s==='string' && s.length<1500))].slice(0,4);
   const base=locate(catalog,id);
+  if(product==='dahsha' && !base && /^mf:/.test(id))return null;
   if(!base && !/^mf:[ms]:[a-z0-9-]+$/i.test(id) && !parseFmoviesId(id) && !parseHdtodayId(id))return null;
   const key=`${product}:${catalog.generatedAt || ''}:${id}:${JSON.stringify(sourceList)}`;
   const entry=hydrated.get(key);
