@@ -32,6 +32,7 @@ test('HDToday movie players resolve directly without exposing blocked wrappers',
   assert.equal(options.length,12);
   assert.equal(options[0].embedUrl,'https://vidsrc.mov/embed/movie/1503719');
   assert.ok(options.every(s=>!s.embedUrl.startsWith('https://hdtoday.sx/')));
+  assert.ok(options.every(s=>s.sandbox===null));
   assert.deepEqual(hdtodayMovieFallbacks(id,'invalid'),[]);
   const inferred=await resolveHdtodayServers('hd:m:movie-redirect-fixture-abc12345',{fetchPlayer:async()=>'<meta http-equiv="refresh" content="0;url=https://vidsrc.mov/embed/movie/1503719">'});
   assert.equal(inferred.length,12);

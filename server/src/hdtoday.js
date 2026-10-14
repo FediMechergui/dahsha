@@ -137,14 +137,14 @@ export function documentedTvServers({tmdbId,season,number}={}) {
     {id:'vidsrc:tv',name:'VidSrc',provider:'vidsrc',embedUrl:`https://vidsrc.mov/embed/tv/${slot}`},
     {id:'vidfast:tv',name:'VidFast',provider:'vidfast',embedUrl:`https://vidfast.pro/tv/${slot}?autoPlay=true`},
     {id:'vidlink:tv',name:'VidLink',provider:'vidlink',embedUrl:`https://vidlink.pro/tv/${slot}`},
-  ].map(server=>({...server,type:'embed',resolution:'documented-provider-route',availability:'unverified'}));
+  ].map(server=>({...server,type:'embed',sandbox:null,resolution:'documented-provider-route',availability:'unverified'}));
 }
 export function hdtodayTvFallbacks(id,tmdbId) {
   const parsed=parseHdtodayId(id), numericId=Number(tmdbId);
   if(!parsed || parsed.kind!=='series' || parsed.season==null || !Number.isSafeInteger(numericId) || numericId<1)return [];
   const slot=`${numericId}/${parsed.season}/${parsed.number}`;
   const urls={0:`https://vidsrc.mov/embed/tv/${slot}`,3:`https://vidfast.pro/tv/${slot}?autoPlay=true`,7:`https://vidlink.pro/tv/${slot}`};
-  return hdtodayServers(id).flatMap((server,index)=>urls[index] ? [{...server,embedUrl:urls[index],sourceUrl:server.embedUrl,resolution:'documented-provider-route'}] : []);
+  return hdtodayServers(id).flatMap((server,index)=>urls[index] ? [{...server,embedUrl:urls[index],sandbox:null,sourceUrl:server.embedUrl,resolution:'documented-provider-route'}] : []);
 }
 export function hdtodayMovieFallbacks(id,tmdbId) {
   const parsed=parseHdtodayId(id), numericId=Number(tmdbId);
@@ -156,7 +156,7 @@ export function hdtodayMovieFallbacks(id,tmdbId) {
     `https://vidrock.net/movie/${numericId}`,`https://vidnest.fun/movie/${numericId}`,`https://vidlink.pro/movie/${numericId}?autoplay=true&title=true`,
     `https://111movies.net/movie/${numericId}`,`https://multiembed.mov/?video_id=${numericId}&tmdb=1`,
     `https://mappletv.uk/embed/movie/${numericId}`,`https://moviesapi.to/movie/${numericId}`];
-  return hdtodayServers(id).map((server,index)=>({...server,embedUrl:urls[index],sourceUrl:server.embedUrl,resolution:'verified-provider-route'}));
+  return hdtodayServers(id).map((server,index)=>({...server,embedUrl:urls[index],sandbox:null,sourceUrl:server.embedUrl,resolution:'verified-provider-route'}));
 }
 export async function resolveHdtodayServers(id,{tmdbId,fetchPlayer=path=>request(path,{timeoutMs:5000})}={}) {
   const fallback=[...hdtodayTvFallbacks(id,tmdbId),...hdtodayMovieFallbacks(id,tmdbId)];
@@ -171,7 +171,7 @@ export async function resolveHdtodayServers(id,{tmdbId,fetchPlayer=path=>request
       try {
         const target=parseHdtodayPlayer(await fetchPlayer(server.embedUrl));
         if(target){
-          resolved[index]={...server,embedUrl:target,sourceUrl:server.embedUrl,routeResolved:true};
+          resolved[index]={...server,embedUrl:target,sandbox:null,sourceUrl:server.embedUrl,routeResolved:true};
           const url=new URL(target), movieId=/\/(?:embed\/)?movie\/([1-9]\d*)(?:\/|$)/.exec(url.pathname)?.[1] || (url.hostname==='multiembed.mov' && url.searchParams.get('tmdb')==='1' ? url.searchParams.get('video_id'):null);
           if(movieId)inferred=hdtodayMovieFallbacks(id,Number(movieId));
           if(!inferred?.length)inferred=null;
