@@ -70,7 +70,7 @@ async function scan({product,full,pageBudget,log}) {
         cache.queue.push(...genres.map(genre=>({...job,genre,page:1})));
       } else {
         const more=result.hasNext ?? job.page<result.totalPages;
-        if(more)job.page++;else cache.queue.shift();
+        if(more){job.page++;cache.queue.push(cache.queue.shift());}else cache.queue.shift();
       }
       if(scanned%10===0)log(`[providers:${product}] ${items.size} records; ${cache.queue.length} scan partitions remain`);
       if(scanned%10===0)writeJson(filename(product),{...cache,items:[...items.values()],errors,completed:false});

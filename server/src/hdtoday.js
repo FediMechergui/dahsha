@@ -130,6 +130,15 @@ export function parseHdtodayPlayer(html) {
   } catch { return null; }
 }
 const playerCache = new Map();
+export function documentedTvServers({tmdbId,season,number}={}) {
+  if(!Number.isSafeInteger(Number(tmdbId)) || Number(tmdbId)<1 || !Number.isInteger(season) || season<0 || !Number.isInteger(number) || number<1)return [];
+  const slot=`${Number(tmdbId)}/${season}/${number}`;
+  return [
+    {id:'vidsrc:tv',name:'VidSrc',provider:'vidsrc',embedUrl:`https://vidsrc.mov/embed/tv/${slot}`},
+    {id:'vidfast:tv',name:'VidFast',provider:'vidfast',embedUrl:`https://vidfast.pro/tv/${slot}?autoPlay=true`},
+    {id:'vidlink:tv',name:'VidLink',provider:'vidlink',embedUrl:`https://vidlink.pro/tv/${slot}`},
+  ].map(server=>({...server,type:'embed',resolution:'documented-provider-route',availability:'unverified'}));
+}
 export function hdtodayTvFallbacks(id,tmdbId) {
   const parsed=parseHdtodayId(id), numericId=Number(tmdbId);
   if(!parsed || parsed.kind!=='series' || parsed.season==null || !Number.isSafeInteger(numericId) || numericId<1)return [];

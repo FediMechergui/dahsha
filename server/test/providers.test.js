@@ -133,3 +133,11 @@ test('playback policy rejects entertainment in Dahsha and mismatched product cat
   assert.equal(await unifiedStream(show.id,{catalog:{product:'dahsha',shows:[show]},product:'dahsha',resolveTitle:async()=>show}),null);
   assert.equal(await unifiedStream(show.id,{catalog:{product:'flixer',shows:[show]},product:'dahsha',resolveTitle:async()=>show}),null);
 });
+
+test('verified TV episodes retain direct providers when HDToday is unavailable',async()=>{
+  const show={id:'fm:s:108978',kind:'series',tmdbId:108978,title:'Reacher',episodes:[{id:'fm:e:108978:2:3',season:2,number:3}]};
+  const result=await unifiedStream(show.episodes[0].id,{catalog:{product:'flixer',shows:[show]},product:'flixer',resolveTitle:async()=>show});
+  assert.equal(result.servers.filter(s=>['vidsrc','vidfast','vidlink'].includes(s.provider)).length,3);
+  assert.ok(result.servers.every(s=>!s.embedUrl.includes('hdtoday.sx')));
+  assert.equal(await unifiedStream('fm:e:108978:99:99',{showId:show.id,catalog:{shows:[show]},product:'flixer',resolveTitle:async()=>show}),null);
+});

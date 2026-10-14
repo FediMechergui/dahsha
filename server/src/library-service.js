@@ -6,7 +6,7 @@ import { PRODUCT } from './product.js';
 import { DATA_DIR, readJson } from './store.js';
 import { mergeLibrary, mergeShow, episodeOfferings, showOfferings } from './merge-library.js';
 import { getFmoviesDetails, parseFmoviesId, searchFmovies, fmoviesServers, FMOVIES_BASE, fetchFmoviesPage } from './fmovies.js';
-import { getHdtodayDetails, parseHdtodayId, searchHdtoday, resolveHdtodayServers, HDTODAY_BASE, fetchHdtodayPage } from './hdtoday.js';
+import { documentedTvServers, getHdtodayDetails, parseHdtodayId, searchHdtoday, resolveHdtodayServers, HDTODAY_BASE, fetchHdtodayPage } from './hdtoday.js';
 import { getTitleDetails, searchContent, resolveMyflixerStream } from './myflixer.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
@@ -106,7 +106,7 @@ export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PR
     }
     // A blocked HDToday TV detail page must not prevent a verified catalogue
     // identity from supplying its real episode guide and public player IDs.
-    if(result.kind==='series' && !result.episodes?.length && showOfferings(result).some(o=>o.provider==='hdtoday')){
+    if(result.kind==='series' && (!result.episodes?.length || !result.tmdbId)){
       try{
         const candidates=await searchFmovies(result.title,{documentary:product==='dahsha'});
         for(const candidate of candidates.filter(s=>s.kind==='series')){
@@ -203,5 +203,8 @@ export async function unifiedStream(id,{showId,source,prefix='/api/stream',catal
   }));
   const servers=[],seen=new Set();
   for(const r of results)if(r.status==='fulfilled')for(const server of r.value){const identity=server.streamUrl||server.embedUrl||`youtube:${server.videoId}`;if(!seen.has(identity)){seen.add(identity);servers.push(server);}}
+  if(title.kind==='series')for(const server of documentedTvServers({tmdbId:title.tmdbId || title.offerings?.find(o=>o.provider==='fmovies')?.tmdbId,season:episode.season,number:episode.number})){
+    if(!seen.has(server.embedUrl)){seen.add(server.embedUrl);servers.push(server);}
+  }
   return {id,showId:title.id,servers,streamUrl:servers.find(s=>s.type==='hls')?.streamUrl||null,providerErrors:title.providerErrors};
 }
