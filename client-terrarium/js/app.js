@@ -294,8 +294,8 @@
 
     $("#home-rows").innerHTML =
       resumeRow +
-      section("Popular series", "TVmaze popularity", popularTv, { rating: true }) +
       section("Recently updated", "Movies and series from all providers", (trend || []).slice(0, 20), { showType: true }) +
+      section("Popular series", "TVmaze popularity", popularTv, { rating: true }) +
       section("New movies", "Latest additions", now, { link: "#/movies" }) +
       section("New series", "Latest additions", air, { link: "#/shows" }) +
       genreRow + universeRow + serviceRow +
