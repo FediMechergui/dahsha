@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dataDir = path.join(root, 'server', 'data');
 const TAG = 'data-snapshot';
-const FILES = ['playlists.json', 'details.json', 'seen.json', 'catalog.json', 'artwork.json', 'flixer-catalog.json', ...['dahsha','flixer'].flatMap(product => [`providers-${product}.json`, `provider-aliases-${product}.json`, `provider-identities-${product}.json`, `provider-matches-${product}.json`])];
+const FILES = ["playlists.json", "details.json", "seen.json", "catalog.json", "artwork.json", "providers-dahsha.json", "provider-aliases-dahsha.json", "provider-identities-dahsha.json", "provider-matches-dahsha.json"];
 const ARCHIVE = 'data-snapshot.tar.gz';
 const archive = path.join(root, ARCHIVE);
 // No shell: paths with spaces (OneDrive folders) must reach tar/gh untouched. Windows resolves
@@ -26,7 +26,7 @@ if (mode === 'save') {
   // Run tar inside the data dir with relative names so no path needs quoting.
   if (sh('tar', ['-czf', path.relative(dataDir, archive), ...present], { cwd: dataDir }).status !== 0) process.exit(1);
   const exists = spawnSync(exe('gh'), ['release', 'view', TAG,'--repo',repo], { stdio: 'ignore' }).status === 0;
-  if (!exists && sh('gh', ['release', 'create', TAG, '--title', 'Data snapshot (auto)', '--notes', 'Cached YouTube metadata used by the refresh job. Updated automatically.', '--latest=false']).status !== 0) process.exit(1);
+  if (!exists && sh('gh', ['release', 'create', TAG, '--title', 'Data snapshot (auto)', '--notes', 'Cached Dahsha catalogue metadata used by this repository. Updated automatically.', '--latest=false']).status !== 0) process.exit(1);
   if (sh('gh', ['release', 'upload', TAG, ARCHIVE, '--clobber'], { cwd: root }).status !== 0) process.exit(1);
   fs.rmSync(archive, { force: true });
   console.log(`snapshot saved (${present.join(', ')})`);

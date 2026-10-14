@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const args=process.argv.slice(2);
 const option=(name,fallback)=>{const i=args.indexOf(name);return i>=0?args[i+1]:fallback;};
-const requested=option('--product',process.env.APP_PRODUCT||'both');
+const requested=option('--product',process.env.APP_PRODUCT||'dahsha');
 if(!['both','dahsha','flixer'].includes(requested))throw new Error('Invalid product');
 for(const product of requested==='both'?['dahsha','flixer']:[requested]){
   const cache=await refreshProviders({product,full:args.includes('--full'),pageBudget:Number(option('--pages','24'))});

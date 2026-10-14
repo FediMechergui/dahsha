@@ -1,17 +1,15 @@
 {
-  "name": "dahsha-flixer-mobile",
+  "name": "dahsha-mobile",
   "version": "1.0.0",
   "private": true,
-  "description": "Flixer Android app (Capacitor wrapper around the static web build).",
+  "description": "Dahsha Android app",
   "scripts": {
     "build:web": "node ../scripts/product.js dahsha mobile-web",
-    "build:terra": "node ../scripts/build-terrarium.js --mobile",
     "sync": "npx cap sync android",
     "open": "npx cap open android",
     "icons": "node ../scripts/icons.js && node ../scripts/android-icons.js",
     "apk:debug": "cd android && gradlew.bat assembleDebug",
-    "apk:release": "cd android && gradlew.bat assembleRelease",
-    "build:web:flixer": "node ../scripts/product.js flixer mobile-web"
+    "apk:release": "cd android && gradlew.bat assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",

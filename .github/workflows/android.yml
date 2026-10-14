@@ -22,11 +22,11 @@ jobs:
     timeout-minutes: 60
     strategy:
       matrix:
-        product: [dahsha, flixer]
+        product: [dahsha]
     env:
       APP_PRODUCT: ${{ matrix.product }}
       VITE_PRODUCT: ${{ matrix.product }}
-      DATA_BASE: ${{ matrix.product == 'dahsha' && (vars.DATA_BASE || 'https://dahsha.vercel.app') || (vars.FLIXER_DATA_BASE || 'https://flixer-mu.vercel.app') }}
+      DATA_BASE: ${{ vars.DATA_BASE || 'https://dahsha.vercel.app' }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       APP_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
       APP_VERSION_CODE: ${{ github.run_number }}
@@ -74,6 +74,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          name: Dahsha and Flixer ${{ inputs.tag || github.ref_name }}
+          name: Dahsha ${{ inputs.tag || github.ref_name }}
           files: out/*.apk
           generate_release_notes: true

@@ -43,8 +43,8 @@ jobs:
         run: node server/src/cli.js ${{ inputs.full && 'rebuild' || 'refresh' }}
       - name: Export static data
         run: node server/src/export.js
-      - name: Refresh shared providers for both libraries
-        run: node scripts/refresh-providers.js --product both --pages 60 --matches 100
+      - name: Refresh Dahsha providers
+        run: node scripts/refresh-providers.js --product dahsha --pages 60 --matches 100
       # "vercel build" runs the buildCommand from vercel.json (static build with the exported data);
       # the prebuilt deploy then uploads the result, including the data files that git ignores.
       - name: Build & deploy to Vercel
@@ -59,16 +59,6 @@ jobs:
       - name: Build site (no Vercel token configured)
         if: env.VERCEL_TOKEN == ''
         run: node scripts/build-static.js
-      - name: Publish Flixer independently
-        if: env.VERCEL_TOKEN != '' && vars.FLIXER_VERCEL_PROJECT_ID != ''
-        env:
-          APP_PRODUCT: flixer
-          VERCEL_PROJECT_ID: ${{ vars.FLIXER_VERCEL_PROJECT_ID }}
-        run: |
-          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
-          vercel build --prod --local-config vercel.flixer.json --token "$VERCEL_TOKEN"
-          node scripts/prepare-deployment.js flixer
-          vercel deploy --prebuilt --prod --yes --archive=tgz --local-config vercel.flixer.json --token "$VERCEL_TOKEN"
       - name: Save data snapshot
         if: always()
         run: node scripts/snapshot.js save
