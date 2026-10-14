@@ -85,7 +85,7 @@
   /* ----- raw show -> view item ----- */
   function normalize(s) {
     const type = s.kind === "series" ? "tv" : "movie";
-    const date = String([s.providerUpdatedAt,s.latestAt,s.publishedAt,s.firstSeenAt].filter(Boolean).sort().pop() || "");
+    const date = String([s.providerUpdatedAt,s.latestAt,s.publishedAt,s.firstSeenAt].filter(Boolean).sort().pop() || "").slice(0,10);
     const poster = s.poster || {};
     const episodes = Array.isArray(s.episodes) ? s.episodes : [];
     const tvm = s.tvm || null;
@@ -530,13 +530,15 @@
       let added = 0;
       try {
         const results = await Promise.allSettled(["film","series"].map(kind => getJson(`${API_BASE}/api/discover?kind=${kind}&latest=true&page=1`, 18000)));
-        const recent = new Set(); let successful = false;
+        const recent = new Set(), groups=[]; let successful = false;
         results.forEach(result => { if(result.status === "fulfilled") {
           successful = true;
           const rows=result.value.body.items || [];
-          rows.forEach(row=>recent.add(row.id)); added += this._merge(rows);
+          added += this._merge(rows);
+          for(const provider of ["myflixer","fmovies","hdtoday"]) groups.push(rows.filter(row=>(row.offerings || []).some(o=>o.provider===provider) || row.id.startsWith({myflixer:"mf:",fmovies:"fm:",hdtoday:"hd:"}[provider])).map(row=>this._byId.get(row.id)?.id || row.id));
         }});
         if(!successful) throw new Error("Providers are temporarily unavailable");
+        for(let index=0;groups.some(group=>index<group.length);index++) groups.forEach(group=>{if(group[index])recent.add(group[index]);});
         this._recentIds = recent;
         this._enrichServices([...recent]).catch(()=>{});
         this._reindex();
@@ -572,7 +574,7 @@
     /* ----- Home rails ----- */
     async trending() {
       const items=await this.all();
-      const live=this._recentIds ? items.filter(i=>this._recentIds.has(i.id)) : [];
+      const live=this._recentIds ? [...this._recentIds].map(id=>this._byId.get(id)).filter(Boolean).map(normalize) : [];
       return [...live, ...items.slice().sort(byAdded).filter(i=>!this._recentIds?.has(i.id))].slice(0,24);
     }
     async nowPlaying() { return (await this.all("movie")).slice().sort(byAdded).slice(0, 14); }
