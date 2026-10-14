@@ -680,3 +680,9 @@ html[lang="en"] .btn, html[lang="en"] .chip, html[lang="en"] .pill, html[lang="e
 
 /* failover notice shown by the player while it switches servers */
 .player__notice { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 30; background: rgba(21, 24, 30, 0.94); border: 1px solid var(--accent); color: var(--text); padding: 6px 14px; border-radius: 18px; font-size: 12.5px; display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow); backdrop-filter: blur(8px); animation: rise 0.25s var(--ease); }
+/* ───────────────────────── fullscreen toggle (Myflixer player) ───────────────────────── */
+.player__fs-btn { display: inline-grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; margin-inline-start: 4px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: var(--text-2); cursor: pointer; transition: all 0.2s ease; }
+.player__fs-btn svg { width: 15px; height: 15px; }
+.player__fs-btn:hover, .player__fs-btn.is-active { background: var(--accent); border-color: var(--accent); color: #000; }
+.player:fullscreen, .player:-webkit-full-screen { background: #000; border-radius: 0; }
+.player:fullscreen video, .player:fullscreen iframe, .player:-webkit-full-screen video, .player:-webkit-full-screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
