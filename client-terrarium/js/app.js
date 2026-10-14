@@ -207,6 +207,11 @@
     closeSheet(); closeDetails();
     document.title = "Flixer";
     const tab = h.slice(2).split("?")[0] || "home";
+    const requestedSort=new URLSearchParams(h.split("?")[1] || "").get("sort");
+    const mediaType=tab==='movies'?'movie':tab==='shows'?'tv':null;
+    if(mediaType && requestedSort==='updated' && state.filters[mediaType].sort!=='updated') {
+      state.filters[mediaType].sort='updated';saveFilters();if(state.renderedTab===tab)state.renderedTab=null;
+    }
     renderTab(TAB_RENDERERS[tab] ? tab : "home");
   }
 
@@ -402,11 +407,12 @@
     view.innerHTML = `
       <div class="browse-head">
         ${type === "all" ? `<h1 class="section__title">Recently updated</h1><p class="meta">Movies and shows from all providers</p>` : ""}
-        <div class="seg" data-active="${type === "all" ? "movie" : type}" role="tablist">
+        ${type === "all" ? `<nav class="rail" aria-label="Media type"><span class="chip" aria-current="page">All media</span><a class="chip" href="#/movies?sort=updated">Movies</a><a class="chip" href="#/shows?sort=updated">Shows</a></nav>` : `
+        <div class="seg" data-active="${type}" role="tablist">
           <div class="seg__thumb"></div>
           <button class="seg__btn ${type === "movie" ? "is-active" : ""}" role="tab" data-go="#/movies">Movies</button>
           <button class="seg__btn ${type === "tv" ? "is-active" : ""}" role="tab" data-go="#/shows">Shows</button>
-        </div>
+        </div>`}
       </div>
       <div class="rail-wrap"><div class="rail" id="rail"></div></div>
       <div class="result-head"><span class="count" id="count">Loading…</span><span class="meta" id="sortlabel"></span></div>

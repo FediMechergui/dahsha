@@ -45,7 +45,7 @@ test('Flixer latest updates browse includes both media types and does not wait f
   const metadata=new Promise(resolve=>{releaseMetadata=resolve;});
   const requests=[];
   const catalog={product:'flixer',shows:[
-    {id:'movie',kind:'film',title:'Old movie, new update',publishedAt:'2020-01-01',latestAt:'2026-09-01'},
+    {id:'movie',kind:'film',title:'Old movie, new update',publishedAt:'2020-01-01',latestAt:'2026-09-01',providerUpdatedAt:'2026-12-01',firstSeenAt:'2026-12-01'},
     {id:'series',kind:'series',title:'Updated series',publishedAt:'2025-01-01',latestAt:'2026-10-01'},
     {id:'added',kind:'film',title:'Recently added',publishedAt:'2026-08-01'}
   ]};

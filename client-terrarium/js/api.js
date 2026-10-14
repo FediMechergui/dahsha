@@ -99,7 +99,7 @@
       type,
       title,
       date: String(s.publishedAt || s.firstSeenAt || "").slice(0,10),
-      updatedAt: [s.providerUpdatedAt,s.latestAt,s.publishedAt,s.firstSeenAt].filter(Boolean).sort().pop() || "",
+      updatedAt: [s.latestEpisode?s.providerUpdatedAt:null,s.latestAt,s.publishedAt].filter(Boolean).sort().pop() || "",
       year: s.year ? String(s.year) : (date ? date.slice(0, 4) : ""),
       poster: s.portrait || poster.custom || poster.default || posterFor(s.wpId),
       backdrop: poster.backdrop || poster.hq || backdropFor(s.wpId) || poster.custom || null,
@@ -507,7 +507,7 @@
           if (r.synopsis && (!cur.synopsis || r.synopsis.length > cur.synopsis.length)) cur.synopsis = r.synopsis;
           if (r.tags && r.tags.length) cur.tags = [...new Set([...(cur.tags || []),...r.tags])];
           if (r.year) cur.year = r.year;
-          for (const key of ["publishedAt","latestAt","providerUpdatedAt","firstSeenAt","tmdbId","imdbId","firstEpisodeId"]) if (r[key]) cur[key] = r[key];
+          for (const key of ["publishedAt","latestAt","providerUpdatedAt","latestEpisode","firstSeenAt","tmdbId","imdbId","firstEpisodeId"]) if (r[key]) cur[key] = r[key];
           if (r.episodeCount) cur.episodeCount = Math.max(cur.episodeCount || 0,r.episodeCount);
           if (r.wpId) cur.wpId = r.wpId;
           if (r.tvm) cur.tvm = r.tvm;

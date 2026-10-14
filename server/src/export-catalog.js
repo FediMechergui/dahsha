@@ -12,7 +12,7 @@ export function leanCatalog(catalog, product) {
   } };
   const pick = (record, keys) => Object.fromEntries(keys.filter(key => record[key] !== undefined).map(key => [key, record[key]]));
   return { ...payload, shows: payload.shows.map(show => ({
-    ...pick(show, ['id','wpId','slug','kind','title','year','lang','contentLang','tags','primaryTag','episodeCount','seasons','totalDurationSec','totalViews','latestAt','firstAt','publishedAt','portrait','synopsisGenerated','tvm','tmdbId','imdbId','documentary','offerings','firstSeenAt','providerUpdatedAt','providerMetadata','sourceUrl']),
+    ...pick(show, ['id','wpId','slug','kind','title','year','lang','contentLang','tags','primaryTag','episodeCount','seasons','totalDurationSec','totalViews','latestAt','latestEpisode','firstAt','publishedAt','portrait','synopsisGenerated','tvm','tmdbId','imdbId','documentary','offerings','firstSeenAt','providerUpdatedAt','providerMetadata','sourceUrl']),
     versions: (show.versions || []).map(v => ({...pick(v,['id','title','year','sourceUrl','offerings','kind','documentary','providerMetadata','tags','lang','tmdbId','imdbId']),uncertainMatch:true})),
     channelId: show.channelId || show.channel?.id,
     posterId: show.posterVideoId || show.posterId,
@@ -49,7 +49,8 @@ export function writeCatalog(outDir, catalog, product) {
     if(product==='flixer') {
       const index={...lean,lite:true,shows:lean.shows.map(({episodes,seasons,versions,offerings,blurb,...show})=>({...show,firstEpisodeId:episodes?.[0]?.id}))};
       fs.writeFileSync(path.join(stage,'index.json'),JSON.stringify(index));
-      const recent=[...index.shows].sort((a,b)=>String(b.providerUpdatedAt||b.latestAt||b.publishedAt||'').localeCompare(String(a.providerUpdatedAt||a.latestAt||a.publishedAt||'')));
+      const updated=show=>[show.latestEpisode?show.providerUpdatedAt:null,show.latestAt,show.publishedAt].filter(Boolean).sort().pop() || '';
+      const recent=[...index.shows].sort((a,b)=>updated(b).localeCompare(updated(a)));
       fs.writeFileSync(path.join(stage,'bootstrap.json'),JSON.stringify({...index,shows:recent.slice(0,600)}));
     }
     for (const show of payload.shows) {
