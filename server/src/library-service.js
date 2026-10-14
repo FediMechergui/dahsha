@@ -32,7 +32,7 @@ function locate(catalog,id) {
   for (const show of catalog.shows || []) {
     if (show.id===id || show.offerings?.some(o=>o.id===id)) return show;
     const version=show.versions?.find(v=>v.id===id || v.offerings?.some(o=>o.id===id));
-    if (version) return version;
+    if (version) return {...version,providerMetadata:true,documentary:version.documentary ?? version.offerings?.some(o=>o.documentary===true)};
   }
   return null;
 }
@@ -100,7 +100,10 @@ export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PR
         if(provider.provider==='hdtoday')fresh=await getHdtodayDetails(provider);
         if(fresh){
           errors.push(...(fresh.providerErrors || []));
-          if(product==='dahsha'&&fresh.documentary!==true){blocked.add(provider.id);errors.push({provider:provider.provider,error:'Not classified as documentary'});continue;}
+          if(product==='dahsha'&&!(fresh.documentary===true || fresh.documentary!==false && fresh.tags?.includes('documentary'))){
+            if(result.id===provider.id)return null;
+            blocked.add(provider.id);errors.push({provider:provider.provider,error:'Not classified as documentary'});continue;
+          }
           result=mergeShow(result,fresh);
         }
       }catch(e){errors.push({provider:provider.provider,error:e.message});}

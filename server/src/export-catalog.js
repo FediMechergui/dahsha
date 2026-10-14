@@ -13,7 +13,7 @@ export function leanCatalog(catalog, product) {
   const pick = (record, keys) => Object.fromEntries(keys.filter(key => record[key] !== undefined).map(key => [key, record[key]]));
   return { ...payload, shows: payload.shows.map(show => ({
     ...pick(show, ['id','wpId','slug','kind','title','year','lang','contentLang','tags','primaryTag','episodeCount','seasons','totalDurationSec','totalViews','latestAt','firstAt','publishedAt','portrait','synopsisGenerated','tvm','tmdbId','imdbId','documentary','offerings','providerUpdatedAt','providerMetadata','sourceUrl']),
-    versions: (show.versions || []).map(v => ({id:v.id,title:v.title,year:v.year,sourceUrl:v.sourceUrl,offerings:v.offerings,kind:v.kind,uncertainMatch:true})),
+    versions: (show.versions || []).map(v => ({...pick(v,['id','title','year','sourceUrl','offerings','kind','documentary','providerMetadata','tags','lang','tmdbId','imdbId']),uncertainMatch:true})),
     channelId: show.channelId || show.channel?.id,
     posterId: show.posterVideoId || show.posterId,
     poster: show.poster?.custom ? { custom: show.poster.custom } : undefined,

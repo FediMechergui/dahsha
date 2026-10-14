@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseFmoviesList, parseFmoviesDetails, parseFmoviesId, fmoviesServers } from '../src/fmovies.js';
 import { parseHdtodayList, parseHdtodayDetails, parseHdtodayId, hdtodayServers, parseHdtodayPlayer, hdtodayTvFallbacks } from '../src/hdtoday.js';
 import { mergeLibrary, mergeShow } from '../src/merge-library.js';
-import { unifiedStream } from '../src/library-service.js';
+import { unifiedStream, unifiedTitle } from '../src/library-service.js';
 import { leanCatalog } from '../src/export-catalog.js';
 
 const fm = (overrides={}) => ({id:'fm:m:77',tmdbId:77,kind:'film',title:'A Shared Film',year:2024,documentary:true,tags:['documentary'],episodes:[{id:'fm:m:77',title:'A Shared Film',season:1,number:1,offerings:[{provider:'fmovies',id:'fm:m:77'}]}],offerings:[{provider:'fmovies',id:'fm:m:77',tmdbId:77,kind:'film',documentary:true}],...overrides});
@@ -109,6 +109,27 @@ test('Dahsha rejects non-documentary newcomers, while Flixer accepts them',()=>{
   const empty={shows:[],tags:[],channels:[]};const entertainment=fm({documentary:false,tags:['action']});
   assert.equal(mergeLibrary(empty,[entertainment],{product:'dahsha'}).catalog.shows.length,0);
   assert.equal(mergeLibrary(empty,[entertainment],{product:'flixer'}).catalog.shows.length,1);
+});
+
+test('documentary-only policy applies to uncertain editions as well as new titles',()=>{
+  const catalog=base();catalog.shows[0].year=null;
+  const entertainment=fm({documentary:false,tags:['drama']});
+  const dahsha=mergeLibrary(catalog,[entertainment],{product:'dahsha'});
+  assert.equal(dahsha.catalog.shows[0].versions?.length || 0,0);
+  const flixer=mergeLibrary(catalog,[entertainment],{product:'flixer'});
+  assert.equal(flixer.catalog.shows[0].versions.length,1);
+  const docs=mergeLibrary(catalog,[fm()],{product:'dahsha'});
+  assert.equal(leanCatalog(docs.catalog,'dahsha').shows[0].versions[0].documentary,true);
+});
+
+test('older compact documentary versions retain their trusted offering evidence',async()=>{
+  const version={id:'documentary-edition-fixture',kind:'film',title:'Documentary edition',offerings:[{provider:'fixture',id:'documentary-offering',documentary:true}],episodes:[{id:'ABCDEFGHIJK',season:1,number:1}]};
+  const catalog={product:'dahsha',generatedAt:'documentary-version-test',shows:[{id:'parent-documentary',kind:'film',versions:[version]}]};
+  const title=await unifiedTitle(version.id,{catalog,product:'dahsha'});
+  assert.equal(title.documentary,true);
+  assert.equal(title.episodes[0].id,'ABCDEFGHIJK');
+  const rejected={...catalog,generatedAt:'non-documentary-version-test',shows:[{...catalog.shows[0],versions:[{...version,documentary:false}]}]};
+  assert.equal(await unifiedTitle(version.id,{catalog:rejected,product:'dahsha'}),null);
 });
 
 test('confirmed aliases survive provider renames and new refresh batches',()=>{
