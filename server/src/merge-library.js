@@ -49,6 +49,7 @@ export function mergeShow(existing, incoming) {
     seasons:[...new Set(episodes.map(e => e.season).filter(Number.isInteger))].sort((a,b) => a-b),
     providerUpdatedAt:incoming.providerUpdatedAt || existing.providerUpdatedAt,
     latestEpisode:incoming.latestEpisode || existing.latestEpisode,
+    latestAt:[existing.latestAt,incoming.latestAt].filter(Boolean).sort().pop() || null,
   };
 }
 
