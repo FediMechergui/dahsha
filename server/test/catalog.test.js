@@ -71,3 +71,15 @@ test('exports preserve existing data on empty results and separate language sect
   assert.deepEqual(ar.shows.map(s => s.id), ['ar']);
   assert.ok(fs.existsSync(path.join(out, 'shows/en.json')));
 });
+
+test('Flixer exports retain universe and streaming service metadata across refreshes',t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'flixer-metadata-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const catalog={shows:[{id:'mf:m:example',kind:'film',title:'Example'}]};
+  writeCatalog(dir,catalog,'flixer');
+  assert.ok(JSON.parse(fs.readFileSync(path.join(dir,'universes.json'))).universes.length>0);
+  assert.ok(JSON.parse(fs.readFileSync(path.join(dir,'services.json'))).services.length>0);
+  fs.writeFileSync(path.join(dir,'services.json'),JSON.stringify({services:[{name:'Custom service',logo:'https://example.com/logo.svg'}]}));
+  writeCatalog(dir,catalog,'flixer');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir,'services.json'))).services[0].name,'Custom service');
+});

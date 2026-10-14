@@ -36,6 +36,12 @@ export function writeCatalog(outDir, catalog, product) {
   let moved = false;
   try {
     fs.mkdirSync(path.join(stage, 'shows'), { recursive: true });
+    if(product==='flixer')for(const name of ['universes.json','services.json']){
+      const existing=path.join(outDir,name);
+      const fallback=new URL(`../../client-terrarium/data/${name}`,import.meta.url);
+      const source=fs.existsSync(existing)?existing:fallback;
+      if(fs.existsSync(source))fs.copyFileSync(source,path.join(stage,name));
+    }
     for (const lang of ['', '.ar', '.en']) {
       const section = product === 'dahsha' && lang ? { ...lean, lang: lang.slice(1), shows: lean.shows.filter(s => s.lang === lang.slice(1)) } : lean;
       fs.writeFileSync(path.join(stage, `catalog${lang}.json`), JSON.stringify(section));

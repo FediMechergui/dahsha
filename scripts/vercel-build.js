@@ -36,4 +36,6 @@ if (!exported) {
 }
 
 fs.copyFileSync(dataOut,path.join(root,'server',`deployment-${product}.json`));
-run('node', [path.join(root, 'scripts', 'build-static.js')]);
+run('node', product==='flixer'
+  ? [path.join(root,'scripts/build-terrarium.js'),'--out','client/dist-flixer']
+  : [path.join(root,'scripts/build-static.js')]);

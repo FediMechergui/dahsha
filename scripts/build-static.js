@@ -14,6 +14,10 @@ if (!['dahsha', 'flixer'].includes(product)) throw new Error('Invalid app produc
 const outDir = opt('--out', product === 'dahsha' ? 'dist' : 'dist-flixer');
 const dataBase = opt('--data-base', process.env.VITE_DATA_BASE || '');
 const mobile = args.includes('--mobile');
+if(product==='flixer'){
+  const build=spawnSync(process.execPath,[path.join(root,'scripts/build-terrarium.js'),'--out',path.resolve(root,'client',outDir),'--data-base',dataBase,...(mobile?['--mobile']:[])],{cwd:root,env:process.env,stdio:'inherit'});
+  process.exit(build.status ?? 1);
+}
 
 const data = path.join(root, 'client', 'public', product === 'dahsha' ? 'data' : 'data-flixer', 'catalog.json');
 if (!dataBase && !fs.existsSync(data)) {

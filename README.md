@@ -104,6 +104,12 @@ Release signing reads `mobile/keystore.properties` (not committed). The `android
 
 ## How the catalogue is built
 
+Dahsha's interface lives in `client/`. Flixer's original interface lives in
+`client-terrarium/`, including its catalogue filters, universe pages and streaming
+service browsing. The product build commands select those separate interfaces;
+only the catalogue/provider and playback backend is shared. Flixer exports retain
+`universes.json` and `services.json` across refreshes.
+
 FMovies and HDToday now share a provider registry with the existing library. Confirmed
 matches add servers to existing episodes; uncertain matches appear as selectable
 versions inside one title page. Dahsha admits verified documentaries, while Flixer

@@ -47,7 +47,7 @@ jobs:
       - name: Set increasing Android version code
         run: echo "APP_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
       - name: Build web (static, pointing at the hosted data)
-        run: node scripts/build-static.js --mobile --out ../mobile/www --data-base "$DATA_BASE"
+        run: node scripts/product.js "$APP_PRODUCT" mobile-web --data-base "$DATA_BASE"
       - name: Sync Capacitor
         working-directory: mobile
         run: npx cap sync android
