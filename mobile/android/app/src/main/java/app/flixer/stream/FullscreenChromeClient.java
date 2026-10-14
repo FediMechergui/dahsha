@@ -34,6 +34,11 @@ public class FullscreenChromeClient extends BridgeWebChromeClient {
     }
 
     @Override
+    public boolean onCreateWindow(android.webkit.WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
+        return false;
+    }
+
+    @Override
     public void onShowCustomView(View view, CustomViewCallback callback) {
         if (customView != null) {
             callback.onCustomViewHidden();

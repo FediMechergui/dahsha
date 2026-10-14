@@ -13,10 +13,13 @@ public class MainActivity extends BridgeActivity {
         chromeClient = new FullscreenChromeClient(getBridge());
         android.webkit.WebView webView = getBridge().getWebView();
         webView.setWebChromeClient(chromeClient);
+        getBridge().setWebViewClient(new PlayerWebViewClient(getBridge()));
 
         android.webkit.WebSettings settings = webView.getSettings();
         settings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setSupportMultipleWindows(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
         // Back button while a video is fullscreen: leave fullscreen instead of navigating back.
