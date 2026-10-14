@@ -59,6 +59,9 @@ export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PR
   if(entry && Date.now()-entry.at<3*60e3)return entry.promise;
   const promise=(async()=>{
     let result=base?{...base,synopsis:base.synopsis||base.blurb||'',episodes:base.episodes||[],offerings:showOfferings(base)}:null;
+    if(result?.kind==='film' && !result.episodes.length && /^(mf:m:|fm:m:|hd:m:)/.test(result.id)){
+      result.episodes=[{id:result.id,title:result.title,season:1,number:1,sourceUrl:result.sourceUrl,offerings:result.offerings}];
+    }
     if(/^mf:[ms]:/.test(id)){
       try{const fresh=await getTitleDetails(id);if(fresh)result=result?mergeShow(result,fresh):fresh;}catch(e){if(!result)throw e;}
     }

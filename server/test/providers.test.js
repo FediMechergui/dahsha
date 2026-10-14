@@ -130,6 +130,10 @@ test('older compact documentary versions retain their trusted offering evidence'
   assert.equal(title.episodes[0].id,'ABCDEFGHIJK');
   const rejected={...catalog,generatedAt:'non-documentary-version-test',shows:[{...catalog.shows[0],versions:[{...version,documentary:false}]}]};
   assert.equal(await unifiedTitle(version.id,{catalog:rejected,product:'dahsha'}),null);
+  const film={...version,id:'hd:m:movie-documentary-abc12345',episodes:[]};
+  const compact={...catalog,generatedAt:'compact-documentary-film-test',shows:[{...catalog.shows[0],versions:[film]}]};
+  const playable=await unifiedTitle(film.id,{catalog:compact,product:'dahsha'});
+  assert.equal(playable.episodes[0].id,film.id);
 });
 
 test('confirmed aliases survive provider renames and new refresh batches',()=>{
