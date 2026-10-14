@@ -266,3 +266,18 @@ and excluded from version control. Do not render those snapshots as trusted page
 - [Sample TV detail/season page](https://www.f-movies.org/tv/reacher-108978)
 - [Public player wrapper](https://www.f-movies.org/watch/index.html)
 - [JSON search example](https://www.f-movies.org/api/search?q=reacher&limit=2)
+
+
+Flixer startup now uses `bootstrap.json` (600 recent cards) and loads the episode-free
+`index.json` in the background. Android bundles both, so startup no longer depends
+on downloading the full catalogue. Full episodes remain in per-title files.
+Browse advances all three upstream lists, preserving already displayed cards.
+The Recently updated rail refreshes automatically every three minutes while open;
+the shared scheduled import continues every six hours. FMovies only publishes
+first-air/release sorting, so that feed represents recent releases; HDToday supplies
+actual episode update slots and relative dates. Historical ingestion remains resumable
+and `providerSync.completed` reports whether all queued partitions have finished.
+Service metadata is matched by exact series title and year against TVmaze during
+imports. Universe guides resolve missing members from provider search in the
+background, keeping the curated member type/year. Neither coverage is guaranteed
+complete when metadata is unavailable.

@@ -2,6 +2,7 @@ import { refreshProviders, mergeCachedProviders, saveMergeReport } from '../serv
 import { readJson, writeJson } from '../server/src/store.js';
 import { writeCatalog } from '../server/src/export-catalog.js';
 import { resolveProviderMatches } from '../server/src/provider-matches.js';
+import { enrichServices } from '../server/src/service-metadata.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,8 @@ for(const product of requested==='both'?['dahsha','flixer']:[requested]){
   }
   await resolveProviderMatches(base,product,{limit:Number(option('--matches','150'))});
   const merged=mergeCachedProviders(base,product);saveMergeReport(product,merged.report);
+  const services=await enrichServices(merged.catalog,{limit:Number(option('--services','100'))});
+  console.log(`[${product}] ${services} series received verified network/service metadata`);
   writeJson(product==='dahsha'?'catalog.json':'flixer-catalog.json',merged.catalog);
   writeCatalog(out,merged.catalog,product);
   console.log(`[${product}] ${merged.report.matched} provider titles matched; ${merged.report.added} added; ${merged.report.pending.length} uncertain versions grouped; complete=${cache.completed}`);

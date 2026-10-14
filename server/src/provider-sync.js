@@ -40,7 +40,7 @@ export async function refreshProviders({product='dahsha',full=false,pageBudget=N
 async function scan({product,full,pageBudget,log}) {
   const cache=providerCache(product),items=new Map(cache.items.map(i=>[i.id,i]));
   const errors={};let requests=0;
-  const put=rows=>{for(const row of rows){const old=items.get(row.id);items.set(row.id,{...old,...row,tags:[...new Set([...(old?.tags||[]),...(row.tags||[])])],year:row.year||old?.year||null,firstSeenAt:old?.firstSeenAt||new Date().toISOString(),providerUpdatedAt:new Date().toISOString()});}};
+  const put=rows=>{for(const row of rows){const old=items.get(row.id);const now=new Date().toISOString();items.set(row.id,{...old,...row,tags:[...new Set([...(old?.tags||[]),...(row.tags||[])])],year:row.year||old?.year||null,firstSeenAt:old?.firstSeenAt||now,providerUpdatedAt:row.latestEpisode && row.latestEpisode!==old?.latestEpisode ? row.providerUpdatedAt||now : old?.providerUpdatedAt||row.providerUpdatedAt||now});}};
   // New releases / new episodes are refreshed independently of the long historical crawl.
   const currentYear=new Date().getUTCFullYear();
   for(const seed of scopes(product)) {

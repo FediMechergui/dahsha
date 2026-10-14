@@ -36,6 +36,15 @@ export function parseHdtodayList(html, {kind,documentary=false,page=1} = {}) {
     if (documentary && !tags.includes('documentary')) continue;
     const poster = /<img[^>]*src="(https:\/\/image\.tmdb\.org\/[^" ]+)"/.exec(m[2])?.[1];
     const item=record({slug,title,year,poster,tags});
+    const slot=/<b>S(\d+)\s+E(\d+)<\/b>/.exec(m[2]);
+    if(item.kind==='series' && slot) {
+      const season=Number(slot[1]),number=Number(slot[2]),id=`${item.id}:${season}:${number}`;
+      item.episodes=[{id,title:`Episode ${number}`,season,number,sourceUrl:`${item.sourceUrl}?s=${season}&e=${number}`,offerings:[{...item.offerings[0],id,season,number}]}];
+      item.episodeCount=1;item.seasons=[season];item.latestEpisode=`${season}:${number}`;
+    }
+    const age=/\b(\d+)\s*(h|days?|minutes?)\s+ago\b/.exec(text(m[2]));
+    if(age)item.providerUpdatedAt=new Date(Date.now()-Number(age[1])*({h:3600000,day:86400000,days:86400000,minute:60000,minutes:60000}[age[2]])).toISOString();
+    else if(/\byesterday\b/.test(text(m[2])))item.providerUpdatedAt=new Date(Date.now()-86400000).toISOString();
     if (!kind || item.kind===kind) items.set(item.id,item);
   }
   const links=[...html.matchAll(/<a\b([^>]*href="[^"]*[?&](?:amp;)?page=(\d+)[^"]*"[^>]*)>/g)];
@@ -45,7 +54,7 @@ export function parseHdtodayList(html, {kind,documentary=false,page=1} = {}) {
   return {items:[...items.values()],page,totalPages:Math.max(page,...last,...next),hasNext:next.length>0};
 }
 let retryAt=0;
-async function request(path,{timeoutMs=30000}={}) {
+async function request(path,{timeoutMs=12000}={}) {
   if(Date.now()<retryAt)throw new Error('HDToday rate limited; cached data retained until retry');
   const url=new URL(path,HDTODAY_BASE);
   if(url.origin!==HDTODAY_BASE)throw new Error('Invalid HDToday URL');
@@ -58,7 +67,7 @@ async function request(path,{timeoutMs=30000}={}) {
 export async function fetchHdtodayPage({kind='film',documentary=false,page=1,latest=false,genre}={}) {
   if(genre && !/^[a-z-]+$/.test(genre))throw new Error('Invalid HDToday genre');
   const slug=genre==='sci-fi'?(kind==='film'?'science-fiction':'sci-fi-fantasy'):genre;
-  const route=documentary?'/genre/documentary':slug?`/genre/${slug}`:latest&&kind==='series'?'/new-episodes':kind==='film'?'/movie':'/tv';
+  const route=latest&&kind==='series'?'/new-episodes':documentary?'/genre/documentary':slug?`/genre/${slug}`:kind==='film'?'/movie':'/tv';
   return parseHdtodayList(await request(`${route}?page=${page}`),{kind:documentary?undefined:kind,documentary,page});
 }
 export function parseHdtodayDetails(html, sourceUrl) {

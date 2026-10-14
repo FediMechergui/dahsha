@@ -228,7 +228,7 @@
   async function renderHome(view) {
     view.innerHTML = `<div style="height:12px"></div>
       <div class="hero" id="hero"><div class="skel" style="position:absolute;inset:0;border-radius:0"></div></div>
-      <div id="home-rows">${["Just added", "New movies", "New series"].map(t => `<section class="section"><div class="section__head"><h2 class="section__title">${t}</h2></div>${skelRow(5)}</section>`).join("")}</div>`;
+      <div id="home-rows">${["Recently updated", "New movies", "New series"].map(t => `<section class="section"><div class="section__head"><h2 class="section__title">${t}</h2></div>${skelRow(5)}</section>`).join("")}</div>`;
 
     const results = await Promise.allSettled([api.trending(), api.nowPlaying(), api.onTheAir(), api.topRated("movie"), api.topRated("tv"), ensureMeta("movie"), ensureMeta("tv")]);
     if (state.renderedTab !== "home") return;
@@ -295,7 +295,7 @@
     $("#home-rows").innerHTML =
       resumeRow +
       section("Popular series", "TVmaze popularity", popularTv, { rating: true }) +
-      section("Just added", "Movies and series", (trend || []).slice(0, 20), { showType: true }) +
+      section("Recently updated", "Movies and series from all providers", (trend || []).slice(0, 20), { showType: true }) +
       section("New movies", "Latest additions", now, { link: "#/movies" }) +
       section("New series", "Latest additions", air, { link: "#/shows" }) +
       genreRow + universeRow + serviceRow +
@@ -863,8 +863,8 @@
   /* ---------- Live catalogue updates ---------- */
   window.addEventListener("flixer:catalog", e => {
     const n = e.detail && e.detail.added;
-    if (!n) return;
-    toast(`${n} new title${n === 1 ? "" : "s"} added`);
+    if (!n && !e.detail?.updated) return;
+    if(n) toast(`${n} new title${n === 1 ? "" : "s"} added`);
     state.meta.genres = {};
     if (state.renderedTab === "home" && !$("#sheet-root > .detail")) { state.renderedTab = null; renderTab("home"); }
   });

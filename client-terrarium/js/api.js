@@ -85,7 +85,7 @@
   /* ----- raw show -> view item ----- */
   function normalize(s) {
     const type = s.kind === "series" ? "tv" : "movie";
-    const date = String(s.publishedAt || "").slice(0, 10);
+    const date = String([s.providerUpdatedAt,s.latestAt,s.publishedAt,s.firstSeenAt].filter(Boolean).sort().pop() || "");
     const poster = s.poster || {};
     const episodes = Array.isArray(s.episodes) ? s.episodes : [];
     const tvm = s.tvm || null;
@@ -113,7 +113,7 @@
       lang: s.contentLang || s.lang || "",
       country: tvm && tvm.c ? [tvm.c] : [],
       episodeCount: s.episodeCount || episodes.length || (type === "movie" ? 1 : 0),
-      firstEpisodeId: episodes[0] ? episodes[0].id : s.id,
+      firstEpisodeId: episodes[0] ? episodes[0].id : s.firstEpisodeId || s.id,
       sourceUrl: s.sourceUrl || (type === "tv" ? `${SOURCE}/series/${s.slug}/` : `${SOURCE}/${s.slug}/`),
       alt: (() => { const a = slugTitle(s.slug); return a && UNI.norm(a) !== UNI.norm(title) ? a : ""; })(),
       universes: [...new Set([...UNI.detect(title), ...UNI.detect(slugTitle(s.slug)), ...(s._uni || [])])],
@@ -278,26 +278,28 @@
       if (this._catalog) return Promise.resolve(this._catalog);
       if (!this._loading) {
         this._loading = (async () => {
-          const { body: c } = await getJson(`${DATA_BASE}/data/catalog.json?v=${Math.floor(Date.now() / 600000)}`, 60000);
+          const { body: c } = await getJson(`${CFG.mobile ? "" : DATA_BASE}/data/bootstrap.json`).catch(() => getJson(`${DATA_BASE}/data/catalog.json`, 60000));
           if (c.product !== 'flixer') throw new Error('Flixer requires its own exported catalogue');
           const shows = Array.isArray(c.shows) ? c.shows : [];
           this._catalog = { shows, items: [], genres: { movie: [], tv: [] }, years: [1900, new Date().getFullYear()], generatedAt: c.generatedAt || null, tvmazeAt: c.tvmazeAt || null, lite: !!c.lite, tagLabels: new Map((c.tags || []).map(t => [t.id, t.labelEn || t.label || titleCase(t.id)])) };
           this._byId = new Map();
           shows.forEach(s => this._byId.set(s.id, s));
           const delta = store.get("delta", []);
-          if (Array.isArray(delta)) delta.forEach(s => { if (!this._byId.has(s.id)) { shows.push(s); this._byId.set(s.id, s); } });
-          // Universes from Wikidata (data/universes.json): logos, descriptions, services, watch order.
-          try {
-            const { body: u } = await getJson(`${DATA_BASE}/data/universes.json?v=${Math.floor(Date.now() / 600000)}`, 30000);
-            this._universeData = new Map((u.universes || []).map(x => [x.id, x]));
-            this._catalog.universesAt = u.generatedAt || null;
-            // Members refreshed live from Wikidata in earlier sessions.
-            this._universeData.forEach(x => { const cached = store.get("uni:" + x.id, null); if (cached && Array.isArray(cached.members)) this._mergeMembers(x, cached.members, cached.t); });
-          } catch (e) { this._universeData = new Map(); console.warn("[flixer] universes data unavailable:", e.message); }
-          try {
-            const { body: sv } = await getJson(`${DATA_BASE}/data/services.json?v=${Math.floor(Date.now() / 600000)}`, 20000);
-            this._serviceLogos = new Map((sv.services || []).map(x => [x.name, x.logo]));
-          } catch { this._serviceLogos = new Map(); }
+          if (Array.isArray(delta)) delta.forEach(s => { if (!this._byId.has(s.id)) { shows.push(s); this._byId.set(s.id, s); } else Object.assign(this._byId.get(s.id),s); });
+          this._universeData = new Map(); this._serviceLogos = new Map();
+          this._indexReady = Promise.allSettled([
+            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/index.json`, 60000).then(({body}) => {
+              if (body.product !== 'flixer') throw new Error('Wrong product index');
+              this._merge(body.shows || []);
+            }),
+            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/universes.json`).then(({body}) => {
+              this._universeData = new Map((body.universes || []).map(x => [x.id,x]));
+              this._universeData.forEach(x => { const cached = store.get("uni:" + x.id, null); if (cached && Array.isArray(cached.members)) this._mergeMembers(x,cached.members,cached.t); });
+            }),
+            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/services.json`).then(({body}) => { this._serviceLogos = new Map((body.services || []).map(x => [x.name,x.logo])); })
+          ]).then(() => {
+            this._reindex(); window.dispatchEvent(new CustomEvent("flixer:catalog", {detail:{updated:true}}));
+          });
           this._reindex();
           this._startSync();
           return this._catalog;
@@ -422,10 +424,22 @@
         .sort((a, b) => b.count - a.count || b.total - a.total);
     }
     async universe(id) {
-      const c = await this.catalog();
+      const c = await this.catalog(); await this._indexReady;
       const base = UNI.byId(id) || { id, name: id, short: id };
       if (this.liveEnabled) { try { await this.refreshUniverse(id); } catch (e) { console.warn("[flixer] universe refresh skipped:", e.message); } }
       const d = this._universeData && this._universeData.get(id);
+      if(this.liveEnabled && d && !this._resolvedUniverses?.has(id)) {
+        this._resolvedUniverses ||= new Set(); this._resolvedUniverses.add(id);
+        const missing=d.members.filter(m=>!m.id);
+        // Resolve a small batch in the background; never delay opening the guide.
+        (async()=>{ for(const member of missing.slice(0,20)) {
+          try { const {body}=await getJson(`${API_BASE}/api/search?q=${encodeURIComponent(member.title)}`,15000);
+            const rows=Array.isArray(body)?body:body.items || [];
+            this._merge(rows.filter(row=>this._key(row.title)===this._key(member.title) && (!member.year || +row.year===+member.year) && (!member.type || (row.kind==='series'?'tv':'movie')===member.type)));
+          } catch {} }
+          this._reindex(); window.dispatchEvent(new CustomEvent("flixer:catalog",{detail:{updated:true}}));
+        })();
+      }
       const inIndex = c.items.filter(i => i.universes.includes(id));
       const seen = new Set();
       // Watch order: Wikidata members by release date (numbered where ordinals exist), then titles that
@@ -467,34 +481,39 @@
     _merge(rows) {
       const c = this._catalog;
       let added = 0;
+      const identities=new Map();
+      const identity=r=>r.tmdbId?`${r.kind}:tmdb:${r.tmdbId}`:r.year?`${r.kind}:${this._key(r.title)}:${r.year}`:null;
+      c.shows.forEach(show=>{ for(const key of [identity(show),show.year?`${show.kind}:${this._key(show.title)}:${show.year}`:null]) if(key) identities.set(key,identities.has(key)?null:show); });
       rows.forEach(r => {
         if (!r || !r.id) return;
-        const cur = this._byId.get(r.id);
+        const candidate=identities.get(identity(r)) || (r.year && identities.get(`${r.kind}:${this._key(r.title)}:${r.year}`));
+        const cur = this._byId.get(r.id) || (candidate && !(candidate.tmdbId && r.tmdbId && +candidate.tmdbId!==+r.tmdbId) && candidate);
+        if(cur) this._byId.set(r.id,cur);
         if (cur) {
           if (r.title) cur.title = r.title;
           if (r.synopsis && (!cur.synopsis || r.synopsis.length > cur.synopsis.length)) cur.synopsis = r.synopsis;
-          if (r.tags && r.tags.length) cur.tags = r.tags;
+          if (r.tags && r.tags.length) cur.tags = [...new Set([...(cur.tags || []),...r.tags])];
           if (r.year) cur.year = r.year;
-          if (r.publishedAt) cur.publishedAt = r.publishedAt;
+          for (const key of ["publishedAt","latestAt","providerUpdatedAt","firstSeenAt","tmdbId","imdbId","firstEpisodeId"]) if (r[key]) cur[key] = r[key];
+          if (r.episodeCount) cur.episodeCount = Math.max(cur.episodeCount || 0,r.episodeCount);
           if (r.wpId) cur.wpId = r.wpId;
           if (r.tvm) cur.tvm = r.tvm;
-          if (r.offerings) cur.offerings = r.offerings;
+          if (r.offerings) cur.offerings = [...new Map([...(cur.offerings || []),...r.offerings].map(o=>[o.provider+":"+o.id,o])).values()];
           if (r.versions) cur.versions = r.versions;
           if (r.sourceUrl) cur.sourceUrl = r.sourceUrl;
           if (r.poster) cur.poster = r.poster;
           if (Array.isArray(r.episodes) && r.episodes.length >= (cur.episodes || []).length) { cur.episodes = r.episodes; cur.episodeCount = r.episodes.length; }
         } else {
-          c.shows.push(r); this._byId.set(r.id, r); added += 1;
+          c.shows.push(r); this._byId.set(r.id, r); if(identity(r)) identities.set(identity(r),r); added += 1;
         }
       });
-      if (added) this._persistDelta(rows.filter(r => r && r.id));
+      if (rows.length && rows.length < 500) this._persistDelta(rows.filter(r => r && r.id).map(r=>this._byId.get(r.id) || r));
       return added;
     }
     _persistDelta(rows) {
       const delta = store.get("delta", []);
-      const known = new Set(delta.map(d => d.id));
-      const lean = rows.filter(r => !known.has(r.id)).map(r => ({ id: r.id, wpId: r.wpId, slug: r.slug, kind: r.kind, title: r.title, year: r.year, tags: r.tags, publishedAt: r.publishedAt, offerings:r.offerings, versions:r.versions,sourceUrl:r.sourceUrl,poster:r.poster,tmdbId:r.tmdbId,documentary:r.documentary }));
-      store.set("delta", [...lean, ...delta].slice(0, DELTA_CAP));
+      const incoming=new Map(rows.map(r=>[r.id, {id:r.id,kind:r.kind,title:r.title,year:r.year,tags:r.tags,slug:r.slug,wpId:r.wpId,publishedAt:r.publishedAt,latestAt:r.latestAt,providerUpdatedAt:r.providerUpdatedAt,tvm:r.tvm,offerings:r.offerings,versions:r.versions,sourceUrl:r.sourceUrl,poster:r.poster,tmdbId:r.tmdbId,documentary:r.documentary}]));
+      store.set("delta",[...incoming.values(),...delta.filter(r=>!incoming.has(r.id))].slice(0,DELTA_CAP));
     }
 
     /* ----- background sync: newest titles on the source, every few minutes ----- */
@@ -510,16 +529,19 @@
       this._syncing = true;
       let added = 0;
       try {
-        for (const kind of ["movie", "tv"]) {
-          for (let page = 1; page <= 6; page++) {
-            const r = await live.list(kind, { page, perPage: 50 });
-            const n = this._merge(r.items);
-            added += n;
-            if (!r.items.length || n === 0) break;
-          }
-        }
+        const results = await Promise.allSettled(["film","series"].map(kind => getJson(`${API_BASE}/api/discover?kind=${kind}&latest=true&page=1`, 18000)));
+        const recent = new Set(); let successful = false;
+        results.forEach(result => { if(result.status === "fulfilled") {
+          successful = true;
+          const rows=result.value.body.items || [];
+          rows.forEach(row=>recent.add(row.id)); added += this._merge(rows);
+        }});
+        if(!successful) throw new Error("Providers are temporarily unavailable");
+        this._recentIds = recent;
+        this._enrichServices([...recent]).catch(()=>{});
+        this._reindex();
         this._lastSync = Date.now();
-        if (added) { this._reindex(); window.dispatchEvent(new CustomEvent("flixer:catalog", { detail: { added, total: this._catalog.shows.length } })); }
+        window.dispatchEvent(new CustomEvent("flixer:catalog", { detail: { added, updated:true, total: this._catalog.shows.length } }));
         window.dispatchEvent(new CustomEvent("flixer:sync", { detail: { ok: true, added, at: this._lastSync } }));
       } catch (e) {
         window.dispatchEvent(new CustomEvent("flixer:sync", { detail: { ok: false, error: e.message } }));
@@ -528,6 +550,18 @@
       return added;
     }
 
+    async _enrichServices(ids) {
+      for(const id of ids) {
+        const raw=this._byId.get(id);
+        if(!raw || raw.kind!=='series' || raw.tvm || raw._serviceTried) continue;
+        raw._serviceTried=true;
+        const item=normalize(raw), match=await this.tvmaze.show(item);
+        if(!match || this._key(match.name)!==this._key(item.title) || (item.year && match.year && +item.year!==match.year)) continue;
+        raw.tvm={id:match.id,w:match.weight,r:match.rating,svc:match.service,st:match.status,c:match.web?.country || match.network?.country};
+        this._persistDelta([raw]); this._reindex();
+        window.dispatchEvent(new CustomEvent("flixer:catalog",{detail:{updated:true}}));
+      }
+    }
     async all(type) { const c = await this.catalog(); return type ? c.items.filter(i => i.type === type) : c.items; }
     async item(id) { const c = await this.catalog(); return c.items.find(i => i.id === id) || null; }
     async yearRange() { const c = await this.catalog(); return c.years; }
@@ -536,7 +570,11 @@
     ratingOf(id) { const s = this._byId.get(id); const r = s && s.tvm && s.tvm.r; return r ? { rating: r } : null; }
 
     /* ----- Home rails ----- */
-    async trending() { return (await this.all()).slice().sort(byAdded).slice(0, 20); }
+    async trending() {
+      const items=await this.all();
+      const live=this._recentIds ? items.filter(i=>this._recentIds.has(i.id)) : [];
+      return [...live, ...items.slice().sort(byAdded).filter(i=>!this._recentIds?.has(i.id))].slice(0,24);
+    }
     async nowPlaying() { return (await this.all("movie")).slice().sort(byAdded).slice(0, 14); }
     async onTheAir() { return (await this.all("tv")).slice().sort(byAdded).slice(0, 14); }
     async popular(type, n = 14) { return (await this.all(type)).filter(i => i.weight > 0).sort(byWeight).slice(0, n); }
@@ -557,6 +595,25 @@
 
     /* ----- Browse ----- */
     async discover(type, f, page = 1) {
+      await this.catalog(); await this._indexReady;
+      this._browseSessions ||= new Map();
+      const key=JSON.stringify([type,f]);
+      if(page===1 || !this._browseSessions.has(key)) this._browseSessions.set(key,{seen:new Set(),remotePage:0,totalPages:1,buffer:[]});
+      const session=this._browseSessions.get(key);
+      // Every scroll advances all upstream lists, even while cached titles remain.
+      if(this.liveEnabled && session.remotePage < session.totalPages) {
+        const genre=GENRES.find(g=>g[2]===(f.genres || [])[0]);
+        const params=new URLSearchParams({kind:type==='tv'?'series':'film',page:String(session.remotePage+1)});
+        if(genre) params.set('genre',genre[2]);
+        if(f.yearFrom && f.yearFrom===f.yearTo) params.set('year',f.yearFrom);
+        session.pending ||= getJson(`${API_BASE}/api/discover?${params}`,18000).then(({body})=>{
+          session.remotePage++; session.totalPages=body.totalPages || session.remotePage;
+          this._merge(body.items || []); this._reindex();
+          session.buffer.push(...(body.items || []).map(row=>this._byId.get(row.id)?.id || row.id));
+        }).catch(()=>{}).finally(()=>{session.pending=null;});
+        if(page===1) await Promise.race([session.pending,new Promise(resolve=>setTimeout(resolve,300))]);
+        else await session.pending;
+      }
       let list = await this.all(type);
       if (f.genres && f.genres.length) list = list.filter(i => f.genres.every(g => i.genreIds.includes(g)));
       if (f.yearFrom) list = list.filter(i => +i.year >= f.yearFrom);
@@ -566,8 +623,14 @@
       if (f.universe) list = list.filter(i => i.universes.includes(f.universe));
       const sorters = { added: byAdded, year: byYearDesc, oldest: byYearAsc, episodes: byEpisodes, title: byTitle, popularity: byWeight, rating: byRating };
       list = list.slice().sort(sorters[f.sort] || byAdded);
-      const start = (page - 1) * PER_PAGE;
-      return { items: list.slice(start, start + PER_PAGE), page, totalPages: Math.max(1, Math.ceil(list.length / PER_PAGE)), total: list.length };
+      const ranked=new Map(list.map(i=>[i.id,i]));
+      const priority=session.buffer.map(id=>ranked.get(id)).filter(Boolean);
+      const available=[...priority,...list].filter(i=>!session.seen.has(i.id));
+      const items=[];
+      for(const item of available) { if(session.seen.has(item.id)) continue; session.seen.add(item.id); items.push(item); if(items.length===PER_PAGE) break; }
+      session.buffer=session.buffer.filter(id=>!session.seen.has(id));
+      const more=list.some(i=>!session.seen.has(i.id)) || session.remotePage < session.totalPages;
+      return {items,page,totalPages:more?page+1:page,total:list.length};
     }
     async genres(type) { const c = await this.catalog(); return c.genres[type] || []; }
     async countries() { return []; }
@@ -686,6 +749,7 @@
       const terms = norm(q).split(/\s+/).filter(Boolean);
       if(!terms.length)return {items:[],totalPages:1};
       const hit = value => {const text=norm(value);return terms.every(term=>text.includes(term));};
+      await this.catalog(); await this._indexReady;
       const local = (await this.all()).filter(i => hit(i.title) || (i.alt && hit(i.alt))).sort(byWeight).slice(0, 60);
       if (!this.liveEnabled) return { items: local, totalPages: 1 };
       const liveHits = await Promise.race([

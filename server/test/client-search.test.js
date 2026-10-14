@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 test('Flixer offline search finds Happy & Gay when the user types and or omits punctuation',async()=>{
   const catalog={product:'flixer',shows:[{id:'happy-gay',title:'Happy & Gay',kind:'film',year:2014,tags:['animation']},{id:'holidays',title:'Happy Holidays',kind:'film',tags:['comedy']}]};
-  const context=vm.createContext({window:{FLIXER_CONFIG:{live:false}},console,localStorage:{getItem:()=>null,setItem:()=>{}},AbortController,setTimeout,clearTimeout,fetch:async url=>({ok:true,status:200,headers:{get:()=>null},text:async()=>JSON.stringify(String(url).includes('/catalog.json')?catalog:String(url).includes('/universes.json')?{universes:[]}:{services:[]})})});
+  const context=vm.createContext({window:{FLIXER_CONFIG:{live:false},dispatchEvent:()=>{}},console,localStorage:{getItem:()=>null,setItem:()=>{}},AbortController,setTimeout,clearTimeout,CustomEvent:class {},fetch:async url=>({ok:true,status:200,headers:{get:()=>null},text:async()=>JSON.stringify((/\/(catalog|bootstrap|index)\.json/.test(String(url)))?catalog:String(url).includes('/universes.json')?{universes:[]}:{services:[]})})});
   for(const name of ['universes.js','tvmaze.js','api.js'])vm.runInContext(fs.readFileSync(new URL(`../../client-terrarium/js/${name}`,import.meta.url),'utf8'),context);
   const api=new context.window.Api.FlixerApi();
   for(const query of ['happy and gay','happy & gay','happy gay']){
@@ -13,4 +13,28 @@ test('Flixer offline search finds Happy & Gay when the user types and or omits p
     assert.deepEqual(Array.from(result.items,item=>item.id),['happy-gay']);
   }
   assert.equal((await api.search('...')).items.length,0);
+});
+
+
+test('Flixer renders its bootstrap before a delayed full index and keeps scroll pages distinct',async()=>{
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const initial={product:'flixer',shows:[{id:'one',kind:'film',title:'One',tags:['animation']}]};
+  const requests=[];
+  const context=vm.createContext({window:{FLIXER_CONFIG:{live:false},dispatchEvent:()=>{}},console,URLSearchParams,CustomEvent:class {},localStorage:{getItem:()=>null,setItem:()=>{}},AbortController,setTimeout,clearTimeout,fetch:async url=>{
+    requests.push(String(url));
+    if(String(url).includes('/index.json')) await gate;
+    const body=String(url).includes('/index.json')?{product:'flixer',shows:Array.from({length:60},(_,i)=>({id:'item'+i,kind:'film',title:'Item '+i,tags:['animation']}))}:String(url).includes('/bootstrap.json')?initial:{};
+    return {ok:true,status:200,headers:{get:()=>null},text:async()=>JSON.stringify(body)};
+  }});
+  for(const name of ['universes.js','tvmaze.js','api.js'])vm.runInContext(fs.readFileSync(new URL(`../../client-terrarium/js/${name}`,import.meta.url),'utf8'),context);
+  const api=new context.window.Api.FlixerApi();
+  const startup=await api.catalog();
+  assert.equal(startup.shows.length,1);
+  assert.equal(requests.some(url=>url.includes('/catalog.json')),false);
+  release(); await api._indexReady;
+  const filters={genres:['animation']};
+  const first=await api.discover('movie',filters,1),second=await api.discover('movie',filters,2);
+  assert.equal(first.items.length,24); assert.equal(second.items.length,24);
+  assert.equal(second.items.some(item=>first.items.some(prior=>item.id===prior.id)),false);
 });

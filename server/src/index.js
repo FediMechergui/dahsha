@@ -41,7 +41,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/api/discover', async (req,res) => res.json(await discoverLibrary({kind:req.query.kind || 'film',page:req.query.page,genre:req.query.genre,year:req.query.year})));
+app.get('/api/discover', async (req,res) => res.json(await discoverLibrary({kind:req.query.kind || 'film',page:req.query.page,genre:req.query.genre,year:req.query.year,latest:req.query.latest})));
 
 // Dahsha's catalogue and source management never use Flixer's all-genre feed.
 if (catalogue) {

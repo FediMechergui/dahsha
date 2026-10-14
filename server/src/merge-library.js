@@ -37,6 +37,7 @@ export function mergeShow(existing, incoming) {
     year:existing.year || incoming.year || null,
     tmdbId:existing.tmdbId || incoming.tmdbId,
     imdbId:existing.imdbId || incoming.imdbId,
+    tvm:existing.tvm || incoming.tvm,
     synopsis:existing.synopsis && !existing.synopsisGenerated ? existing.synopsis : incoming.synopsis || existing.synopsis,
     synopsisGenerated:existing.synopsis && !existing.synopsisGenerated ? false : !incoming.synopsis && existing.synopsisGenerated,
     poster:existing.poster || incoming.poster, portrait:existing.portrait || incoming.portrait,

@@ -52,9 +52,9 @@ async function request(path) {
   const url = new URL(path, FMOVIES_BASE);
   if (url.origin !== FMOVIES_BASE) throw new Error('Invalid FMovies page');
   let error;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await safeRemoteFetch(url.href, { headers:{'User-Agent':'Mozilla/5.0', Accept:'text/html,application/json'} });
+      const response = await safeRemoteFetch(url.href, { timeoutMs:7000,headers:{'User-Agent':'Mozilla/5.0', Accept:'text/html,application/json'} });
       if (!response.ok) { await response.body?.cancel(); throw new Error(`FMovies HTTP ${response.status}`); }
       if (new URL(response.url).origin !== FMOVIES_BASE) throw new Error('Unexpected FMovies redirect');
       return await response.text();
@@ -159,5 +159,5 @@ export function fmoviesServers(id) {
     { id:'fmovies:embos', name:'FMovies · Embos', embedUrl:kind==='film' ? `https://embos.top/movie/?mid=${tmdbId}` : `https://embos.top/tv/?mid=${tmdbId}&s=${season}&e=${number}`, sandbox:null },
     { id:'fmovies:vidcore', name:'FMovies · Vidcore', embedUrl:kind==='film' ? `https://vidcore.net/movie/${tmdbId}` : `https://vidcore.net/tv/${tmdbId}/${season}/${number}` },
     { id:'fmovies:vidapi', name:'FMovies · VidAPI', embedUrl:kind==='film' ? `https://vidapi.xyz/embed/movie/${tmdbId}` : `https://vidapi.xyz/embed/tv/${tmdbId}/${season}/${number}` },
-  ].map(s => ({...s, provider:'fmovies', type:'embed', availability:'unverified'}));
+  ].map(s => ({...s, sandbox:null, provider:'fmovies', type:'embed', availability:'unverified'}));
 }

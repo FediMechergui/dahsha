@@ -63,6 +63,10 @@ if (!dataBase) {
     console.log(`[terrarium] bundled episode files for ${n} series`);
   }
 }
+if(mobile && dataBase) {
+  fs.mkdirSync(path.join(out,'data'),{recursive:true});
+  for(const name of ['bootstrap.json','index.json','universes.json','services.json']) if(fs.existsSync(path.join(dataDir,name))) fs.copyFileSync(path.join(dataDir,name),path.join(out,'data',name));
+}
 fs.writeFileSync(path.join(out, 'config.js'), `window.FLIXER_CONFIG = ${JSON.stringify({ dataBase, apiBase, mobile, builtAt: new Date().toISOString() })};\n`);
 
 const count = (d) => fs.readdirSync(d, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? count(path.join(d, e.name)) : 1), 0);

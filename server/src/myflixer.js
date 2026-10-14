@@ -160,7 +160,7 @@ export async function fetchMovies({ page = 1, perPage = 24, category, year, sort
     page: String(page),
     orderby: sort,
     order: order,
-    _fields: 'id,slug,title,date,date_gmt,categories,release-year,excerpt,content',
+    _fields: 'id,slug,title,date,date_gmt,modified,categories,release-year,excerpt,content',
   });
 
   if (category) {
@@ -201,7 +201,7 @@ export async function fetchSeries({ page = 1, perPage = 24, category, year, sort
     page: String(page),
     orderby: sort,
     order: order,
-    _fields: 'id,slug,title,date,date_gmt,categories,release-year,excerpt,content',
+    _fields: 'id,slug,title,date,date_gmt,modified,categories,release-year,excerpt,content',
   });
 
   if (category) {
