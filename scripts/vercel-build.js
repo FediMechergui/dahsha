@@ -32,7 +32,7 @@ if (!exported) {
   if (listing.status !== 0 || listing.stdout.trim().split(/\r?\n/).some(name => !allowed.has(name.replace(/^\.\//, '')))) throw new Error('Invalid snapshot archive entries');
   run('tar', ['-xzf', archive, '-C', serverData, '--no-same-owner', '--no-same-permissions']);
   fs.rmSync(archive, { force: true });
-  run('node', [path.join(root, 'server', 'src', 'export.js')]);
+  run('node', [path.join(root, 'server', 'src', 'export.js'),'--cached'], {env:{...process.env,DATA_DIR:serverData}});
 }
 
 fs.copyFileSync(dataOut,path.join(root,'server',`deployment-${product}.json`));
