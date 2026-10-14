@@ -194,13 +194,20 @@ export async function discoverLibrary({kind='film',page=1,genre,year,latest=fals
     async()=>{const result=await (kind==='film'?fetchMovies:fetchSeries)({page,category:documentary?'documentary':genre,year});return {...result,items:result.items.map(s=>({...s,documentary:s.tags?.includes('documentary')}))};},
   ];
   const results=await Promise.allSettled(sources.map(fetch=>fetch()));
-  if(results.every(result=>result.status==='rejected'))throw new Error('All catalogue providers are temporarily unavailable');
-  const rows=results.flatMap(r=>r.status==='fulfilled'?r.value.items:[]);
+  const names=['fmovies','hdtoday','myflixer'];
+  const pages=results.map((result,index)=>{
+    if(result.status==='fulfilled')return result.value;
+    const cached=(catalog.shows||[]).filter(show=>show.kind===kind&&showOfferings(show).some(o=>o.provider===names[index])&&(!documentary||show.documentary===true||show.tags?.includes('documentary'))&&(!genre||show.tags?.includes(genre))&&(!year||Number(show.year)===Number(year)))
+      .sort((a,b)=>String(b.providerUpdatedAt||b.latestAt||b.publishedAt||'').localeCompare(String(a.providerUpdatedAt||a.latestAt||a.publishedAt||'')));
+    return {items:cached.slice((page-1)*24,page*24),totalPages:Math.ceil(cached.length/24),cached:true};
+  });
+  if(results.every(result=>result.status==='rejected')&&!pages.some(result=>result.items.length))throw new Error('All catalogue providers are temporarily unavailable');
+  const rows=pages.flatMap(result=>result.items);
   const {catalog:merged,report}=mergeLibrary(catalog,rows,{product,aliases:readJson(`provider-aliases-${product}.json`,{})});
   const ids=new Set(rows.map(row=>report.aliases[row.id]||row.id));
   const items=merged.shows.filter(s=>ids.has(s.id)&&s.kind===kind&&(!year||Number(s.year)===Number(year))&&(!genre||documentary||s.tags?.includes(genre)));
-  const providers=results.map((r,i)=>({provider:['fmovies','hdtoday','myflixer'][i],page,totalPages:r.status==='fulfilled'?r.value.totalPages:null,ok:r.status==='fulfilled'}));
-  return {items,page,totalPages:Math.max(page,...results.filter(r=>r.status==='fulfilled').map(r=>Number(r.value.totalPages)||page)),providers,providerErrors:results.map((r,i)=>r.status==='rejected'?{provider:providers[i].provider,error:r.reason.message}:null).filter(Boolean)};
+  const providers=results.map((r,i)=>({provider:names[i],page,totalPages:pages[i].totalPages,ok:r.status==='fulfilled',cached:!!pages[i].cached}));
+  return {items,page,totalPages:Math.max(page,...pages.map(result=>Number(result.totalPages)||page)),providers,providerErrors:results.map((r,i)=>r.status==='rejected'?{provider:providers[i].provider,error:r.reason.message}:null).filter(Boolean)};
 }
 export async function unifiedStream(id,{showId,source,prefix='/api/stream',catalog=readLibrary(),product=PRODUCT,resolveTitle=unifiedTitle,resolveMyflixer=resolveMyflixerStream,resolveHdtoday=resolveHdtodayServers}={}) {
   if(catalog.product && catalog.product!==product)return null;

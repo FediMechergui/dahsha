@@ -30,3 +30,11 @@ test('HDToday updates import the advertised episode without inventing earlier ep
 test('each FMovies player receives its required iframe policy',()=>{
   for(const id of ['fm:m:12','fm:e:12:2:4']) assert.ok(fmoviesServers(id).every(s=>s.sandbox===null));
 });
+
+test('a blocked provider retains its imported catalogue page with explicit cached status',async()=>{
+  const cached=row('hd:m:movie-cached-abcd1234','Cached',{offerings:[{provider:'hdtoday',id:'hd:m:movie-cached-abcd1234'}]});
+  const result=await discoverLibrary({product:'flixer',catalog:{shows:[cached]},fetchers:[async()=>({items:[],totalPages:1}),async()=>{throw new Error('HTTP 403');},async()=>({items:[],totalPages:1})]});
+  assert.deepEqual(result.items.map(s=>s.id),[cached.id]);
+  assert.equal(result.providers[1].cached,true);
+  assert.equal(result.providers[1].ok,false);
+});
