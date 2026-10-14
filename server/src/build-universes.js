@@ -28,30 +28,30 @@ const UNIVERSES = [
   { id: 'starwars', name: 'Star Wars', short: 'Star Wars', qids: ['Q462'], home: ['Disney+'] },
   { id: 'startrek', name: 'Star Trek', short: 'Star Trek', qids: ['Q1092'], home: ['Paramount+'] },
   { id: 'wizarding', name: 'Wizarding World', short: 'Wizarding', search: 'Wizarding World', hint: 'franchise', home: ['Max', 'Peacock'] },
-  { id: 'middleearth', name: 'Middle-earth', short: 'Tolkien', search: 'Middle-earth in film', hint: 'film', home: ['Max', 'Prime Video'] },
+  { id: 'middleearth', name: 'Middle-earth', short: 'Tolkien', qids: ['Q79734'], seed: [['The Lord of the Rings', 1978, 'movie'], ['The Return of the King', 1980, 'movie'], ['The Lord of the Rings: The Fellowship of the Ring', 2001, 'movie'], ['The Lord of the Rings: The Two Towers', 2002, 'movie'], ['The Lord of the Rings: The Return of the King', 2003, 'movie'], ['The Hobbit: An Unexpected Journey', 2012, 'movie'], ['The Hobbit: The Desolation of Smaug', 2013, 'movie'], ['The Hobbit: The Battle of the Five Armies', 2014, 'movie'], ['The Lord of the Rings: The Rings of Power', 2022, 'tv'], ['The Lord of the Rings: The War of the Rohirrim', 2024, 'movie']], home: ['Max', 'Prime Video'] },
   { id: 'monsterverse', name: 'MonsterVerse', short: 'MonsterVerse', search: 'MonsterVerse', home: ['Max', 'Apple TV+'] },
   { id: 'conjuring', name: 'Conjuring Universe', short: 'Conjuring', search: 'The Conjuring Universe', home: ['Max'] },
   { id: 'fast', name: 'Fast & Furious', short: 'Fast', search: 'Fast & Furious', hint: 'franchise', home: ['Peacock'] },
-  { id: 'bond', name: 'James Bond', short: '007', search: 'James Bond', hint: 'franchise', home: ['Prime Video'] },
-  { id: 'jurassic', name: 'Jurassic Park', short: 'Jurassic', search: 'Jurassic Park', hint: 'franchise', home: ['Peacock'] },
+  { id: 'bond', name: 'James Bond', short: '007', qids: ['Q2484680'], home: ['Prime Video'] },
+  { id: 'jurassic', name: 'Jurassic Park', short: 'Jurassic', qids: ['Q2336369'], home: ['Peacock'] },
   { id: 'transformers', name: 'Transformers', short: 'Transformers', search: 'Transformers', hint: 'film series', home: ['Paramount+'] },
   { id: 'alien', name: 'Alien & Predator', short: 'Alien', search: ['Alien', 'Predator'], hint: 'franchise', home: ['Hulu', 'Disney+'] },
   { id: 'terminator', name: 'Terminator', short: 'Terminator', search: 'Terminator', hint: 'franchise', home: ['Paramount+'] },
   { id: 'matrix', name: 'The Matrix', short: 'Matrix', search: 'The Matrix', hint: 'franchise', home: ['Max'] },
   { id: 'johnwick', name: 'John Wick', short: 'John Wick', search: 'John Wick', hint: 'franchise', home: ['Peacock', 'Starz'] },
   { id: 'missionimpossible', name: 'Mission: Impossible', short: 'M:I', search: 'Mission: Impossible', hint: 'film series', home: ['Paramount+'] },
-  { id: 'rocky', name: 'Rocky & Creed', short: 'Rocky', search: 'Rocky', hint: 'franchise', home: ['Prime Video'] },
-  { id: 'dune', name: 'Dune', short: 'Dune', search: 'Dune', hint: 'franchise', home: ['Max'] },
+  { id: 'rocky', name: 'Rocky & Creed', short: 'Rocky', qids: ['Q1078084'], home: ['Prime Video'] },
+  { id: 'dune', name: 'Dune', short: 'Dune', qids: ['Q18011049'], home: ['Max'] },
   { id: 'avatar', name: 'Avatar', short: 'Avatar', search: 'Avatar', hint: 'franchise', home: ['Disney+'] },
   { id: 'hungergames', name: 'The Hunger Games', short: 'Hunger Games', search: 'The Hunger Games', hint: 'film series', home: ['Peacock', 'Starz'] },
   { id: 'twd', name: 'The Walking Dead', short: 'TWD', search: 'The Walking Dead', hint: 'franchise', home: ['AMC+', 'Netflix'] },
-  { id: 'got', name: 'A Song of Ice and Fire', short: 'GoT', search: 'Game of Thrones', hint: 'franchise', home: ['Max'] },
+  { id: 'got', name: 'A Song of Ice and Fire', short: 'GoT', qids: ['Q45875'], seed: [['Game of Thrones', 2011, 'tv'], ['House of the Dragon', 2022, 'tv'], ['A Knight of the Seven Kingdoms', 2026, 'tv']], home: ['Max'] },
   { id: 'breakingbad', name: 'Breaking Bad', short: 'Breaking Bad', search: 'Breaking Bad', hint: 'franchise', home: ['Netflix'] },
   { id: 'pixar', name: 'Pixar', short: 'Pixar', search: 'Pixar', hint: 'studio', mode: 'company', home: ['Disney+'] },
   { id: 'ghibli', name: 'Studio Ghibli', short: 'Ghibli', search: 'Studio Ghibli', hint: 'studio', mode: 'company', home: ['Netflix', 'Max'] },
-  { id: 'sherlock', name: 'Sherlock Holmes', short: 'Sherlock', search: 'Sherlock Holmes', hint: 'franchise', home: ['BBC iPlayer', 'Netflix'] },
+  { id: 'sherlock', name: 'Sherlock Holmes', short: 'Sherlock', qids: ['Q4653'], seed: [['Sherlock Holmes', 2009, 'movie'], ['Sherlock Holmes: A Game of Shadows', 2011, 'movie'], ['Sherlock', 2010, 'tv'], ['Elementary', 2012, 'tv'], ['Mr. Holmes', 2015, 'movie'], ['Holmes & Watson', 2018, 'movie'], ['Enola Holmes', 2020, 'movie'], ['The Irregulars', 2021, 'tv'], ['Enola Holmes 2', 2022, 'movie'], ['Watson', 2025, 'tv']], home: ['BBC iPlayer', 'Netflix'] },
   { id: 'indiana', name: 'Indiana Jones', short: 'Indiana Jones', search: 'Indiana Jones', hint: 'franchise', home: ['Disney+', 'Paramount+'] },
-  { id: 'ghostbusters', name: 'Ghostbusters', short: 'Ghostbusters', search: 'Ghostbusters', hint: 'franchise', home: ['Netflix'] },
+  { id: 'ghostbusters', name: 'Ghostbusters', short: 'Ghostbusters', qids: ['Q2365168'], home: ['Netflix'] },
   { id: 'planetapes', name: 'Planet of the Apes', short: 'Apes', search: 'Planet of the Apes', hint: 'franchise', home: ['Hulu', 'Disney+'] },
   { id: 'madmax', name: 'Mad Max', short: 'Mad Max', search: 'Mad Max', hint: 'franchise', home: ['Max'] },
   { id: 'shrek', name: 'Shrek', short: 'Shrek', search: 'Shrek', hint: 'franchise', home: ['Peacock'] },
@@ -59,23 +59,23 @@ const UNIVERSES = [
   { id: 'kungfupanda', name: 'Kung Fu Panda', short: 'Kung Fu Panda', search: 'Kung Fu Panda', hint: 'franchise', home: ['Peacock'] },
   { id: 'httyd', name: 'How to Train Your Dragon', short: 'HTTYD', search: 'How to Train Your Dragon', hint: 'franchise', home: ['Peacock', 'Netflix'] },
   { id: 'xmen', name: 'X-Men', short: 'X-Men', search: 'X-Men', hint: 'film series', home: ['Disney+'] },
-  { id: 'spiderverse', name: 'Spider-Verse', short: 'Spider-Verse', search: 'Spider-Verse (film series)', hint: 'film', home: ['Netflix'] },
+  { id: 'spiderverse', name: 'Spider-Verse', short: 'Spider-Verse', qids: ['Q99601314'], home: ['Netflix'] },
   { id: 'batmanarkham', name: 'Batman films', short: 'Batman', search: 'Batman in film', hint: 'film', home: ['Max'] },
-  { id: 'godfather', name: 'The Godfather', short: 'Godfather', search: 'The Godfather', hint: 'trilogy', home: ['Paramount+'] },
+  { id: 'godfather', name: 'The Godfather', short: 'Godfather', qids: ['Q3225260'], home: ['Paramount+'] },
   { id: 'toystory', name: 'Toy Story', short: 'Toy Story', search: 'Toy Story', hint: 'franchise', home: ['Disney+'] },
   { id: 'scream', name: 'Scream', short: 'Scream', search: 'Scream', hint: 'franchise', home: ['Paramount+'] },
   { id: 'halloween', name: 'Halloween', short: 'Halloween', search: 'Halloween', hint: 'franchise', home: ['Peacock'] },
   { id: 'saw', name: 'Saw', short: 'Saw', search: 'Saw', hint: 'franchise', home: ['Peacock'] },
   { id: 'pirates', name: 'Pirates of the Caribbean', short: 'Pirates', search: 'Pirates of the Caribbean', hint: 'franchise', home: ['Disney+'] },
   { id: 'twilight', name: 'Twilight', short: 'Twilight', search: 'The Twilight Saga', hint: 'film series', home: ['Peacock', 'Netflix'] },
-  { id: 'divergent', name: 'Divergent', short: 'Divergent', search: 'Divergent', hint: 'film series', home: ['Starz'] },
+  { id: 'divergent', name: 'Divergent', short: 'Divergent', qids: ['Q17512668'], home: ['Starz'] },
   { id: 'mazerunner', name: 'Maze Runner', short: 'Maze Runner', search: 'Maze Runner', hint: 'film series', home: ['Disney+'] },
   { id: 'godzilla', name: 'Godzilla', short: 'Godzilla', search: 'Godzilla', hint: 'franchise', home: ['Max', 'Crunchyroll'] },
   { id: 'ocean', name: "Ocean's", short: "Ocean's", search: "Ocean's", hint: 'franchise', home: ['Max'] },
-  { id: 'bourne', name: 'Jason Bourne', short: 'Bourne', search: 'Jason Bourne', hint: 'franchise', home: ['Peacock'] },
-  { id: 'diehard', name: 'Die Hard', short: 'Die Hard', search: 'Die Hard', hint: 'franchise', home: ['Hulu', 'Disney+'] },
-  { id: 'rambo', name: 'Rambo', short: 'Rambo', search: 'Rambo', hint: 'franchise', home: ['Starz'] },
-  { id: 'resident', name: 'Resident Evil', short: 'Resident Evil', search: 'Resident Evil', hint: 'film', home: ['Netflix'] },
+  { id: 'bourne', name: 'Jason Bourne', short: 'Bourne', qids: ['Q868683'], home: ['Peacock'] },
+  { id: 'diehard', name: 'Die Hard', short: 'Die Hard', qids: ['Q2716420'], home: ['Hulu', 'Disney+'] },
+  { id: 'rambo', name: 'Rambo', short: 'Rambo', qids: ['Q1621266'], home: ['Starz'] },
+  { id: 'resident', name: 'Resident Evil', short: 'Resident Evil', qids: ['Q17520607'], home: ['Netflix'] },
   { id: 'dragonball', name: 'Dragon Ball', short: 'Dragon Ball', search: 'Dragon Ball', hint: 'franchise', home: ['Crunchyroll'] },
   { id: 'pokemon', name: 'Pokémon', short: 'Pokémon', search: 'Pokémon', hint: 'franchise', home: ['Netflix'] },
   { id: 'onepiece', name: 'One Piece', short: 'One Piece', search: 'One Piece', hint: 'franchise', home: ['Netflix', 'Crunchyroll'] },
@@ -123,8 +123,33 @@ async function entity(qid) {
   return { label: e.labels && e.labels.en && e.labels.en.value, description: e.descriptions && e.descriptions.en && e.descriptions.en.value, logo, isLogo: !!claim('P154'), sitelink: e.sitelinks && e.sitelinks.enwiki && e.sitelinks.enwiki.title };
 }
 
+// Logo fallbacks when the Wikidata item has no logo (P154): the logo of another pinned or searched
+// franchise item, the lead image of the Wikipedia article when it is a logo file, then a Commons
+// file search for "<name> logo". Only files whose name says "logo" (or SVG wordmarks) are accepted.
+const isLogoFile = (f) => /logo|wordmark|title card|titlecard/i.test(f) && !/screenshot|poster|cover/i.test(f);
+const filePath = (f) => `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(String(f).replace(/^File:/, '').replace(/ /g, '_'))}?width=480`;
+async function findLogo(u, ent) {
+  try {
+    if (ent.sitelink) {
+      const d = await getJson(`https://en.wikipedia.org/w/api.php?action=query&prop=pageimages|images&piprop=name&imlimit=50&format=json&titles=${encodeURIComponent(ent.sitelink)}`);
+      const page = d && d.query && Object.values(d.query.pages)[0];
+      if (page && page.pageimage && isLogoFile(page.pageimage)) return filePath(page.pageimage);
+      const img = page && (page.images || []).map((x) => x.title).find((t) => isLogoFile(t) && !/commons-logo|wiki|icon|symbol|flag/i.test(t));
+      if (img) return filePath(img);
+    }
+    for (const q of [u.name + ' logo', (u.short || u.name) + ' logo']) {
+      const d = await getJson(`https://commons.wikimedia.org/w/api.php?action=query&list=search&srnamespace=6&srlimit=10&format=json&srsearch=${encodeURIComponent(q)}`);
+      const words = u.name.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/s+/).filter((w) => w.length > 2 && !['the', 'and', 'films', 'film'].includes(w));
+      const hit = ((d && d.query && d.query.search) || []).map((x) => x.title).find((t) => isLogoFile(t) && /.(svg|png)$/i.test(t) && words.some((w) => t.toLowerCase().includes(w)));
+      if (hit) return filePath(hit);
+      await sleep(250);
+    }
+  } catch { /* optional */ }
+  return null;
+}
+
 const FILM_TYPES = new Set(['Q11424', 'Q24869', 'Q202866', 'Q506240', 'Q226730', 'Q20667187', 'Q2431196']); // film, feature film, animated film, television film, silent film, ...
-const TV_TYPES = new Set(['Q5398426', 'Q581714', 'Q63952888', 'Q1259759', 'Q15416', 'Q117467246', 'Q21191270', 'Q3464665']); // TV series, animated series, drama series, miniseries, TV program, ...
+const TV_TYPES = new Set(['Q5398426', 'Q581714', 'Q63952888', 'Q1259759', 'Q15416', 'Q117467246', 'Q3464665']); // TV series, animated series, drama series, miniseries, TV program, ...
 
 async function members(qids, mode) {
   const values = qids.map((q) => `wd:${q}`).join(' ');
@@ -172,6 +197,7 @@ async function run() {
       const qids = await resolve(u);
       if (!qids.length) { console.warn(`[universes] ${u.id}: not found on Wikidata`); continue; }
       const ent = await entity(qids[0]);
+      if (!ent.isLogo) { const alt = await findLogo(u, ent); if (alt) { ent.logo = alt; ent.isLogo = true; } }
       let list = u.logoOnly ? [] : await members(qids, u.mode || 'franchise');
       if (!u.logoOnly && list.length < 2) {
         const extra = [];
@@ -183,6 +209,7 @@ async function run() {
         }
         if (extra.length) { const more = await members([...new Set(extra)], u.mode || 'franchise'); const seen = new Set(list.map((m) => m.q)); more.forEach((m) => { if (!seen.has(m.q)) list.push(m); }); qids.push(...extra.filter((q) => !qids.includes(q))); }
       }
+      if (u.seed) { const have = new Set(list.map((m) => key(m.title) + m.type)); u.seed.forEach(([title, year, type], i) => { if (!have.has(key(title) + type)) list.push({ q: 'seed:' + u.id + ':' + i, title, year, date: year + '-01-01', type, ordinal: null }); }); }
       list = list.map((m) => Object.assign(m, { id: match(m) }));
       // Watch order: numbered where Wikidata has series ordinals, else by release date.
       const byDate = (a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999')) || a.title.localeCompare(b.title);

@@ -41,6 +41,7 @@
 .utile:active { transform: scale(.96); }
 .utile img { max-height: 36px; max-width: 96px; object-fit: contain; filter: drop-shadow(0 1px 4px rgba(0,0,0,.6)); }
 .utile .utile__mono { font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: -0.02em; color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; }
+.utile--svc img { max-height: 30px; background: rgba(234,240,235,.92); padding: 4px 8px; border-radius: 6px; box-sizing: content-box; max-width: 80px; filter: none; }
 .utile__n { font-family: var(--mono); font-size: 10px; color: var(--faint); letter-spacing: .06em; }
 .order { padding: 0 var(--gutter); }
 .orow { display: grid; grid-template-columns: 34px 56px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); color: inherit; }

@@ -285,6 +285,9 @@
     const universes = (await api.universeList()).filter(u => u.count > 0);
     const universeRow = universes.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Universes</h2><span class="section__sub eyebrow">Shared universes and franchises · watch orders</span></div><a class="section__link" href="#/universes">See all</a></div>
       <div class="ulogos">${universes.map(u => `<a class="utile" href="#/universe/${esc(u.id)}" title="${esc(u.name)}">${u.logo ? `<img src="${esc(u.logo)}" alt="${esc(u.short)}" loading="lazy" onerror="this.outerHTML='<span class=\\'utile__mono\\'>'+this.alt.replace(/</g,'')+'</span>'">` : `<span class="utile__mono">${esc(u.short)}</span>`}<span class="utile__n">${u.count} titles</span></a>`).join("")}</div></section>` : "";
+    const services = await api.serviceList(40);
+    const serviceRow = services.length ? `<section class="section fade-in"><div class="section__head"><div><h2 class="section__title">Streaming services</h2><span class="section__sub eyebrow">Where Flixer's series air or stream · tap to browse</span></div><a class="section__link" href="#/shows" data-svc-all>All series</a></div>
+      <div class="ulogos">${services.map(s => `<a class="utile utile--svc" href="#/shows" data-svc="${esc(s.name)}" title="${esc(s.name)}">${s.logo ? `<img src="${esc(s.logo)}" alt="${esc(s.name)}" loading="lazy" onerror="this.outerHTML='<span class=\\'utile__mono\\'>'+this.alt.replace(/</g,'')+'</span>'">` : `<span class="utile__mono">${esc(s.name)}</span>`}<span class="utile__n">${s.count} series</span></a>`).join("")}</div></section>` : "";
     const [popularTv, ratedTv, topUni] = await Promise.all([api.popular("tv", 14), api.topRated("tv", 14), api.topUniverses(3)]);
     const uniRails = await Promise.all(topUni.map(async u => section(u.name, `${u.count} titles in Flixer`, await api.universeRail(u.id, 14), { showType: true, rating: true })));
     if (state.renderedTab !== "home") return;
@@ -295,12 +298,16 @@
       section("Just added", "Movies and series", (trend || []).slice(0, 20), { showType: true }) +
       section("New movies", "Latest additions", now, { link: "#/movies" }) +
       section("New series", "Latest additions", air, { link: "#/shows" }) +
-      genreRow + universeRow +
+      genreRow + universeRow + serviceRow +
       uniRails.join("") +
       section("Top rated series", "TVmaze rating", ratedTv, { rating: true }) +
       section("Recent releases", "Films by release year", topM, { genre: true }) +
       section("Longest series", "Most episodes available", topT, { genre: true });
 
+    $$("[data-svc]", view).forEach(b => b.addEventListener("click", () => {
+      state.filters.tv = Object.assign(defaultFilters(), { services: [b.dataset.svc], sort: "popularity" }); saveFilters(); state.renderedTab = null;
+    }));
+    $("[data-svc-all]", view)?.addEventListener("click", () => { state.filters.tv = Object.assign(defaultFilters(), { sort: "popularity" }); saveFilters(); state.renderedTab = null; });
     $$("[data-genre]", view).forEach(b => b.addEventListener("click", () => {
       state.filters.movie = Object.assign(defaultFilters(), { genres: [b.dataset.genre] }); saveFilters(); location.hash = "#/movies";
     }));
