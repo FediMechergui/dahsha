@@ -1,4 +1,5 @@
 import { DOCUMENTARIES, PRODUCT } from './product.js';
+import { matchesSearch } from '../../../shared/search.js';
 // Flixer API client. Supports both live API mode and static JSON fallback mode.
 export const STATIC = import.meta.env.VITE_STATIC === '1';
 export const DATA_BASE = (import.meta.env.VITE_DATA_BASE || '').replace(/\/$/, '');
@@ -64,8 +65,7 @@ export const api = {
   },
 
   search: (q) => req(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`).catch(() => api.catalog().then((c) => {
-    const norm = (q || '').toLowerCase();
-    const items = (c.shows || []).filter((s) => s.title.toLowerCase().includes(norm));
+    const items = (c.shows || []).filter((s) => matchesSearch(s.title,q));
     return { items };
   })),
 

@@ -6,9 +6,10 @@ import { EmptyState, Spinner } from '../components/Bits.jsx';
 import { useCatalog } from '../hooks/useCatalog.jsx';
 import { useLang } from '../lib/i18n.jsx';
 import { api } from '../lib/api.js';
+import { normalizeSearch } from '../../../shared/search.js';
 
 function norm(s = '') {
-  return String(s).toLowerCase().trim();
+  return normalizeSearch(s);
 }
 
 export default function Search() {
@@ -46,7 +47,7 @@ export default function Search() {
   const { localShows, episodes } = useMemo(() => {
     if (!catalog || !q.trim()) return { localShows: [], episodes: [] };
     const terms = norm(q).split(/\s+/).filter(Boolean);
-    const hit = (text) => { const n = norm(text); return terms.every((x) => n.includes(x)); };
+    const hit = (text) => { const n = norm(text); return terms.length>0 && terms.every((x) => n.includes(x)); };
     const found = catalog.shows.filter((s) => hit(s.title) || (s.altTitles && s.altTitles.some(hit)) || hit(s.synopsis || ''));
     const eps = [];
     for (const s of catalog.shows) {

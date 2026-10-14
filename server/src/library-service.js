@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PRODUCT } from './product.js';
+import { matchesSearch } from '../../shared/search.js';
 import { DATA_DIR, readJson } from './store.js';
 import { mergeLibrary, mergeShow, episodeOfferings, showOfferings } from './merge-library.js';
 import { getFmoviesDetails, parseFmoviesId, searchFmovies, fmoviesServers, FMOVIES_BASE, fetchFmoviesPage } from './fmovies.js';
@@ -113,15 +114,16 @@ export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PR
     }
     // A blocked HDToday TV detail page must not prevent a verified catalogue
     // identity from supplying its real episode guide and public player IDs.
-    if(result.kind==='series' && (!result.episodes?.length || !result.tmdbId)){
+    if(showOfferings(result).some(o=>['fmovies','hdtoday','myflixer'].includes(o.provider)) && (!result.tmdbId || result.kind==='series' && !result.episodes?.length)){
       try{
         const candidates=await searchFmovies(result.title,{documentary:product==='dahsha'});
-        for(const candidate of candidates.filter(s=>s.kind==='series')){
+        for(const candidate of candidates.filter(s=>s.kind===result.kind)){
           const verified=mergeLibrary({shows:[result],tags:[],channels:[]},[candidate],{product});
           if(verified.report.aliases[candidate.id]!==result.id){
             if(verified.report.pending.length)result.versions=verified.catalog.shows[0].versions;
             continue;
           }
+          result=verified.catalog.shows[0];
           const details=await getFmoviesDetails(candidate);
           if(product==='dahsha' && !details.documentary)continue;
           result=mergeShow(result,details);break;
@@ -154,14 +156,15 @@ export async function unifiedSearch(query,{product=PRODUCT,catalog=readLibrary()
   const rows=results.flatMap(r=>r.status==='fulfilled'?r.value:[]);
   const {catalog:merged,report}=mergeLibrary(catalog,rows,{product,aliases:readJson(`provider-aliases-${product}.json`,{})});
   const ids=new Set(rows.map(r=>report.aliases[r.id]||r.id));
-  return merged.shows.filter(s=>ids.has(s.id)||s.title?.toLowerCase().includes(q.toLowerCase()));
+  return merged.shows.filter(s=>ids.has(s.id)||matchesSearch(s.title,q)||s.altTitles?.some(title=>matchesSearch(title,q)))
+    .sort((a,b)=>Number(matchesSearch(b.title,q))-Number(matchesSearch(a.title,q)));
 }
 export function libraryPage(catalog,{kind,page=1,perPage=24,genre,year,search}={}) {
   page=Math.max(1,Math.floor(Number(page)||1));perPage=Math.min(100,Math.max(1,Math.floor(Number(perPage)||24)));
   let items=(catalog.shows||[]).filter(s=>!kind||s.kind===kind);
   if(genre)items=items.filter(s=>s.tags?.includes(String(genre).toLowerCase()));
   if(year)items=items.filter(s=>Number(s.year)===Number(year));
-  if(search)items=items.filter(s=>s.title?.toLowerCase().includes(String(search).toLowerCase()));
+  if(search)items=items.filter(s=>matchesSearch(s.title,search)||s.altTitles?.some(title=>matchesSearch(title,search)));
   return {items:items.slice((page-1)*perPage,page*perPage),page,total:items.length,totalPages:Math.ceil(items.length/perPage)};
 }
 export function libraryHome(catalog=readLibrary()) {
@@ -209,7 +212,10 @@ export async function unifiedStream(id,{showId,source,prefix='/api/stream',catal
     return [];
   }));
   const servers=[],seen=new Set();
-  for(const r of results)if(r.status==='fulfilled')for(const server of r.value){const identity=server.streamUrl||server.embedUrl||`youtube:${server.videoId}`;if(!seen.has(identity)){seen.add(identity);servers.push(server);}}
+  for(const r of results)if(r.status==='fulfilled')for(const server of r.value){
+    if(server.requiresBrowserVerification || /^https?:\/\/hdtoday\.sx(?:[/:?#]|$)/i.test(server.embedUrl || ''))continue;
+    const identity=server.streamUrl||server.embedUrl||`youtube:${server.videoId}`;if(!seen.has(identity)){seen.add(identity);servers.push(server);}
+  }
   if(title.kind==='series')for(const server of documentedTvServers({tmdbId:title.tmdbId || title.offerings?.find(o=>o.provider==='fmovies')?.tmdbId,season:episode.season,number:episode.number})){
     if(!seen.has(server.embedUrl)){seen.add(server.embedUrl);servers.push(server);}
   }

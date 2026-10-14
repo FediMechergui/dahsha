@@ -45,11 +45,11 @@ export function parseHdtodayList(html, {kind,documentary=false,page=1} = {}) {
   return {items:[...items.values()],page,totalPages:Math.max(page,...last,...next),hasNext:next.length>0};
 }
 let retryAt=0;
-async function request(path) {
+async function request(path,{timeoutMs=30000}={}) {
   if(Date.now()<retryAt)throw new Error('HDToday rate limited; cached data retained until retry');
   const url=new URL(path,HDTODAY_BASE);
   if(url.origin!==HDTODAY_BASE)throw new Error('Invalid HDToday URL');
-  const r=await safeRemoteFetch(url.href,{headers:{'User-Agent':'Mozilla/5.0'}});
+  const r=await safeRemoteFetch(url.href,{timeoutMs,headers:{'User-Agent':'Mozilla/5.0','Referer':HDTODAY_BASE+'/home','Accept':'text/html,application/json;q=0.9,*/*;q=0.8'}});
   if(!r.ok){if(r.status===429)retryAt=Date.now()+Math.max(60,Number(r.headers.get('retry-after'))||60)*1000;await r.body?.cancel();throw new Error(`HDToday HTTP ${r.status}`);}
   const html=await r.text();
   if(/<title>\s*Quick check/i.test(html))throw new Error('HDToday requires browser verification; cached data retained');
@@ -144,25 +144,43 @@ export function hdtodayTvFallbacks(id,tmdbId) {
   if(!parsed || parsed.kind!=='series' || parsed.season==null || !Number.isSafeInteger(numericId) || numericId<1)return [];
   const slot=`${numericId}/${parsed.season}/${parsed.number}`;
   const urls={0:`https://vidsrc.mov/embed/tv/${slot}`,3:`https://vidfast.pro/tv/${slot}?autoPlay=true`,7:`https://vidlink.pro/tv/${slot}`};
-  return hdtodayServers(id).map((server,index)=>urls[index] ? {...server,embedUrl:urls[index],sourceUrl:server.embedUrl,resolution:'documented-provider-route'} : {...server,requiresBrowserVerification:true});
+  return hdtodayServers(id).flatMap((server,index)=>urls[index] ? [{...server,embedUrl:urls[index],sourceUrl:server.embedUrl,resolution:'documented-provider-route'}] : []);
 }
-export async function resolveHdtodayServers(id,{tmdbId}={}) {
-  const fallback=hdtodayTvFallbacks(id,tmdbId);
+export function hdtodayMovieFallbacks(id,tmdbId) {
+  const parsed=parseHdtodayId(id), numericId=Number(tmdbId);
+  if(!parsed || parsed.kind!=='film' || !Number.isSafeInteger(numericId) || numericId<1)return [];
+  // Routes observed in HDToday's public movie redirect responses.
+  const urls=[`https://vidsrc.mov/embed/movie/${numericId}`,`https://vidsrc.fyi/embed/movie/${numericId}`,
+    `https://embed.vidsrc.si/embed/movie/${numericId}?autoplay=1&ds_lang=en`,
+    `https://vidfast.pro/movie/${numericId}?autoPlay=true`,`https://vidup.to/movie/${numericId}?autoPlay=true`,
+    `https://vidrock.net/movie/${numericId}`,`https://vidnest.fun/movie/${numericId}`,`https://vidlink.pro/movie/${numericId}?autoplay=true&title=true`,
+    `https://111movies.net/movie/${numericId}`,`https://multiembed.mov/?video_id=${numericId}&tmdb=1`,
+    `https://mappletv.uk/embed/movie/${numericId}`,`https://moviesapi.to/movie/${numericId}`];
+  return hdtodayServers(id).map((server,index)=>({...server,embedUrl:urls[index],sourceUrl:server.embedUrl,resolution:'verified-provider-route'}));
+}
+export async function resolveHdtodayServers(id,{tmdbId,fetchPlayer=path=>request(path,{timeoutMs:5000})}={}) {
+  const fallback=[...hdtodayTvFallbacks(id,tmdbId),...hdtodayMovieFallbacks(id,tmdbId)];
   if(fallback.length)return fallback;
   const cached = playerCache.get(id);
   if (cached && Date.now()-cached.at < 10*60e3) return cached.value;
   const choices = hdtodayServers(id), resolved = [];
-  let next = 0;
+  let next = 0, inferred=null;
   await Promise.all(Array.from({length:Math.min(4,choices.length)},async()=>{
-    while (next < choices.length) {
+    while (next < choices.length && !inferred) {
       const index=next++, server=choices[index];
       try {
-        const target=parseHdtodayPlayer(await request(server.embedUrl));
-        resolved[index]=target ? {...server,embedUrl:target,sourceUrl:server.embedUrl,routeResolved:true} : {...server,requiresBrowserVerification:true};
-      } catch { resolved[index]={...server,requiresBrowserVerification:true}; }
+        const target=parseHdtodayPlayer(await fetchPlayer(server.embedUrl));
+        if(target){
+          resolved[index]={...server,embedUrl:target,sourceUrl:server.embedUrl,routeResolved:true};
+          const url=new URL(target), movieId=/\/(?:embed\/)?movie\/([1-9]\d*)(?:\/|$)/.exec(url.pathname)?.[1] || (url.hostname==='multiembed.mov' && url.searchParams.get('tmdb')==='1' ? url.searchParams.get('video_id'):null);
+          if(movieId)inferred=hdtodayMovieFallbacks(id,Number(movieId));
+          if(!inferred?.length)inferred=null;
+        }
+      } catch { /* Never return HDToday wrapper pages as iframe players. */ }
     }
   }));
-  playerCache.set(id,{at:Date.now(),value:resolved});
+  const result=inferred || resolved.filter(Boolean);
+  if(result.length)playerCache.set(id,{at:Date.now(),value:result});
   if(playerCache.size>300)playerCache.delete(playerCache.keys().next().value);
-  return resolved;
+  return result;
 }

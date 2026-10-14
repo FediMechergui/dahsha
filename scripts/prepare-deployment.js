@@ -20,6 +20,7 @@ for(const name of fs.readdirSync(functions).filter(name=>name.endsWith('.func'))
     if(fs.existsSync(source)){fs.mkdirSync(path.dirname(destination),{recursive:true});fs.renameSync(source,destination);}
   }
   fs.mkdirSync(path.join(target,'server/src'),{recursive:true});
+  fs.cpSync(path.join(root,'shared'),path.join(target,'shared'),{recursive:true});
   for(const file of fs.readdirSync(path.join(root,'server/src')).filter(file=>file.endsWith('.js')))
     fs.copyFileSync(path.join(root,'server/src',file),path.join(target,'server/src',file));
   fs.copyFileSync(snapshot,path.join(target,'server',`deployment-${product}.json`));

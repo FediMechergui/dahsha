@@ -247,8 +247,13 @@ For blocked TV pages, a confirmed title/year or title/poster match can supply th
 FMovies episode guide. A verified TMDB identity then enables the documented TV
 embeds of [VidSrc](https://vidsrc.mov/), [VidFast](https://vidfast.vc/) and
 [VidLink](https://vidlink.pro/) directly. This avoids depending on HDToday's TV
-wrapper without guessing an identity or inventing episode numbers. The remaining
-HDToday options retain their normal public routes and verification status.
+wrapper without guessing an identity or inventing episode numbers.
+Unresolved HDToday wrapper routes are omitted from the playable server list.
+For movies, a verified TMDB identity enables the twelve provider URL patterns
+observed in HDToday's public redirects. When only the HDToday slug is known,
+the resolver can obtain that identity from a validated public player redirect.
+Both API and Android clients reject `/api/go` wrappers as iframe sources, so a
+failed resolution cannot turn into twelve copies of the same blocked page.
 Raw HTML and script snapshots are retained locally under `docs/research/fmovies/`
 and excluded from version control. Do not render those snapshots as trusted pages.
 

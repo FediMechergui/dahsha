@@ -681,8 +681,12 @@
 
     /* ----- Search: index first, widened by the source's own search ----- */
     async search(q) {
-      const needle = q.toLowerCase();
-      const local = (await this.all()).filter(i => i.title.toLowerCase().includes(needle) || (i.alt && i.alt.includes(UNI.norm(needle)))).sort(byWeight).slice(0, 60);
+      // Same normalization as shared/search.js, kept local for the classic-script client.
+      const norm = value => String(value || '').normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/&amp;/g,'&').replace(/&/g,' and ').replace(/['’‘]/g,'').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+      const terms = norm(q).split(/\s+/).filter(Boolean);
+      if(!terms.length)return {items:[],totalPages:1};
+      const hit = value => {const text=norm(value);return terms.every(term=>text.includes(term));};
+      const local = (await this.all()).filter(i => hit(i.title) || (i.alt && hit(i.alt))).sort(byWeight).slice(0, 60);
       if (!this.liveEnabled) return { items: local, totalPages: 1 };
       const liveHits = await Promise.race([
         Promise.all([live.list("movie", { page: 1, perPage: 20, search: q }), live.list("tv", { page: 1, perPage: 20, search: q })]).then(([m, s]) => [...m.items, ...s.items]).catch(() => []),
@@ -704,6 +708,7 @@
         const { body: data } = await getJson(`${API_BASE}/api/stream?${params}`, 45000);
         const servers = [];
         (Array.isArray(data.servers) ? data.servers : []).forEach((s, idx) => {
+          if(s.requiresBrowserVerification || /^https:\/\/hdtoday\.sx\//i.test(s.embedUrl || ''))return;
           const streamUrl = toAbsolute(s.streamUrl || s.rawStreamUrl);
           const embedUrl = toAbsolute(s.embedUrl || s.rawEmbedUrl);
           if (streamUrl || embedUrl) servers.push({ ...s, id: s.id != null ? s.id : idx, name: s.name || "Player " + (idx + 1), type: s.type || (streamUrl ? "hls" : "embed"), streamUrl, embedUrl });
@@ -715,6 +720,7 @@
       } catch (e) {
         console.warn("[flixer] stream endpoint unavailable:", e.message);
       }
+      if(/^hd:/.test(id) || /^https:\/\/hdtoday\.sx\//i.test(sourceUrl || ''))return {servers:[],via:'unavailable'};
       const page = sourceUrl || `${SOURCE}/${String(id).replace(/^mf:[mse]:/, "")}/`;
       try {
         const res = await fetch(page);
