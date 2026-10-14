@@ -130,7 +130,16 @@ export function parseHdtodayPlayer(html) {
   } catch { return null; }
 }
 const playerCache = new Map();
-export async function resolveHdtodayServers(id) {
+export function hdtodayTvFallbacks(id,tmdbId) {
+  const parsed=parseHdtodayId(id), numericId=Number(tmdbId);
+  if(!parsed || parsed.kind!=='series' || parsed.season==null || !Number.isSafeInteger(numericId) || numericId<1)return [];
+  const slot=`${numericId}/${parsed.season}/${parsed.number}`;
+  const urls={0:`https://vidsrc.mov/embed/tv/${slot}`,3:`https://vidfast.pro/tv/${slot}?autoPlay=true`,7:`https://vidlink.pro/tv/${slot}`};
+  return hdtodayServers(id).map((server,index)=>urls[index] ? {...server,embedUrl:urls[index],sourceUrl:server.embedUrl,resolution:'documented-provider-route'} : {...server,requiresBrowserVerification:true});
+}
+export async function resolveHdtodayServers(id,{tmdbId}={}) {
+  const fallback=hdtodayTvFallbacks(id,tmdbId);
+  if(fallback.length)return fallback;
   const cached = playerCache.get(id);
   if (cached && Date.now()-cached.at < 10*60e3) return cached.value;
   const choices = hdtodayServers(id), resolved = [];

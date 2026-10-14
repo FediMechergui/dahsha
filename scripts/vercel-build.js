@@ -35,4 +35,5 @@ if (!exported) {
   run('node', [path.join(root, 'server', 'src', 'export.js')]);
 }
 
+fs.copyFileSync(dataOut,path.join(root,'server',`deployment-${product}.json`));
 run('node', [path.join(root, 'scripts', 'build-static.js')]);

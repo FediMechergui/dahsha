@@ -23,10 +23,10 @@ try {
     if(args.includes('--cached') && previous) catalog=previous;
     else {
       const fresh=await fetchFullCatalog();
-      const byId=new Map((previous?.shows||[]).map(show=>[show.id,show]));
-      const { mergeShow } = await import('./merge-library.js');
-      for(const show of fresh.shows)byId.set(show.id,byId.has(show.id)?mergeShow(byId.get(show.id),show):show);
-      catalog={...fresh,shows:[...byId.values()]};
+      const { mergeLibrary } = await import('./merge-library.js');
+      const merged=mergeLibrary(previous || {...fresh,shows:[]},fresh.shows,{product:PRODUCT,aliases:readJson(`provider-aliases-${PRODUCT}.json`,{})});
+      catalog={...fresh,...merged.catalog};
+      saveMergeReport(PRODUCT,merged.report);
     }
     writeJson('flixer-catalog.json',catalog);
   }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseFmoviesList, parseFmoviesDetails, parseFmoviesId, fmoviesServers } from '../src/fmovies.js';
-import { parseHdtodayList, parseHdtodayDetails, parseHdtodayId, hdtodayServers, parseHdtodayPlayer } from '../src/hdtoday.js';
+import { parseHdtodayList, parseHdtodayDetails, parseHdtodayId, hdtodayServers, parseHdtodayPlayer, hdtodayTvFallbacks } from '../src/hdtoday.js';
 import { mergeLibrary, mergeShow } from '../src/merge-library.js';
 import { unifiedStream } from '../src/library-service.js';
 import { leanCatalog } from '../src/export-catalog.js';
@@ -13,6 +13,17 @@ test('HDToday public redirect pages resolve only approved HTTPS player origins',
   assert.equal(parseHdtodayPlayer('<meta http-equiv="refresh" content="0;url=https://vidlink.pro/movie/77?autoplay=true&amp;title=true">'),'https://vidlink.pro/movie/77?autoplay=true&title=true');
   assert.equal(parseHdtodayPlayer('<meta http-equiv="refresh" content="0;url=http://127.0.0.1/private">'),null);
   assert.equal(parseHdtodayPlayer('<title>Quick check</title>'),null);
+});
+
+test('blocked HDToday TV routes use documented players only with a verified numeric identity',()=>{
+  const id='hd:s:tv-reacher-2pzovm4q:2:3';
+  assert.deepEqual(hdtodayTvFallbacks(id,null),[]);
+  assert.deepEqual(hdtodayTvFallbacks(id,'https://private'),[]);
+  const options=hdtodayTvFallbacks(id,108978);
+  assert.equal(options.length,12);
+  assert.equal(options.filter(s=>s.resolution==='documented-provider-route').length,3);
+  assert.equal(options[0].embedUrl,'https://vidsrc.mov/embed/tv/108978/2/3');
+  assert.equal(options[7].embedUrl,'https://vidlink.pro/tv/108978/2/3');
 });
 
 test('uncertain versions share one card without combining episodes or confirmed identities',()=>{

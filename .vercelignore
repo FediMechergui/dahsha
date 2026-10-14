@@ -29,3 +29,4 @@ server/data/provider-*.json
 server/data/flixer-catalog.json
 artifacts
 docs/research
+!server/deployment-*.json

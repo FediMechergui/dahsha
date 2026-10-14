@@ -242,6 +242,13 @@ resolved to allowlisted HTTPS player origins before embedding, avoiding the extr
 HDToday wrapper. TV pages may still require browser verification or return 403, and
 429 responses trigger backoff. Metadata and working providers are retained. A known
 player URL is not proof that a video is available or that playback has been tested.
+
+For blocked TV pages, a confirmed title/year or title/poster match can supply the
+FMovies episode guide. A verified TMDB identity then enables the documented TV
+embeds of [VidSrc](https://vidsrc.mov/), [VidFast](https://vidfast.vc/) and
+[VidLink](https://vidlink.pro/) directly. This avoids depending on HDToday's TV
+wrapper without guessing an identity or inventing episode numbers. The remaining
+HDToday options retain their normal public routes and verification status.
 Raw HTML and script snapshots are retained locally under `docs/research/fmovies/`
 and excluded from version control. Do not render those snapshots as trusted pages.
 

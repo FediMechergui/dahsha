@@ -17,7 +17,7 @@ export function readLibrary() {
   const live=liveResolver?.();if(live)return live;
   const folder=PRODUCT==='dahsha'?'data':'data-flixer';
   const dist=PRODUCT==='dahsha'?'dist':'dist-flixer';
-  const candidates=process.env.VERCEL?[path.join(root,`client/${dist}/data/catalog.json`)]:[
+  const candidates=process.env.VERCEL?[path.join(root,`server/deployment-${PRODUCT}.json`)]:[
     ...(process.env.DATA_DIR?[path.join(DATA_DIR,PRODUCT==='dahsha'?'catalog.json':'flixer-catalog.json')]:[]),
     path.join(root,`client/public/${folder}/catalog.json`),path.join(root,`client/${dist}/data/catalog.json`),
   ];
@@ -94,19 +94,38 @@ export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PR
     for(const provider of showOfferings(result)){
       try{
         let fresh;
+        if(provider.provider==='myflixer' && provider.id!==id)fresh=await getTitleDetails(provider.id);
         if(provider.provider==='fmovies')fresh=await getFmoviesDetails(provider);
         if(provider.provider==='hdtoday')fresh=await getHdtodayDetails(provider);
         if(fresh){
+          errors.push(...(fresh.providerErrors || []));
           if(product==='dahsha'&&fresh.documentary!==true){blocked.add(provider.id);errors.push({provider:provider.provider,error:'Not classified as documentary'});continue;}
           result=mergeShow(result,fresh);
         }
       }catch(e){errors.push({provider:provider.provider,error:e.message});}
     }
+    // A blocked HDToday TV detail page must not prevent a verified catalogue
+    // identity from supplying its real episode guide and public player IDs.
+    if(result.kind==='series' && !result.episodes?.length && showOfferings(result).some(o=>o.provider==='hdtoday')){
+      try{
+        const candidates=await searchFmovies(result.title,{documentary:product==='dahsha'});
+        for(const candidate of candidates.filter(s=>s.kind==='series')){
+          const verified=mergeLibrary({shows:[result],tags:[],channels:[]},[candidate],{product});
+          if(verified.report.aliases[candidate.id]!==result.id){
+            if(verified.report.pending.length)result.versions=verified.catalog.shows[0].versions;
+            continue;
+          }
+          const details=await getFmoviesDetails(candidate);
+          if(product==='dahsha' && !details.documentary)continue;
+          result=mergeShow(result,details);break;
+        }
+      }catch(error){errors.push({provider:'fmovies',error:error.message});}
+    }
     result.offerings=showOfferings(result).filter(o=>!blocked.has(o.id));
     result.episodes=(result.episodes||[]).map(episode=>{
       let offerings=episodeOfferings(episode).filter(o=>!blocked.has(o.id) && ![...blocked].some(id=>o.provider==='hdtoday' && o.id.startsWith(id+':') || o.provider==='fmovies' && parseFmoviesId(id)?.tmdbId===parseFmoviesId(o.id)?.tmdbId));
       for(const o of showOfferings(result)){
-        if(result.kind==='film'&&['fmovies','hdtoday'].includes(o.provider))offerings.push({...o,id:o.id});
+        if(result.kind==='film'&&(['fmovies','hdtoday'].includes(o.provider) || o.provider==='myflixer' && /^mf:m:/.test(o.id)))offerings.push({...o,id:o.id});
         else if(result.kind==='series'&&Number.isInteger(episode.season)&&Number.isInteger(episode.number)){
           if(o.provider==='fmovies')offerings.push({...o,id:`fm:e:${o.tmdbId}:${episode.season}:${episode.number}`,season:episode.season,number:episode.number});
           if(o.provider==='hdtoday')offerings.push({...o,id:`${o.id}:${episode.season}:${episode.number}`,season:episode.season,number:episode.number});
@@ -174,7 +193,7 @@ export async function unifiedStream(id,{showId,source,prefix='/api/stream',catal
   const offers=episodeOfferings(episode);
   const results=await Promise.allSettled(offers.map(async o=>{
     if(o.provider==='fmovies')return fmoviesServers(o.id);
-    if(o.provider==='hdtoday')return resolveHdtoday(o.id);
+    if(o.provider==='hdtoday')return resolveHdtoday(o.id,{tmdbId:title.tmdbId || title.offerings?.find(provider=>provider.provider==='fmovies')?.tmdbId});
     if(o.provider==='youtube')return [{id:`youtube:${o.id}`,name:'YouTube',provider:'youtube',type:'youtube',videoId:o.id}];
     if(o.provider==='myflixer'){
       const resolved=await resolveMyflixer(o.id,prefix);

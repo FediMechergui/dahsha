@@ -36,3 +36,4 @@ server/data/provider-*.json
 server/data/flixer-catalog.json
 docs/research/hdtoday/
 artifacts/
+server/deployment-*.json

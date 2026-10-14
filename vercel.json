@@ -81,8 +81,9 @@
   ],
   "functions": {
     "api/*.js": {
-      "includeFiles": "client/dist/data/catalog.json",
-      "maxDuration": 60
+      "includeFiles": "server/deployment-dahsha.json",
+      "maxDuration": 60,
+      "excludeFiles": "{server/data/**,client/public/**,client/dist*/**,client-terrarium/dist*/**,mobile/**,docs/**}"
     }
   }
 }
