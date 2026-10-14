@@ -28,6 +28,9 @@
     movie: [["added", "Recently added", "Newest in the catalogue first"], ["year", "Release year", "Newest releases first"], ["oldest", "Oldest first", "Classics first"], ["title", "Title A–Z", ""]],
     tv: [["popularity", "Most popular", "TVmaze popularity"], ["rating", "Top rated", "TVmaze rating"], ["added", "Recently added", "Newest in the catalogue first"], ["year", "Release year", "Newest releases first"], ["episodes", "Most episodes", "Longest series first"], ["title", "Title A–Z", ""]]
   };
+  SORT_OPTIONS.movie.unshift(["updated","Latest updates","Recently updated titles first"]);
+  SORT_OPTIONS.tv.unshift(["updated","Latest updates","Recently updated titles first"]);
+  SORT_OPTIONS.all=SORT_OPTIONS.movie;
   const sortLabel = (type, key) => { const o = SORT_OPTIONS[type].find(x => x[0] === key); return o ? o[1] : ""; };
   const RATING_STEPS = [[0, "Any rating"], [6, "6+"], [7, "7+"], [8, "8+"]];
 
@@ -36,7 +39,7 @@
   const state = {
     settings: Object.assign({ autoplay: true }, store.get("settings", {})),
     watchlist: store.get("watchlist", []),
-    filters: Object.assign({ movie: defaultFilters(), tv: defaultFilters() }, store.get("filters", {})),
+    filters: Object.assign({ movie: defaultFilters(), tv: defaultFilters(), all: Object.assign(defaultFilters(),{sort:"updated"}) }, store.get("filters", {})),
     recent: store.get("recent", []),
     progress: store.get("progress", {}),
     meta: { genres: {}, services: {}, countries: [], languages: [] },
@@ -102,7 +105,7 @@
   /* ---------- Components ---------- */
   function card(item, opts = {}) {
     const fresh = isFresh(item);
-    const artHtml = item.poster ? `<img src="${esc(item.poster)}" alt="" loading="lazy" data-art="${esc(item.id)}">` : "";
+    const artHtml = item.poster ? `<img src="${esc(item.poster)}" alt="" decoding="async" referrerpolicy="no-referrer" loading="lazy" data-art="${esc(item.id)}">` : "";
     const r = opts.rating ? api.ratingOf(item.id) : null;
     return `<a class="card" href="#/${item.type}/${esc(item.id)}" aria-label="${esc(item.title)}">
       <div class="card__art">${artHtml}${fresh ? '<span class="card__fresh" title="New"></span>' : ""}
@@ -132,7 +135,7 @@
     return `<section class="section fade-in">
       <div class="section__head"><div><h2 class="section__title">${esc(title)}</h2>${sub ? `<span class="section__sub eyebrow">${esc(sub)}</span>` : ""}</div>
       ${opts.link ? `<a class="section__link" href="${opts.link}">See all</a>` : ""}</div>
-      <div class="row">${items.map(i => card(i, opts)).join("")}</div>
+      <div class="row ${opts.recent ? "row--recent" : ""}">${items.map(i => card(i, opts)).join("")}${opts.recent ? `<a class="row__end" href="#/recent">See all ${ICON.next}</a>` : ""}</div>
     </section>`;
   }
 
@@ -176,7 +179,7 @@
   });
 
   /* ---------- Router ---------- */
-  const TAB_RENDERERS = { home: renderHome, movies: v => renderBrowse(v, "movie"), shows: v => renderBrowse(v, "tv"), search: renderSearch, library: renderLibrary, universes: renderUniverses };
+  const TAB_RENDERERS = { home: renderHome, movies: v => renderBrowse(v, "movie"), shows: v => renderBrowse(v, "tv"), search: renderSearch, library: renderLibrary, universes: renderUniverses, recent: v => renderBrowse(v,"all") };
 
   function route() {
     const h = location.hash || "#/home";
@@ -294,7 +297,7 @@
 
     $("#home-rows").innerHTML =
       resumeRow +
-      section("Recently updated", "Movies and series from all providers", (trend || []).slice(0, 20), { showType: true }) +
+      section("Recently updated", "Movies and series from all providers", (trend || []).slice(0, 12), { showType: true, link:"#/recent", recent:true }) +
       section("Popular series", "TVmaze popularity", popularTv, { rating: true }) +
       section("New movies", "Latest additions", now, { link: "#/movies" }) +
       section("New series", "Latest additions", air, { link: "#/shows" }) +
@@ -398,7 +401,8 @@
   async function renderBrowse(view, type) {
     view.innerHTML = `
       <div class="browse-head">
-        <div class="seg" data-active="${type}" role="tablist">
+        ${type === "all" ? `<h1 class="section__title">Recently updated</h1><p class="meta">Movies and shows from all providers</p>` : ""}
+        <div class="seg" data-active="${type === "all" ? "movie" : type}" role="tablist">
           <div class="seg__thumb"></div>
           <button class="seg__btn ${type === "movie" ? "is-active" : ""}" role="tab" data-go="#/movies">Movies</button>
           <button class="seg__btn ${type === "tv" ? "is-active" : ""}" role="tab" data-go="#/shows">Shows</button>
@@ -413,7 +417,7 @@
 
     const b = state.browse = { type, page: 0, totalPages: 1, loading: false, observer: null, seq: 0 };
     try { await ensureMeta(type); } catch (e) { $("#grid").innerHTML = ""; $("#count").textContent = ""; view.insertAdjacentHTML("beforeend", emptyState("Could not load filters", e.message)); return; }
-    if (state.renderedTab !== (type === "movie" ? "movies" : "shows")) return;
+    if (state.renderedTab !== (type === "all" ? "recent" : type === "movie" ? "movies" : "shows")) return;
     renderRail();
     await loadPage(true);
 
@@ -461,9 +465,9 @@
       if (seq !== b.seq) return;
       b.page = r.page; b.totalPages = r.totalPages;
       b.loaded = (reset ? 0 : (b.loaded || 0)) + r.items.length;
-      const html = r.items.map(i => card(i, { rating: true })).join("");
+      const html = r.items.map(i => card(i, { rating: true, showType:type==="all" })).join("");
       if (reset) grid.innerHTML = html; else grid.insertAdjacentHTML("beforeend", html);
-      $("#count").innerHTML = r.total ? `<b>${r.total.toLocaleString()}</b> ${type === "tv" ? "series" : "films"}` : "No results";
+      $("#count").innerHTML = r.total ? `<b>${r.total.toLocaleString()}</b> ${type === "all" ? "titles" : type === "tv" ? "series" : "films"}` : "No results";
       if (!r.items.length && reset) grid.innerHTML = `<div style="grid-column:1/-1">${emptyState("Nothing matches these filters", "Loosen the year range or remove a genre to see more.", `<button class="btn btn--outline" data-reset>Reset filters</button>`)}</div>`;
       $("[data-reset]", grid)?.addEventListener("click", () => applyFilters(defaultFilters()));
     } catch (e) {
@@ -866,7 +870,7 @@
     if (!n && !e.detail?.updated) return;
     if(n) toast(`${n} new title${n === 1 ? "" : "s"} added`);
     state.meta.genres = {};
-    if (state.renderedTab === "home" && !$("#sheet-root > .detail")) { state.renderedTab = null; renderTab("home"); }
+    if (state.renderedTab === "home" && !$("#sheet-root > .detail") && !$$("#home-rows .row").some(row=>row.scrollLeft>0)) { state.renderedTab = null; renderTab("home"); }
   });
 
   /* ---------- Boot ---------- */

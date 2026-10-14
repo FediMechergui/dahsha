@@ -66,6 +66,7 @@
   const posterFor = wpId => wpId ? `${SOURCE}/wp-content/uploads/posters/${wpId}_medium.jpg` : null;
   const backdropFor = wpId => wpId ? `${SOURCE}/wp-content/uploads/posters/${wpId}.jpg` : null;
   const byAdded = (a, b) => (b.date || "").localeCompare(a.date || "") || a.title.localeCompare(b.title);
+  const byUpdated = (a,b) => (b.updatedAt || "").localeCompare(a.updatedAt || "") || byAdded(a,b);
   const byYearDesc = (a, b) => (+b.year || 0) - (+a.year || 0) || byAdded(a, b);
   const byYearAsc = (a, b) => (+a.year || 0) - (+b.year || 0) || byAdded(a, b);
   const byEpisodes = (a, b) => (b.episodeCount || 0) - (a.episodeCount || 0) || byAdded(a, b);
@@ -97,7 +98,8 @@
       sourceUrl: s.sourceUrl,
       type,
       title,
-      date,
+      date: String(s.publishedAt || s.firstSeenAt || "").slice(0,10),
+      updatedAt: [s.providerUpdatedAt,s.latestAt,s.publishedAt,s.firstSeenAt].filter(Boolean).sort().pop() || "",
       year: s.year ? String(s.year) : (date ? date.slice(0, 4) : ""),
       poster: s.portrait || poster.custom || poster.default || posterFor(s.wpId),
       backdrop: poster.backdrop || poster.hq || backdropFor(s.wpId) || poster.custom || null,
@@ -287,19 +289,18 @@
           const delta = store.get("delta", []);
           if (Array.isArray(delta)) delta.forEach(s => { if (!this._byId.has(s.id)) { shows.push(s); this._byId.set(s.id, s); } else Object.assign(this._byId.get(s.id),s); });
           this._universeData = new Map(); this._serviceLogos = new Map();
-          this._indexReady = Promise.allSettled([
-            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/index.json`, 60000).then(({body}) => {
-              if (body.product !== 'flixer') throw new Error('Wrong product index');
-              this._merge(body.shows || []);
+          const notify=()=>{this._reindex();window.dispatchEvent(new CustomEvent("flixer:catalog",{detail:{updated:true}}));};
+          this._indexReady = new Promise(resolve=>setTimeout(resolve,100)).then(()=>getJson(`${CFG.mobile ? "" : DATA_BASE}/data/index.json`,60000)).then(({body})=>{
+            if(body.product!=='flixer')throw new Error('Wrong product index');
+            this._merge(body.shows || []);notify();
+          }).catch(error=>console.warn('[flixer] full index unavailable:',error.message));
+          this._metadataReady=Promise.allSettled([
+            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/universes.json`).then(({body})=>{
+              this._universeData=new Map((body.universes || []).map(x=>[x.id,x])); this._universeDirty=true;
+              this._universeData.forEach(x=>{const cached=store.get("uni:"+x.id,null);if(cached && Array.isArray(cached.members))this._mergeMembers(x,cached.members,cached.t);});
             }),
-            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/universes.json`).then(({body}) => {
-              this._universeData = new Map((body.universes || []).map(x => [x.id,x]));
-              this._universeData.forEach(x => { const cached = store.get("uni:" + x.id, null); if (cached && Array.isArray(cached.members)) this._mergeMembers(x,cached.members,cached.t); });
-            }),
-            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/services.json`).then(({body}) => { this._serviceLogos = new Map((body.services || []).map(x => [x.name,x.logo])); })
-          ]).then(() => {
-            this._reindex(); window.dispatchEvent(new CustomEvent("flixer:catalog", {detail:{updated:true}}));
-          });
+            getJson(`${CFG.mobile ? "" : DATA_BASE}/data/services.json`).then(({body})=>{this._serviceLogos=new Map((body.services || []).map(x=>[x.name,x.logo]));})
+          ]).then(notify);
           this._reindex();
           this._startSync();
           return this._catalog;
@@ -456,7 +457,17 @@
     }
     _reindex() {
       const c = this._catalog;
-      c.items = c.shows.map(normalize);
+      this._normalized ||= new Map();
+      this._dirtyItems ||= new Set();
+      c.items = c.shows.map(show=>{
+        if(!this._normalized.has(show.id) || this._dirtyItems.has(show.id)) {
+          const previous=this._normalized.get(show.id),item=normalize(show);
+          if(previous && this._universeDirty===false)item.universes=[...new Set([...item.universes,...previous.universes])];
+          this._normalized.set(show.id,item);
+        }
+        return this._normalized.get(show.id);
+      });
+      this._dirtyItems.clear();
       const genresOf = type => {
         const counts = new Map();
         c.items.filter(i => i.type === type).forEach(i => i.genreIds.forEach(g => counts.set(g, (counts.get(g) || 0) + 1)));
@@ -466,7 +477,7 @@
       let min = Infinity, max = new Date().getFullYear();
       c.items.forEach(i => { const y = +i.year; if (y) { if (y < min) min = y; if (y > max) max = y; } });
       c.years = [min === Infinity ? 1900 : min, max];
-      this._applyUniverses();
+      if(this._universeDirty!==false){this._applyUniverses();this._universeDirty=false;}
       // Services (where series air / stream), universes and franchise stems.
       const svc = new Map();
       c.items.forEach(i => { if (i.service) svc.set(i.service, (svc.get(i.service) || 0) + 1); });
@@ -489,7 +500,9 @@
         const candidate=identities.get(identity(r)) || (r.year && identities.get(`${r.kind}:${this._key(r.title)}:${r.year}`));
         const cur = this._byId.get(r.id) || (candidate && !(candidate.tmdbId && r.tmdbId && +candidate.tmdbId!==+r.tmdbId) && candidate);
         if(cur) this._byId.set(r.id,cur);
+        this._dirtyItems ||= new Set(); this._dirtyItems.add(cur ? cur.id : r.id);
         if (cur) {
+          if(r.title && r.title!==cur.title || r.year && +r.year!==+cur.year)this._universeDirty=true;
           if (r.title) cur.title = r.title;
           if (r.synopsis && (!cur.synopsis || r.synopsis.length > cur.synopsis.length)) cur.synopsis = r.synopsis;
           if (r.tags && r.tags.length) cur.tags = [...new Set([...(cur.tags || []),...r.tags])];
@@ -504,6 +517,7 @@
           if (r.poster) cur.poster = r.poster;
           if (Array.isArray(r.episodes) && r.episodes.length >= (cur.episodes || []).length) { cur.episodes = r.episodes; cur.episodeCount = r.episodes.length; }
         } else {
+          this._universeDirty=true;
           c.shows.push(r); this._byId.set(r.id, r); if(identity(r)) identities.set(identity(r),r); added += 1;
         }
       });
@@ -559,12 +573,13 @@
         raw._serviceTried=true;
         const item=normalize(raw), match=await this.tvmaze.show(item);
         if(!match || this._key(match.name)!==this._key(item.title) || (item.year && match.year && +item.year!==match.year)) continue;
+        this._dirtyItems ||= new Set(); this._dirtyItems.add(raw.id);
         raw.tvm={id:match.id,w:match.weight,r:match.rating,svc:match.service,st:match.status,c:match.web?.country || match.network?.country};
         this._persistDelta([raw]); this._reindex();
         window.dispatchEvent(new CustomEvent("flixer:catalog",{detail:{updated:true}}));
       }
     }
-    async all(type) { const c = await this.catalog(); return type ? c.items.filter(i => i.type === type) : c.items; }
+    async all(type) { const c = await this.catalog(); return type && type!=="all" ? c.items.filter(i => i.type === type) : c.items; }
     async item(id) { const c = await this.catalog(); return c.items.find(i => i.id === id) || null; }
     async yearRange() { const c = await this.catalog(); return c.years; }
     async generatedAt() { const c = await this.catalog(); return c.generatedAt; }
@@ -575,7 +590,7 @@
     async trending() {
       const items=await this.all();
       const live=this._recentIds ? [...this._recentIds].map(id=>this._byId.get(id)).filter(Boolean).map(normalize) : [];
-      return [...live, ...items.slice().sort(byAdded).filter(i=>!this._recentIds?.has(i.id))].slice(0,24);
+      return [...live, ...items.slice().sort(byUpdated).filter(i=>!this._recentIds?.has(i.id))].slice(0,24);
     }
     async nowPlaying() { return (await this.all("movie")).slice().sort(byAdded).slice(0, 14); }
     async onTheAir() { return (await this.all("tv")).slice().sort(byAdded).slice(0, 14); }
@@ -606,9 +621,17 @@
       if(this.liveEnabled && session.remotePage < session.totalPages) {
         const genre=GENRES.find(g=>g[2]===(f.genres || [])[0]);
         const params=new URLSearchParams({kind:type==='tv'?'series':'film',page:String(session.remotePage+1)});
+        if(f.sort==="updated") params.set("latest","true");
         if(genre) params.set('genre',genre[2]);
         if(f.yearFrom && f.yearFrom===f.yearTo) params.set('year',f.yearFrom);
-        session.pending ||= getJson(`${API_BASE}/api/discover?${params}`,18000).then(({body})=>{
+        const fetchPage=async()=>{
+          const kinds=type==='all'?['film','series']:[params.get('kind')];
+          const results=await Promise.allSettled(kinds.map(kind=>{const query=new URLSearchParams(params);query.set('kind',kind);return getJson(`${API_BASE}/api/discover?${query}`,18000);}));
+          const successful=results.filter(result=>result.status==='fulfilled').map(result=>result.value.body);
+          if(!successful.length)throw new Error('Discovery unavailable');
+          return {body:{items:successful.flatMap(body=>body.items || []),totalPages:Math.max(...successful.map(body=>body.totalPages || 1))}};
+        };
+        session.pending ||= fetchPage().then(({body})=>{
           session.remotePage++; session.totalPages=body.totalPages || session.remotePage;
           this._merge(body.items || []); this._reindex();
           session.buffer.push(...(body.items || []).map(row=>this._byId.get(row.id)?.id || row.id));
@@ -623,10 +646,11 @@
       if (f.services && f.services.length) { const set = new Set(f.services); list = list.filter(i => set.has(i.service)); }
       if (f.minRating) list = list.filter(i => i.rating >= f.minRating);
       if (f.universe) list = list.filter(i => i.universes.includes(f.universe));
-      const sorters = { added: byAdded, year: byYearDesc, oldest: byYearAsc, episodes: byEpisodes, title: byTitle, popularity: byWeight, rating: byRating };
+      const sorters = { updated: byUpdated, added: byAdded, year: byYearDesc, oldest: byYearAsc, episodes: byEpisodes, title: byTitle, popularity: byWeight, rating: byRating };
       list = list.slice().sort(sorters[f.sort] || byAdded);
       const ranked=new Map(list.map(i=>[i.id,i]));
       const priority=session.buffer.map(id=>ranked.get(id)).filter(Boolean);
+      if(f.sort==="updated") priority.sort(byUpdated);
       const available=[...priority,...list].filter(i=>!session.seen.has(i.id));
       const items=[];
       for(const item of available) { if(session.seen.has(item.id)) continue; session.seen.add(item.id); items.push(item); if(items.length===PER_PAGE) break; }
@@ -634,7 +658,7 @@
       const more=list.some(i=>!session.seen.has(i.id)) || session.remotePage < session.totalPages;
       return {items,page,totalPages:more?page+1:page,total:list.length};
     }
-    async genres(type) { const c = await this.catalog(); return c.genres[type] || []; }
+    async genres(type) { const c = await this.catalog(); return type==='all'?[...new Map([...c.genres.movie,...c.genres.tv].map(genre=>[genre.id,genre])).values()]:c.genres[type] || []; }
     async countries() { return []; }
     async languages() { return []; }
 

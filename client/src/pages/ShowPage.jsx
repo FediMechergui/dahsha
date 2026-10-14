@@ -47,12 +47,12 @@ export default function ShowPage() {
   return (
     <div className="page page--show" dir={sl === 'en' ? 'ltr' : 'rtl'}>
       <div className="show__backdrop">
-        <Thumb thumbs={show.poster} alt="" eager />
+        <Thumb videoId={show.posterId || show.posterVideoId || show.episodes?.[0]?.id} thumbs={show.poster} alt="" eager />
         <div className="show__shade" />
       </div>
       <div className="container show__head">
         <div className={`show__poster ${show.portrait ? 'show__poster--portrait' : ''}`}>
-          {show.portrait ? <img src={show.portrait} alt={show.title} loading="eager" /> : <Thumb thumbs={show.poster} alt={show.title} start="sd" eager />}
+          {show.portrait ? <Thumb thumbs={{...show.poster,custom:show.portrait}} videoId={show.posterId || show.posterVideoId} alt={show.title} eager /> : <Thumb videoId={show.posterId || show.posterVideoId || show.episodes?.[0]?.id} thumbs={show.poster} alt={show.title} start="sd" eager />}
         </div>
         <div className="show__info">
           <p className="show__kicker">

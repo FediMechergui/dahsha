@@ -542,3 +542,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Finite recent rail: contain horizontal overscroll and give the row a visible end. */
+.row--recent { width:100%; max-width:100%; min-width:0; overscroll-behavior-x:none; }
+.row__end { width:124px; display:flex; align-items:center; justify-content:center; gap:8px; color:var(--amber); border:1px solid var(--line); border-radius:var(--radius-sm); }

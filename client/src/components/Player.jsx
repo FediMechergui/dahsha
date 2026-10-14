@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLang } from '../lib/i18n.jsx';
 import { api, API_BASE } from '../lib/api.js';
+import { playerPolicy } from '../lib/player-policy.js';
 
 let apiPromise = null;
 function loadApi() {
@@ -104,7 +105,9 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
 
         const resolvedServers = [];
         if (Array.isArray(data?.servers) && data.servers.length) {
-          data.servers.forEach((s, idx) => {
+          data.servers.forEach((entry, idx) => {
+            const s=playerPolicy(entry);
+            if(!s)return;
             const streamUrl = s.streamUrl ? toAbsolute(s.streamUrl) : (s.rawStreamUrl ? toAbsolute(s.rawStreamUrl) : null);
             const embedUrl = s.embedUrl ? toAbsolute(s.embedUrl) : (s.rawEmbedUrl ? toAbsolute(s.rawEmbedUrl) : null);
             if (streamUrl || embedUrl || s.type === 'youtube') {
@@ -144,12 +147,13 @@ export default function Player({ videoId, episode, startAt = 0, onProgress, onEn
         }
 
         if (!resolvedServers.length && data?.embedUrl) {
-          resolvedServers.push({
+          const fallback=playerPolicy({
             id: 0,
             name: 'Player 1',
             type: 'embed',
             embedUrl: toAbsolute(data.embedUrl),
           });
+          if(fallback)resolvedServers.push(fallback);
         }
 
         setServers(resolvedServers);

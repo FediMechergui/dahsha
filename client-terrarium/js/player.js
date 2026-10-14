@@ -17,6 +17,16 @@
     return i !== -1 ? i : 0;
   }
 
+  let hlsReady;
+  function loadHlsLibrary() {
+    if(window.Hls)return Promise.resolve(window.Hls);
+    if(!hlsReady) hlsReady=new Promise((resolve,reject)=>{
+      const script=document.createElement('script');script.src=new URL('js/vendor/hls.min.js',document.baseURI).href;
+      script.onload=()=>resolve(window.Hls);script.onerror=()=>{hlsReady=null;script.remove();reject(new Error('Could not load video player'));};
+      document.head.appendChild(script);
+    });
+    return hlsReady;
+  }
   function mount(container, opts) {
     const servers = Array.isArray(opts.servers) ? opts.servers : [];
     const st = { idx: initialIndex(servers), hls: null, destroyed: false, noticeTimer: null };
@@ -72,13 +82,17 @@
       failover();
     }
 
-    function loadHls(s) {
+    async function loadHls(s) {
       stage.innerHTML = `<video controls playsinline preload="auto" ${opts.poster ? `poster="${esc(opts.poster)}"` : ""}></video>`;
       const v = $("video", stage);
       v.addEventListener("error", () => failover());
       v.addEventListener("timeupdate", () => { if (v.duration > 0 && opts.onProgress) opts.onProgress(v.currentTime, v.duration); });
       v.addEventListener("ended", () => { if (opts.onEnded) opts.onEnded(); });
       const seek = () => { if (opts.startAt > 0) { try { v.currentTime = opts.startAt; } catch { /* not seekable yet */ } } };
+      if(!v.canPlayType("application/vnd.apple.mpegurl") && !window.Hls) {
+        try {await loadHlsLibrary();} catch {if(!st.destroyed && stage.contains(v)) failover();return;}
+        if(st.destroyed || !stage.contains(v))return;
+      }
       if (v.canPlayType("application/vnd.apple.mpegurl")) {
         v.src = s.streamUrl;
         v.addEventListener("loadedmetadata", seek, { once: true });

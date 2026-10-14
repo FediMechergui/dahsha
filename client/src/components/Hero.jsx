@@ -24,7 +24,7 @@ export default function Hero({ shows }) {
     <section className="hero" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
       {shows.map((s, k) => (
         <div key={s.id} className={`hero__bg ${k === i % shows.length ? 'is-active' : ''}`}>
-          <Thumb thumbs={s.poster} alt="" eager={k === 0} />
+          <Thumb videoId={s.posterId || s.posterVideoId || s.episodes?.[0]?.id} thumbs={s.poster} alt="" eager={k === 0} />
         </div>
       ))}
       <div className="hero__shade" />

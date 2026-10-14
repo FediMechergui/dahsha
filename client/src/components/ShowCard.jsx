@@ -16,7 +16,7 @@ export default function ShowCard({ show, size = 'md', index, hideChannel = false
   return (
     <Link to={`/show/${show.id}${/^(fm|hd):/.test(show.id) && show.sourceUrl ? `?source=${encodeURIComponent(show.sourceUrl)}` : ''}`} className={`card card--${size}`} style={{ '--tag': tag?.color || '#999', '--ch': channelColor(show.channel) }} data-index={index}>
       <div className="card__media">
-        <Thumb thumbs={show.poster} alt="" className="card__img" start={size === 'lg' ? 'max' : 'sd'} />
+        <Thumb videoId={show.posterId || show.posterVideoId || show.episodes?.[0]?.id} thumbs={show.poster} alt="" className="card__img" start={size === 'lg' ? 'max' : 'sd'} />
         <i className="card__frame" aria-hidden />
         <div className="card__badges">
           {fresh && <Badge tone="new">{t('badge_new')}</Badge>}
