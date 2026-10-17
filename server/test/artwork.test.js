@@ -223,7 +223,11 @@ test('reject list removes shows and images, including other sizes of a rejected 
   assert.equal(calls.length, 0);
 });
 
-test('hung requests time out, 429 retries are bounded, and failed lookups retry sooner', async () => {
+test('hung requests time out, 429 retries are bounded, and failed lookups retry sooner', async (t) => {
+  // AbortSignal.timeout uses an unreferenced timer. A real HTTP request keeps
+  // Node alive; this deliberately socket-free fetch mock needs its own handle.
+  const keepAlive = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(keepAlive));
   reset();
   const hang = (url, { signal }) => new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
   const show = { id: 's_hang', title: 'Hanging Programme', kind: 'series', lang: 'en' };
