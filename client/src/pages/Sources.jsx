@@ -6,6 +6,10 @@ import { useLang } from '../lib/i18n.jsx';
 import { Spinner } from '../components/Bits.jsx';
 import { fmtDate, fmtRelative, fmtNumber } from '../lib/format.js';
 import { channelColor } from '../lib/channels.js';
+import { WEB_PROVIDERS, withChannelStats } from '../lib/catalog-helpers.js';
+
+const isProviderSource = (s) => s.type === 'provider' || s.type === 'myflixer' || WEB_PROVIDERS.includes(s.id);
+const num = (n) => (typeof n === 'number' && Number.isFinite(n) ? n : null);
 
 const PROFILE_LABEL = {
   ar: { natgeo: 'ناشونال جيوغرافيك', asharq: 'الشرق ديسكفري', dw: 'دي دبليو', aljazeera: 'الجزيرة الوثائقية', generic: 'عام', 'natgeo-en': 'Nat Geo', 'dw-en': 'DW', frontline: 'Frontline', history: 'History', freedoc: 'Free Documentary', creator: 'صانع محتوى', 'generic-en': 'عام' },
@@ -14,14 +18,16 @@ const PROFILE_LABEL = {
 const LANG_LABEL = { ar: { ar: 'العربية', en: 'الإنجليزية' }, en: { ar: 'Arabic', en: 'English' } };
 
 export default function Sources() {
-  const { catalog, all, status, connected, refresh, pushToast } = useCatalog();
+  const { catalog, all, status, connected, refresh, pushToast, checking } = useCatalog();
   const { t, lang } = useLang();
   const [sources, setSources] = useState(null);
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const load = () => Promise.resolve().then(() => DOCUMENTARIES ? api.sources() : { sources: [] }).then((r) => setSources(r.sources)).catch(() => setSources([]));
-  useEffect(() => { load(); }, []);
+  // Static builds already carry the source list in the loaded catalogue; re-downloading a section
+  // just to read it is wasteful (and printed nothing useful for the web providers).
+  const load = () => Promise.resolve().then(() => !DOCUMENTARIES ? { sources: [] } : api.static ? { sources: all?.sources || [] } : api.sources()).then((r) => setSources(r.sources || [])).catch(() => setSources([]));
+  useEffect(() => { load(); }, [api.static ? all?.sources : null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const add = async (e) => {
     e.preventDefault();
@@ -43,7 +49,8 @@ export default function Sources() {
   };
 
   const stageLabel = { idle: t('idle'), listing: t('status_listing'), playlists: t('status_playlists'), details: t('status_details'), building: t('status_building') };
-  const channelStats = new Map((all?.channels || []).map((c) => [c.id, c]));
+  const channelStats = new Map(withChannelStats(all?.channels || [], all?.shows || [], null).map((c) => [c.id, c]));
+  const providerSync = all?.providerSync || catalog?.providerSync || null;
   const generated = status?.generatedAt || all?.generatedAt;
 
   return (
@@ -60,6 +67,11 @@ export default function Sources() {
             <div className="panel__actions">
               <button className="btn btn--primary" disabled={status?.refreshing} onClick={() => refresh(false)}>{t('refresh_now')}</button>
               <button className="btn btn--ghost" disabled={status?.refreshing} onClick={() => { if (window.confirm(t('full_rebuild_confirm'))) refresh(true); }}>{t('full_rebuild')}</button>
+            </div>
+          )}
+          {api.static && (
+            <div className="panel__actions">
+              <button className="btn btn--ghost" disabled={checking} onClick={() => refresh(false)}>{checking ? <Spinner size={16} /> : null} {t('check_updates')}</button>
             </div>
           )}
         </div>
@@ -96,16 +108,28 @@ export default function Sources() {
           <ul className="sources">
             {sources.map((s) => {
               const c = channelStats.get(s.id);
+              const provider = isProviderSource(s);
+              const counts = c ? [
+                num(c.series) != null ? `${fmtNumber(c.series, lang)} ${t('series_').toLowerCase()}` : null,
+                num(c.films) != null ? `${fmtNumber(c.films, lang)} ${t('films_').toLowerCase()}` : null,
+                num(c.episodes) > 0 ? `${fmtNumber(c.episodes, lang)} ${t('episodes_count')}` : null,
+              ].filter(Boolean).join(', ') : '';
+              const syncError = provider ? providerSync?.errors?.[s.id] : null;
+              const parts = [
+                provider ? t('web_provider') : s.type === 'channel' ? t('channel') : t('playlist'),
+                !provider && s.profile ? `${t('profile')} ${PROFILE_LABEL[lang][s.profile] || s.profile}` : null,
+                LANG_LABEL[lang][s.lang || c?.lang] || null,
+                s.scanUploads ? t('scans_uploads', { n: s.maxUploads }) : null,
+                counts || t('not_indexed'),
+                provider && providerSync?.lastRefreshAt ? `${t('provider_sync')} ${fmtRelative(providerSync.lastRefreshAt, lang)}` : null,
+              ].filter(Boolean);
               return (
                 <li key={s.id} className="source" style={{ '--ch': channelColor(s) }}>
                   <div className="source__main">
-                    <b><i className="source__dot" />{lang === 'en' && s.lang !== 'en' ? s.title : (s.short || s.title)}</b>
-                    <a href={s.url} target="_blank" rel="noreferrer" dir="ltr">{s.url}</a>
-                    <small>
-                      {s.type === 'channel' ? t('channel') : t('playlist')} • {t('profile')} {PROFILE_LABEL[lang][s.profile] || s.profile} • {LANG_LABEL[lang][s.lang] || s.lang}
-                      {s.scanUploads ? ` • ${t('scans_uploads', { n: s.maxUploads })}` : ''}
-                      {c ? ` • ${c.series} ${t('series_').toLowerCase()}, ${c.films} ${t('films_').toLowerCase()}, ${c.episodes} ${t('episodes_count')}` : ` • ${t('not_indexed')}`}
-                    </small>
+                    <b><i className="source__dot" /><bdi>{lang === 'en' && s.lang !== 'en' ? s.title : (s.short || s.title)}</bdi></b>
+                    {s.url && <a href={s.url} target="_blank" rel="noreferrer" dir="ltr">{s.url}</a>}
+                    <small>{parts.join(' • ')}</small>
+                    {syncError && <small className="source__error">{t('provider_error')}: {syncError}</small>}
                   </div>
                   {!api.static && DOCUMENTARIES && <button className="btn btn--text danger" disabled={s.managed} onClick={() => remove(s)}>{t('remove')}</button>}
                 </li>

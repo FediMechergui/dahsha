@@ -4,7 +4,7 @@ import { mergeCachedProviders, refreshProviders, saveMergeReport } from './provi
 import { EventEmitter } from 'node:events';
 import { readJson, writeJson, DEFAULT_SOURCES, DEFAULT_OVERRIDES } from './store.js';
 import {
-  listChannelPlaylists, listChannelUploads, getPlaylistVideos, getVideoDetails, fetchChannelFeed, pool, resolveSource, detectProfile,
+  listChannelPlaylists, listChannelUploads, getPlaylistVideos, getVideoDetails, fetchChannelFeed, pool, resolveSource, detectProfile, clientLangFor,
 } from './youtube.js';
 import { buildCatalog, diffCatalog } from './catalog.js';
 import { enrichArtwork, getArtwork, artworkEnabled } from './artwork.js';
@@ -130,8 +130,8 @@ export class Catalogue extends EventEmitter {
       const myflixerJobs = [];
       for (const src of this.sources) {
         if (src.type === 'channel') {
-          const listed = await listChannelPlaylists(src.id).catch((e) => { console.warn(`[catalogue] playlists of ${src.title}: ${e.message}`); return null; });
-          if (listed) {
+          const listed = await listChannelPlaylists(src.id, { lang: clientLangFor(src) }).catch((e) => { console.warn(`[catalogue] playlists of ${src.title}: ${e.message}`); return null; });
+          if (listed?.length) {
             const listedIds = new Set(listed.map((p) => p.id));
             for (const pid of Object.keys(this.playlists)) {
               const pl = this.playlists[pid];
@@ -154,16 +154,17 @@ export class Catalogue extends EventEmitter {
       let done = 0;
       const tick = () => this._setStatus({ progress: { done: ++done, total: toFetch.length + uploadJobs.length + myflixerJobs.length } });
       await pool(toFetch, async (p) => {
-        const data = await getPlaylistVideos(p.id);
+        const data = await getPlaylistVideos(p.id, { lang: clientLangFor(this.sources.find(s => s.id === p.sourceId)) });
         this.playlists[p.id] = { ...data, title: data.title || p.title, signature: p.signature, sourceId: p.sourceId, fetchedAt: new Date().toISOString() };
         tick();
       }, 4);
       // Uploads tab: incremental (stop at the first already-known video) unless a full refresh.
-      await pool(uploadJobs, async (src) => {
+      const uploadResults = await pool(uploadJobs, async (src) => {
         const key = uploadsKey(src.id);
         const cached = this.playlists[key];
         const knownIds = !full && cached ? new Set(cached.videos.map((v) => v.id)) : null;
-        const { videos } = await listChannelUploads(src.id, { max: src.maxUploads || 400, knownIds });
+        const { videos } = await listChannelUploads(src.id, { max: src.maxUploads || 400, knownIds, lang: clientLangFor(src) });
+        if (!videos.length && cached?.videos?.length) { tick(); return 0; }
         const merged = new Map();
         for (const v of videos) merged.set(v.id, v);
         if (cached && !full) for (const v of cached.videos) if (!merged.has(v.id)) merged.set(v.id, v);
@@ -172,7 +173,11 @@ export class Catalogue extends EventEmitter {
           videos: [...merged.values()].slice(0, Math.max(src.maxUploads || 400, videos.length)), fetchedAt: new Date().toISOString(),
         };
         tick();
+        return videos.length;
       }, 2);
+      if (uploadJobs.length && !uploadResults.some(count => typeof count === 'number' && count > 0)) {
+        throw Object.assign(new Error('Every YouTube upload listing was empty or failed; cached data retained'), { code: 'INGESTION_EMPTY' });
+      }
 
       // Myflixer documentary catalog (WordPress REST API)
       for (const src of myflixerJobs) {
@@ -273,7 +278,7 @@ export class Catalogue extends EventEmitter {
       for (const pl of Object.values(this.playlists)) {
         for (const v of pl.videos || []) {
           if (!this.seen[v.id]) this.seen[v.id] = nowIso;
-          if (!this.details[v.id] && !v.id.startsWith('mf:')) pending.push(v);
+          if (!this.details[v.id] && !v.id.startsWith('mf:')) pending.push({ ...v, detailLang: clientLangFor(this.sources.find(s => s.id === pl.sourceId)) });
         }
       }
       const uniq = [...new Map(pending.map((v) => [v.id, v])).values()].sort((a, b) => (b.durationSec >= minSec) - (a.durationSec >= minSec));
@@ -281,14 +286,14 @@ export class Catalogue extends EventEmitter {
         this._setStatus({ stage: 'details', progress: { done: 0, total: uniq.length } });
         let since = 0;
         await pool(uniq, async (v) => {
-          this.details[v.id] = await getVideoDetails(v.id);
+          this.details[v.id] = await getVideoDetails(v.id, { lang: v.detailLang });
           if (++since % 50 === 0) writeJson('details.json', this.details);
         }, 4, (d, total) => this._setStatus({ progress: { done: d, total } }));
         writeJson('details.json', this.details);
       }
       writeJson('seen.json', this.seen);
 
-      await refreshProviders({ product: 'dahsha' }).catch(e => console.warn('[providers]', e.message));
+      if (process.env.SKIP_PROVIDER_SYNC !== '1') await refreshProviders({ product: 'dahsha' }).catch(e => console.warn('[providers]', e.message));
       this._setStatus({ stage: 'building', progress: null });
       const diff = this.rebuild();
       await this.enrich().catch((e) => console.warn('[artwork]', e.message));
@@ -306,23 +311,43 @@ export class Catalogue extends EventEmitter {
   }
 
   /** Cheap RSS poll: if a channel uploaded something we don't know, trigger a refresh. */
-  async fastPoll() {
+  async fastPoll({ fetchFeed = fetchChannelFeed, fetchDetails = getVideoDetails } = {}) {
     if (this.status.refreshing) return;
     const known = new Set(Object.values(this.playlists).flatMap((p) => (p.videos || []).map((v) => v.id)));
-    let trigger = false;
+    const additions = [];
+    let feedVideos = 0;
     for (const src of this.sources) {
       if (src.type !== 'channel') continue;
       try {
-        const feed = await fetchChannelFeed(src.id);
+        const feed = await fetchFeed(src.id, { lang: clientLangFor(src) });
+        feedVideos += feed.length;
         for (const e of feed) {
-          if (!known.has(e.id) && !this.feedSeen.has(e.id)) { this.feedSeen.add(e.id); trigger = true; }
+          if (!known.has(e.id)) { known.add(e.id); additions.push({ video: e, src }); }
         }
       } catch (e) { /* feed hiccup - ignore */ }
     }
-    if (trigger) {
-      console.log('[catalogue] new upload spotted in feed - refreshing');
-      await this.refresh();
+    if (this.sources.some(s => s.type === 'channel') && !feedVideos) throw Object.assign(new Error('Every YouTube feed was empty or failed; cached data retained'), { code: 'INGESTION_EMPTY' });
+    if (!additions.length) return { newShows: [], newEpisodes: [] };
+    const fetched = await pool(additions, async ({ video, src }) => {
+      const detail = await fetchDetails(video.id, { lang: clientLangFor(src) });
+      return { video, src, detail };
+    }, 4);
+    let added = 0;
+    for (const row of fetched) {
+      if (row.error) { console.warn(`[catalogue] poll detail: ${row.error}`); continue; }
+      const { video, src, detail } = row;
+      const key = uploadsKey(src.id);
+      const cached = this.playlists[key] || { id: key, title: '__uploads__', isUploads: true, sourceId: src.id, videos: [] };
+      this.playlists[key] = { ...cached, videos: [{ ...video, durationSec: detail.durationSec || video.durationSec || 0 }, ...cached.videos], fetchedAt: new Date().toISOString() };
+      this.details[video.id] = { ...detail, publishedAt: detail.publishedAt || video.published || null };
+      this.seen[video.id] ||= new Date().toISOString();
+      added++;
     }
+    if (!added) throw new Error('No new feed videos could be fetched; retry on next poll');
+    writeJson('playlists.json', this.playlists);
+    writeJson('details.json', this.details);
+    writeJson('seen.json', this.seen);
+    return this.rebuild();
   }
 
   // ---- read API --------------------------------------------------------------------------

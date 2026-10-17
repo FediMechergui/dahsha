@@ -1,16 +1,18 @@
 # Builds the Android APK (Capacitor) and attaches it to a GitHub Release.
-# Trigger: push a tag like v1.2.0, or run manually. Signing uses the keystore stored in secrets
+# Trigger: push a tag like dahsha-v1.7.0 (or v1.7.0), or run manually. The APK carries the client
+# code only; it reads the catalogue and /api from DATA_BASE at runtime, so data updates need no new
+# APK while client code changes do. Signing uses the keystore stored in secrets
 # (ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD);
 # without them an unsigned release APK is produced.
 name: Android release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'dahsha-v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v1.0.1)'
+        description: 'Release tag (e.g. dahsha-v1.7.0)'
         required: true
 
 permissions:
@@ -29,6 +31,7 @@ jobs:
       DATA_BASE: ${{ vars.DATA_BASE || 'https://dahsha.vercel.app' }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       APP_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       APP_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +46,9 @@ jobs:
       - name: Android SDK licences
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
       - name: Install
-        run: npm ci --prefix client && npm ci --prefix mobile
+        run: npm ci --prefix server && npm ci --prefix client && npm ci --prefix mobile
+      - name: Test
+        run: npm test
       - name: Set increasing Android version code
         run: echo "APP_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
       - name: Build web (static, pointing at the hosted data)
@@ -69,7 +74,7 @@ jobs:
         run: |
           mkdir -p out
           f=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
-          cp "$f" "out/${{ matrix.product }}-${{ inputs.tag || github.ref_name }}.apk"
+          cp "$f" "out/$APP_PRODUCT-$RELEASE_TAG.apk"
       - name: Release
         uses: softprops/action-gh-release@v2
         with:

@@ -40,7 +40,36 @@ The repository defaults to **Dahsha**. The default commands do not build or depl
 
 The repositories retain independent copies of the common provider infrastructure and compatibility tests. No build requires the other repository's working folder. Generated catalogues and old compiled frontend files are not source code.
 
-## Android
+## Uploads without playlists
+
+Channel refreshes include standalone uploads, including Hochelaga. Videos still need to meet
+the seven-minute minimum. Uploads with no real playlist membership receive an explainable
+metadata score using category, title, description, keywords, duration, and an optional curated
+source hint (`documentaryUploads: true`). This is a heuristic, not content verification.
+
+Confident documentaries enter the normal shelves with topic tags. Clear promotional or
+non-documentary formats are excluded. Uncertain videos remain playable, carry a “Not yet
+classified” label, and appear in the “New uploads” shelf. A later real playlist membership
+supersedes this uploads-only classifier on the next refresh.
+
+Add optional rules to `server/data/overrides.json` (video IDs take precedence; patterns use
+literal, case-insensitive title substrings, with an optional channel scope):
+
+```json
+{
+  "uploadClassification": {
+    "videos": { "VIDEO_ID": "documentary" },
+    "patterns": [
+      { "channelId": "CHANNEL_ID", "titleIncludes": "channel update", "status": "non-documentary" }
+    ]
+  }
+}
+```
+
+Allowed statuses are `documentary`, `non-documentary`, and `uncertain`. Rebuild/export to apply
+rule changes; classification status, score, reasons, and rule version are included in exports.
+
+## Android builds
 
 ```sh
 npm ci --prefix mobile

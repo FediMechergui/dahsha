@@ -1,15 +1,49 @@
 import { DOCUMENTARIES, PRODUCT } from './product.js';
 import { matchesSearch } from '../../../shared/search.js';
+import { mergeLiveShow, needsLiveTitle, versionedUrl } from './catalog-helpers.js';
 // Flixer API client. Supports both live API mode and static JSON fallback mode.
 export const STATIC = import.meta.env.VITE_STATIC === '1';
 export const DATA_BASE = (import.meta.env.VITE_DATA_BASE || '').replace(/\/$/, '');
 const defaultBase = '';
 export const API_BASE = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
 
-async function req(url, opts = {}) {
+// Reads the body chunk by chunk when the runtime streams, so a slow but moving download is not
+// aborted; runtimes without streams (some native HTTP bridges) fall back to res.text().
+async function readText(res, onChunk) {
+  if (!onChunk || !res.body?.getReader || typeof TextDecoder === 'undefined') return res.text();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const parts = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    onChunk();
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+  parts.push(decoder.decode());
+  return parts.join('');
+}
+
+/**
+ * timeout: hard cap for the whole request. stall: abort only when no bytes arrived for this long
+ * (used for the multi-megabyte catalogue so slow networks can still finish).
+ */
+async function req(url, { timeout = 30000, stall = 0, ...opts } = {}) {
   const headers = opts.body ? { 'Content-Type': 'application/json', ...(opts.headers || {}) } : (opts.headers || {});
-  const res = await fetch(url, { signal: AbortSignal.timeout(30000), ...opts, headers });
-  const text = await res.text();
+  const controller = new AbortController();
+  let stallTimer;
+  const hardTimer = setTimeout(() => controller.abort(), timeout);
+  const arm = stall ? () => { clearTimeout(stallTimer); stallTimer = setTimeout(() => controller.abort(), stall); } : null;
+  arm?.();
+  let res, text;
+  try {
+    res = await fetch(url, { ...opts, headers, signal: controller.signal });
+    arm?.();
+    text = await readText(res, arm);
+  } catch (e) {
+    if (controller.signal.aborted) { const err = new Error('Request timed out'); err.status = 0; err.timeout = true; throw err; }
+    throw e;
+  } finally { clearTimeout(hardTimer); clearTimeout(stallTimer); }
   let body = {};
   let isJson = false;
   try { body = JSON.parse(text); isJson = true; } catch { body = {}; }
@@ -69,23 +103,26 @@ export const api = {
     return { items };
   })),
 
-  discover: ({ kind = 'film', page = 1, genre, year } = {}) => {
+  discover: ({ kind = 'film', page = 1, genre, year, latest = false } = {}) => {
     const params = new URLSearchParams({kind,page:String(page)});
     if (genre) params.set('genre',genre); if (year) params.set('year',String(year));
+    if (latest) params.set('latest','true');
     return req(`${API_BASE}/api/discover?${params}`);
   },
 
   genres: () => req(`${API_BASE}/api/genres`).catch(() => ({ genres: [] })),
 
   title: (id) => api.show(id),
-  show: (id, { source, sources = [] } = {}) => {
+  // Static mode: the deployment's shows/<id>.json (versioned by generatedAt) is the record; the live
+  // title API only layers provider data on top of it, and only for provider-backed titles.
+  show: (id, { source, sources = [], version } = {}) => {
     source ||= new URLSearchParams(window.location.search).get('source');
     const params = new URLSearchParams({ id });
     for (const url of [...new Set([source, ...sources].filter(Boolean))]) params.append('source',url);
     const live = () => req(`${API_BASE}/api/title?${params}`);
     if (!STATIC) return live();
-    return req(`${DATA_BASE}/data/shows/${encodeURIComponent(encodeURIComponent(id))}.json`)
-      .then(show => live().catch(() => show)).catch(() => live());
+    return req(versionedUrl(`${DATA_BASE}/data/shows/${encodeURIComponent(encodeURIComponent(id))}.json`, version))
+      .then(show => needsLiveTitle(id, show) ? live().then(fresh => mergeLiveShow(show, fresh), () => show) : show, () => live());
   },
   stream: (id, { showId, source, sources = [] } = {}) => {
     const params = new URLSearchParams({ id });
@@ -94,14 +131,18 @@ export const api = {
     return req(`${API_BASE}/api/stream?${params}`);
   },
 
-  catalog: async (lang = 'ar') => {
+  // version: the deployment's status.json generatedAt, so a new deploy never reuses the old cached
+  // file and an unchanged deploy is reused from cache on cold starts. Time bucket only as fallback.
+  catalog: async (lang = 'ar', { version } = {}) => {
     const catalog = await req(STATIC
-      ? `${DATA_BASE}/data/catalog${DOCUMENTARIES ? `.${lang}` : ''}.json?v=${Math.floor(Date.now() / 600000)}`
-      : `${API_BASE}/api/catalog${DOCUMENTARIES ? `?lang=${lang}` : ''}`);
+      ? versionedUrl(`${DATA_BASE}/data/catalog${DOCUMENTARIES ? `.${lang}` : ''}.json`, version || `t${Math.floor(Date.now() / 600000)}`)
+      : `${API_BASE}/api/catalog${DOCUMENTARIES ? `?lang=${lang}` : ''}`, { timeout: 10 * 60e3, stall: 45e3 });
     if (catalog.product !== PRODUCT) throw new Error(`Expected ${PRODUCT} catalogue; received ${catalog.product || 'unlabelled data'}. Re-export this app's data.`);
     return catalog;
   },
-  status: () => req(STATIC ? `${DATA_BASE}/data/status.json?v=${Math.floor(Date.now() / 600000)}` : `${API_BASE}/api/status`),
+  status: () => (STATIC
+    ? req(`${DATA_BASE}/data/status.json?t=${Date.now()}`, { cache: 'no-store', timeout: 15000 })
+    : req(`${API_BASE}/api/status`)),
   sources: () => STATIC ? api.catalog().then(c => ({ sources: c.sources || [] })) : req(`${API_BASE}/api/sources`),
   addSource: url => req(`${API_BASE}/api/sources`, { method: 'POST', body: JSON.stringify({ url }) }),
   removeSource: id => req(`${API_BASE}/api/sources/${encodeURIComponent(id)}`, { method: 'DELETE' }),

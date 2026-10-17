@@ -12,7 +12,8 @@ try {
   if (PRODUCT === 'dahsha') {
     const { Catalogue } = await import('./scheduler.js');
     const c = new Catalogue();
-    if (!c.getCatalog()) c.rebuild();
+    // Apply source, override and classification changes even when a snapshot exists.
+    c.rebuild();
     catalog = c.getCatalog();
   } else {
     const { fetchFullCatalog } = await import('./myflixer.js');

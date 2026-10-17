@@ -5,6 +5,11 @@
   "installCommand": "npm ci --prefix client && npm ci --prefix server",
   "framework": null,
   "trailingSlash": false,
+  "git": {
+    "deploymentEnabled": {
+      "keepalive": false
+    }
+  },
   "headers": [
     {
       "source": "/data/(.*)",
@@ -38,6 +43,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=300"
+        }
+      ]
+    },
+    {
+      "source": "/data/deploy.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=60"
         }
       ]
     },

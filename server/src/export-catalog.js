@@ -12,14 +12,14 @@ export function leanCatalog(catalog, product) {
   } };
   const pick = (record, keys) => Object.fromEntries(keys.filter(key => record[key] !== undefined).map(key => [key, record[key]]));
   return { ...payload, shows: payload.shows.map(show => ({
-    ...pick(show, ['id','wpId','slug','kind','title','year','lang','contentLang','tags','primaryTag','episodeCount','seasons','totalDurationSec','totalViews','latestAt','latestEpisode','firstAt','publishedAt','portrait','synopsisGenerated','tvm','tmdbId','imdbId','documentary','offerings','firstSeenAt','providerUpdatedAt','providerMetadata','sourceUrl']),
+    ...pick(show, ['id','wpId','slug','kind','title','year','lang','contentLang','tags','primaryTag','episodeCount','seasons','totalDurationSec','totalViews','latestAt','latestEpisode','firstAt','publishedAt','portrait','synopsisGenerated','tvm','tmdbId','imdbId','documentary','offerings','firstSeenAt','providerUpdatedAt','providerMetadata','sourceUrl','classification']),
     versions: (show.versions || []).map(v => ({...pick(v,['id','title','year','sourceUrl','offerings','kind','documentary','providerMetadata','tags','lang','tmdbId','imdbId']),uncertainMatch:true})),
     channelId: show.channelId || show.channel?.id,
     posterId: show.posterVideoId || show.posterId,
     poster: show.poster?.custom ? { custom: show.poster.custom } : undefined,
     blurb: show.synopsis?.slice(0, 280) || show.blurb || '',
     episodes: (show.episodes || []).map(episode => ({
-      ...pick(episode, ['id','title','season','number','durationSec','views','publishedAt','offerings','sourceUrl']),
+      ...pick(episode, ['id','title','season','number','durationSec','views','publishedAt','offerings','sourceUrl','classification']),
       thumbs: /^(mf|fm|hd):/.test(episode.id) && episode.thumbs?.custom ? { custom: episode.thumbs.custom } : undefined,
     })),
   })) };

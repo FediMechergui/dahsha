@@ -10,6 +10,8 @@ import { useFavorites, favoritesStore, useProgress } from '../hooks/useProgress.
 import { useLang } from '../lib/i18n.jsx';
 import { episodesLabel, fmtDuration, fmtDate, fmtCompact, yearOf } from '../lib/format.js';
 import { contentLangBadge } from '../lib/channels.js';
+import { cleanTitle, decodeEntities } from '../lib/text.js';
+import { landscapeArt, portraitArt } from '../lib/catalog-helpers.js';
 
 export default function ShowPage() {
   const { id } = useParams();
@@ -43,37 +45,43 @@ export default function ShowPage() {
   const yearLabel = show.year ? String(show.year) : years.length ? (years[0] === years[1] ? `${years[0]}` : `${years[0]}–${years[1]}`) : null;
   const seasons = show.seasons || [];
   const sl = show.lang || lang; // formatting language for this show's content
+  const title = cleanTitle(show.title);
+  const count = Math.max(Number.isFinite(show.episodeCount) ? show.episodeCount : 0, show.episodes.length);
+  const portrait = portraitArt(show);
+  const videoId = show.posterId || show.posterVideoId || show.episodes?.[0]?.id;
+  const langBadge = contentLangBadge(show, lang);
 
   return (
     <div className="page page--show" dir={sl === 'en' ? 'ltr' : 'rtl'}>
+      {/* Ambient, blurred backdrop: the sharp artwork (often with a printed title) appears once, in the poster frame. */}
       <div className="show__backdrop">
-        <Thumb videoId={show.posterId || show.posterVideoId || show.episodes?.[0]?.id} thumbs={show.poster} alt="" eager />
+        <Thumb videoId={videoId} thumbs={landscapeArt(show.poster)} alt="" start="hq" eager fitPortrait={false} />
         <div className="show__shade" />
       </div>
       <div className="container show__head">
-        <div className={`show__poster ${show.portrait ? 'show__poster--portrait' : ''}`}>
-          {show.portrait ? <Thumb thumbs={{...show.poster,custom:show.portrait}} videoId={show.posterId || show.posterVideoId} alt={show.title} eager /> : <Thumb videoId={show.posterId || show.posterVideoId || show.episodes?.[0]?.id} thumbs={show.poster} alt={show.title} start="sd" eager />}
+        <div className={`show__poster ${portrait ? 'show__poster--portrait' : ''}`}>
+          {portrait ? <Thumb thumbs={{...show.poster,custom:portrait}} videoId={show.posterId || show.posterVideoId} alt={title} eager /> : <Thumb videoId={videoId} thumbs={show.poster} alt={title} start="sd" eager />}
         </div>
         <div className="show__info">
           <p className="show__kicker">
             <ChannelPill channel={show.channel} small />
-            <span className="show__kind">{film ? t('kind_film_label') : t('kind_series_label')}</span>
-            {contentLangBadge(show, lang) && <span className="badge badge--lang">{contentLangBadge(show, lang).label}</span>}
+            <span className="show__kind">{show.classification?.status === 'uncertain' ? (lang === 'en' ? 'Not yet classified' : 'لم يُصنّف بعد') : film ? t('kind_film_label') : t('kind_series_label')}</span>
+            {langBadge && <span className="badge badge--lang">{langBadge.label}</span>}
           </p>
-          <h1 className="show__title">{show.title}</h1>
+          <h1 className="show__title" dir="auto">{title}</h1>
           <p className="show__meta">
-            {film ? (show.totalDurationSec ? <span>{fmtDuration(show.totalDurationSec, lang)}</span> : null) : <span>{episodesLabel(show.episodeCount, lang)}{seasons.length > 1 ? ` • ${seasons.length} ${t('seasons')}` : ''}</span>}
+            {film ? (show.totalDurationSec > 0 ? <span>{fmtDuration(show.totalDurationSec, lang)}</span> : null) : count > 0 ? <span>{episodesLabel(count, lang)}{seasons.length > 1 ? ` • ${seasons.length} ${t('seasons')}` : ''}</span> : null}
             {!film && show.totalDurationSec > 0 && <span>{fmtDuration(show.totalDurationSec, lang)}</span>}
             {yearLabel && <span>{yearLabel}</span>}
-            {show.totalViews ? <span>{fmtCompact(show.totalViews, lang)} {t('views')}</span> : null}
+            {show.totalViews > 0 ? <span>{fmtCompact(show.totalViews, lang)} {t('views')}</span> : null}
           </p>
           <div className="show__tags">{show.tags.map((x) => <TagPill key={x} tag={tagMap.get(x)} />)}</div>
-          <p className={`show__synopsis ${show.synopsisGenerated ? 'is-generated' : ''}`}>{show.synopsis}</p>
+          <p className={`show__synopsis ${show.synopsisGenerated ? 'is-generated' : ''}`} dir="auto">{decodeEntities(show.synopsis)}</p>
           {show.versions?.length > 0 && <section aria-label="Available versions">
             <h2>{lang === 'ar' ? 'نسخ أخرى بنفس العنوان' : 'Other versions with this title'}</h2>
             <p>{lang === 'ar' ? 'قد تكون هذه نسخاً مختلفة. اختر النسخة التي تريد مشاهدتها.' : 'These may be different editions. Choose which one to open.'}</p>
             <div className="show__actions">{show.versions.map(version => <Link className="btn btn--ghost" key={version.id} to={`/show/${version.id}${version.sourceUrl ? `?source=${encodeURIComponent(version.sourceUrl)}` : ''}`}>
-              {version.title} {version.year || ''} · {version.offerings?.[0]?.provider || version.channelId || 'Source'}
+              <bdi>{cleanTitle(version.title)}</bdi> {version.year || ''} · {version.offerings?.[0]?.provider || version.channelId || 'Source'}
             </Link>)}</div>
           </section>}
           <div className="show__actions">
@@ -85,7 +93,7 @@ export default function ShowPage() {
               <HeartIcon filled={isFav} /> {isFav ? t('in_my_list') : t('add_to_list')}
             </button>
           </div>
-          {show.altTitles.length > 0 && <p className="show__alt">{t('also_known')} {show.altTitles.join(' • ')}</p>}
+          {show.altTitles.length > 0 && <p className="show__alt">{t('also_known')} {show.altTitles.map((x, i) => <span key={i}>{i > 0 && ' • '}<bdi>{cleanTitle(x)}</bdi></span>)}</p>}
         </div>
       </div>
 
@@ -93,7 +101,7 @@ export default function ShowPage() {
         <div className="row__head">
           <div>
             <h2 className="row__title">{film ? t('the_film') : t('episodes')}</h2>
-            <p className="row__sub">{film ? '' : episodesLabel(show.episodeCount, lang)}{show.latestAt ? `${film ? '' : ' — '}${film ? t('published') : t('last_added')} ${fmtDate(show.latestAt, lang)}` : ''}</p>
+            <p className="row__sub">{film || !count ? '' : episodesLabel(count, lang)}{show.latestAt ? `${film || !count ? '' : ' — '}${film ? t('published') : t('last_added')} ${fmtDate(show.latestAt, lang)}` : ''}</p>
           </div>
         </div>
         {seasons.length > 1 ? seasons.map((season) => (

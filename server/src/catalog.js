@@ -1,3 +1,4 @@
+import { classifyUpload } from './classify-upload.js';
 // Builds the show catalogue from raw playlist/uploads data + per-video details.
 import {
   normalizeArabic, shortHash, parseTitle, isGenericPlaylist, isBranding, cleanDescription,
@@ -93,6 +94,14 @@ function finalizeShow(show, art) {
   show.totalViews = episodes.reduce((a, e) => a + (e.views || 0), 0);
   show.totalDurationSec = episodes.reduce((a, e) => a + e.durationSec, 0);
 
+  const classifications = episodes.map(e => e.classification).filter(Boolean);
+  if (classifications.length) {
+    show.classification = classifications.find(c => c.status === 'uncertain') || classifications[0];
+    show.documentary = show.classification.status === 'documentary';
+    if (!show.documentary && show.synopsisGenerated) show.synopsis = show.lang === 'en'
+      ? `An upload from ${show.channel?.short || show.channel?.title || 'the channel'}: "${show.title}".`
+      : `فيديو من ${show.channel?.short || show.channel?.title || 'المصدر'} بعنوان «${show.title}».`;
+  }
   const tagged = tagShow(show);
   const extraTags = (show._extraTags || []).filter(Boolean);
   show.tags = ov.tags?.length ? ov.tags : [...new Set([...tagged.tags, ...extraTags])];
@@ -262,8 +271,16 @@ export function buildCatalog({ playlists, details, seen, overrides, sources, art
       if (d?.isPrivate) continue;
       const cleaned = d ? cleanedDescription(c.v.id, d.description) : '';
       const q = cleaned ? synopsisQuality(cleaned, title, s.src.lang || 'ar') : 0;
-      if (cleaned) synopsisCandidates.push({ text: cleaned, q, isEpisode: durationSec >= minSec });
-      if (durationSec < minSec) { promos.push(c.v.id); continue; }
+      if (durationSec < minSec) {
+        if (cleaned) synopsisCandidates.push({ text: cleaned, q, isEpisode: false });
+        promos.push(c.v.id); continue;
+      }
+      // Classify only uploads that have no real playlist membership. The next refresh
+      // automatically restores playlist treatment when the channel files the video.
+      const uploadsOnly = c.parsed.kind === 'film' && c.pl.isUploads && [...c.playlistIds].every(pid => playlists[pid]?.isUploads);
+      const classification = uploadsOnly ? classifyUpload(c.v, d || {}, c.src, overrides) : null;
+      if (classification?.status === 'non-documentary') continue;
+      if (cleaned) synopsisCandidates.push({ text: cleaned, q, isEpisode: true });
       let publishedAt = d?.publishedAt ? new Date(d.publishedAt).toISOString() : null;
       let approx = false;
       if (!publishedAt && c.v.relative) {
@@ -275,6 +292,7 @@ export function buildCatalog({ playlists, details, seen, overrides, sources, art
       if (c.parsed.kind !== 'film' && (nEp === s.key || nEp === normalizeArabic(title))) epTitle = s.src.lang === 'en' ? 'Full episode' : 'الحلقة الكاملة';
       episodes.push({
         id: c.v.id,
+        ...(classification ? { classification } : {}),
         showId: id,
         title: epTitle,
         fullTitle: c.v.title,

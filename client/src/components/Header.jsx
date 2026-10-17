@@ -7,18 +7,20 @@ import { Logo } from './Bits.jsx';
 import { api } from '../lib/api.js';
 
 function StatusPill() {
-  const { status, connected, refresh } = useCatalog();
+  const { status, connected, refresh, checking } = useCatalog();
   const { t, lang } = useLang();
-  const busy = status?.refreshing;
-  const label = !connected ? t('status_offline')
+  const busy = status?.refreshing || checking;
+  const label = checking ? t('status_checking')
+    : !connected ? t('status_offline')
     : api.static ? t('status_static')
     : busy ? ({ details: t('status_details'), playlists: t('status_playlists'), building: t('status_building') }[status.stage] || t('status_listing'))
     : t('status_live');
-  const pct = busy && status.progress ? Math.round((status.progress.done / Math.max(1, status.progress.total)) * 100) : null;
+  const pct = status?.refreshing && status.progress ? Math.round((status.progress.done / Math.max(1, status.progress.total)) * 100) : null;
   const last = status?.lastRefreshAt || status?.generatedAt;
   const title = last ? `${t('status_last')} ${fmtRelative(last, lang)}` : t('status_never');
   return (
-    <button className={`pill ${!connected ? 'pill--off' : busy ? 'pill--busy' : 'pill--live'}`} onClick={() => !busy && !api.static && refresh()} title={busy || api.static ? title : `${title} — ${t('status_click')}`}>
+    // Static web/APK builds: the pill is the manual "check for updates" control.
+    <button className={`pill ${!connected && !checking ? 'pill--off' : busy ? 'pill--busy' : 'pill--live'}`} onClick={() => !busy && refresh()} title={busy ? title : `${title} — ${api.static ? t('status_check') : t('status_click')}`}>
       <i className="dot" />
       <span>{label}{pct != null ? ` ${pct}%` : ''}</span>
     </button>

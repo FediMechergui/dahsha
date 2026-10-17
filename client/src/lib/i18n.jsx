@@ -32,6 +32,9 @@ const STRINGS = {
     footer: 'فليكسر (Flixer) — منصة بث الأفلام والمسلسلات العالمية بأحدث السيرفرات السريعة والمستقرة.',
     player_err_2: 'معرّف الفيديو غير صالح.', player_err_5: 'تعذّر تشغيل الفيديو في هذا المتصفح.', player_err_100: 'الفيديو غير متاح.', player_err_101: 'السيرفر غير متاح حالياً.', player_err_153: 'خطأ في تشغيل السيرفر.', player_err_other: 'تعذّر تشغيل الفيديو (رمز {code}).',
     load_more: 'عرض المزيد', unit_h: 'س', unit_m: 'د', ep_one: 'حلقة واحدة', ep_two: 'حلقتان', ep_few: '{n} حلقات', ep_many: '{n} حلقة', titles_one: 'عنوان واحد',
+    status_check: 'اضغط للتحقق من وجود تحديث', status_checking: 'يتحقق…', check_updates: 'تحقق من التحديثات', toast_up_to_date: 'المحتوى محدّث', toast_up_to_date_body: 'لا يوجد إصدار أحدث حالياً.', toast_updating: 'يتوفر تحديث', toast_updating_body: 'نحمّل أحدث المحتوى…', toast_updated: 'تم تحديث المحتوى',
+    src_all: 'جميع المصادر', src_channels: 'قنوات يوتيوب', src_web: 'مصادر الويب', web_provider: 'مصدر ويب', provider_sync: 'آخر مزامنة', provider_error: 'خطأ', updated_ago: 'آخر تحديث {when}',
+    releases_title: 'أحدث الإضافات', releases_sub_channels: 'أحدث الوثائقيات من قنوات يوتيوب', releases_sub_web: 'أحدث الوثائقيات من قنوات يوتيوب ومصادر الويب ({providers})',
   },
   en: {
     nav_home: 'Home', nav_browse: 'Browse', nav_films: 'Movies', nav_movies: 'Movies', nav_series: 'TV Shows', nav_latest: 'Latest', nav_my: 'My List', nav_sources: 'Servers',
@@ -59,6 +62,9 @@ const STRINGS = {
     footer: 'Flixer — Free movies and TV series streaming platform with multi-server playback.',
     player_err_2: 'Invalid video id.', player_err_5: 'This stream cannot be played in this browser.', player_err_100: 'Video unavailable.', player_err_101: 'Server unavailable.', player_err_153: 'Stream connection error.', player_err_other: 'Playback failed (code {code}).',
     load_more: 'Load more', unit_h: 'h', unit_m: 'min', ep_one: '1 episode', ep_two: '2 episodes', ep_few: '{n} episodes', ep_many: '{n} episodes', titles_one: '1 title',
+    status_check: 'click to check for updates', status_checking: 'Checking…', check_updates: 'Check for updates', toast_up_to_date: 'Up to date', toast_up_to_date_body: 'No newer release right now.', toast_updating: 'Update available', toast_updating_body: 'Loading the latest content…', toast_updated: 'Content updated',
+    src_all: 'All sources', src_channels: 'YouTube channels', src_web: 'Web providers', web_provider: 'Web provider', provider_sync: 'Last sync', provider_error: 'Error', updated_ago: 'Updated {when}',
+    releases_title: 'Latest additions', releases_sub_channels: 'Newest documentaries from YouTube channels', releases_sub_web: 'Newest documentaries from YouTube channels and web providers ({providers})',
   },
 };
 

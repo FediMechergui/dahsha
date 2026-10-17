@@ -1,5 +1,8 @@
-# Refreshes the catalogue from YouTube, exports static data, redeploys the site to Vercel and
-# stores the metadata cache as a release asset so the next run is incremental.
+# Full refresh every 6 hours: YouTube playlists/uploads and Myflixer, then the FMovies/HDToday
+# providers, then the static export. The regression check (scripts/check-regression.js) must pass
+# before anything is deployed to Vercel or saved as the "data-snapshot" release asset that makes the
+# next run incremental. poll.yml adds new YouTube uploads hourly in between (same concurrency group,
+# so the two never overlap or race on the snapshot).
 name: Refresh catalogue & deploy
 
 on:
@@ -9,6 +12,10 @@ on:
     inputs:
       full:
         description: 'Full rebuild (re-fetch every playlist)'
+        type: boolean
+        default: false
+      force:
+        description: 'Deploy and save the snapshot even if the regression check fails'
         type: boolean
         default: false
 
@@ -30,6 +37,7 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      REGRESSION_FORCE: ${{ inputs.force && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,18 +45,44 @@ jobs:
           node-version: 22
       - name: Install
         run: npm ci --prefix server && npm ci --prefix client
+      - name: Test
+        run: npm test
       - name: Restore data snapshot
+        id: restore
         run: node scripts/snapshot.js restore
+      - name: Record restored catalogue counts
+        run: node scripts/check-regression.js record --out "$RUNNER_TEMP/restored-counts.json"
       - name: Refresh from YouTube
-        run: node server/src/cli.js ${{ inputs.full && 'rebuild' || 'refresh' }}
+        env:
+          # The provider step below scans FMovies/HDToday; the scheduler must not scan them as well.
+          SKIP_PROVIDER_SYNC: '1'
+          MODE: ${{ inputs.full && 'rebuild' || 'refresh' }}
+        run: |
+          status=0
+          node server/src/cli.js "$MODE" || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "::error title=YouTube ingestion looks broken::Every channel listing returned zero videos. Nothing was deployed and the data snapshot was not saved."
+            printf '### YouTube ingestion looks broken\n\nEvery channel listing returned zero videos (`cli.js %s` exited with code 3). Nothing was deployed and the data snapshot was left untouched.\n' "$MODE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
       - name: Export static data
         run: node server/src/export.js
       - name: Refresh Dahsha providers
+        id: providers
+        # Best effort: a provider failure must not hold back this run's YouTube updates. The export
+        # above is complete on its own; this step re-exports only when it succeeds.
+        continue-on-error: true
         run: node scripts/refresh-providers.js --product dahsha --pages 60 --matches 100
+      - name: Regression check
+        id: guard
+        run: node scripts/check-regression.js --restored "$RUNNER_TEMP/restored-counts.json" --write-baseline
       # "vercel build" runs the buildCommand from vercel.json (static build with the exported data);
       # the prebuilt deploy then uploads the result, including the data files that git ignores.
       - name: Build & deploy to Vercel
-        if: env.VERCEL_TOKEN != ''
+        if: success() && env.VERCEL_TOKEN != ''
+        env:
+          REGRESSION_CHECKED: '1'        # the step above already compared with production
+          DEPLOY_SNAPSHOT_PENDING: '1'   # this data becomes the next snapshot generation
         run: |
           npm install -g vercel@latest
           vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
@@ -57,8 +91,15 @@ jobs:
           # --archive=tgz: one upload instead of ~13k files (the free plan caps file uploads at 5000/day)
           vercel deploy --prebuilt --prod --yes --archive=tgz --token "$VERCEL_TOKEN"
       - name: Build site (no Vercel token configured)
-        if: env.VERCEL_TOKEN == ''
+        if: success() && env.VERCEL_TOKEN == ''
         run: node scripts/build-static.js
+      # Only data that passed the regression check becomes the next run's starting point. A failed
+      # deploy still saves it, so the next run does not repeat the fetches.
       - name: Save data snapshot
-        if: always()
-        run: node scripts/snapshot.js save
+        if: always() && steps.restore.outcome == 'success' && steps.guard.outcome == 'success'
+        run: node scripts/snapshot.js save ${{ inputs.force && '--force' || '' }}
+      - name: Report provider failure
+        if: always() && steps.providers.outcome == 'failure'
+        run: |
+          echo "::warning title=Provider refresh failed::FMovies/HDToday were not refreshed in this run; the YouTube update was exported without them. See the 'Refresh Dahsha providers' step."
+          printf '### Provider refresh failed\n\nFMovies/HDToday were not refreshed in this run. The YouTube/Myflixer export went ahead with the cached provider rows.\n' >> "$GITHUB_STEP_SUMMARY"

@@ -7,6 +7,7 @@ import { useCatalog, useFullShow } from '../hooks/useCatalog.jsx';
 import { progressStore, useProgress } from '../hooks/useProgress.js';
 import { useLang } from '../lib/i18n.jsx';
 import { fmtClock, fmtDate, fmtCompact, isNew } from '../lib/format.js';
+import { cleanTitle, decodeEntities, episodeHeadline } from '../lib/text.js';
 
 export default function Watch() {
   const { showId, epId } = useParams();
@@ -29,7 +30,7 @@ export default function Watch() {
   const saved = progress[epId] || episode?.offerings?.map(o => progress[o.id]).find(Boolean);
   const startAt = useMemo(() => (saved && !saved.finished && saved.position > 15 && saved.duration - saved.position > 30 ? saved.position : 0), [epId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { document.title = episode ? `${film ? show.title : `${episode.title} — ${show.title}`} — ${appName}` : appName; return () => { document.title = appName; }; }, [episode, show, film, appName]);
+  useEffect(() => { document.title = episode ? `${film ? cleanTitle(show.title) : `${cleanTitle(episode.title)} — ${cleanTitle(show.title)}`} — ${appName}` : appName; return () => { document.title = appName; }; }, [episode, show, film, appName]);
   useEffect(() => { window.scrollTo({ top: 0 }); setCountdown(null); }, [epId]);
 
   const onProgress = useCallback((position, duration) => {
@@ -51,6 +52,11 @@ export default function Watch() {
   if (!catalog) return null;
   if (show?.detailsLoading && !episode) return <div className="page container" role="status">{t('loading')}</div>;
   if (!show || !episode) return <div className="page container"><EmptyState title={t('episode_missing')} action={<Link className="btn btn--ghost" to="/browse">{t('back_to_browse')}</Link>} /></div>;
+  const showTitle = cleanTitle(show.title);
+  // A generic episode title ('الحلقة الكاملة', 'Full episode') does not headline the page.
+  const head = episodeHeadline(show, episode, { lang, withShow: true });
+  const nextTitle = next ? episodeHeadline(show, next, { lang }).title : '';
+  const total = Math.max(Number.isFinite(show.episodeCount) ? show.episodeCount : 0, show.episodes.length);
 
   return (
     <div className="page page--watch container" dir={sl === 'en' ? 'ltr' : 'rtl'}>
@@ -61,7 +67,7 @@ export default function Watch() {
             {countdown != null && next && (
               <div className="watch__next">
                 <p>{t('next_in')} <b>{countdown}</b> {t('seconds')}</p>
-                <strong>{next.title}</strong>
+                <strong dir="auto">{nextTitle}</strong>
                 <div className="watch__next-actions">
                   <Link className="btn btn--primary" to={`/watch/${showId}/${next.id}`}>{t('play_now')}</Link>
                   <button className="btn btn--ghost" onClick={() => setCountdown(null)}>{t('cancel')}</button>
@@ -73,18 +79,19 @@ export default function Watch() {
           <div className="watch__info">
             <p className="watch__crumbs">
               <ChannelPill channel={show.channel} small />
-              <Link to={`/show/${show.id}`}>{show.title}</Link>
-              {!film && <><span className="chev" aria-hidden /><span>{episode.season != null ? `${t('season')} ${episode.season} • ` : ''}{t('episode')} {episode.number ?? idx + 1} {t('of')} {show.episodeCount}</span></>}
+              <Link to={`/show/${show.id}`} dir="auto">{showTitle}</Link>
+              {!film && <><span className="chev" aria-hidden /><span>{episode.season != null ? `${t('season')} ${episode.season} • ` : ''}{t('episode')} {episode.number ?? idx + 1} {t('of')} {total}</span></>}
             </p>
-            <h1 className="watch__title">{film ? show.title : episode.title} {isNew(episode.publishedAt) && <Badge tone="new">{t('badge_new')}</Badge>}</h1>
+            <h1 className="watch__title"><span dir="auto">{head.title}</span> {isNew(episode.publishedAt) && <Badge tone="new">{t('badge_new')}</Badge>}</h1>
+            {!film && head.generic && head.sub && <p className="watch__label" dir="auto">{head.sub}</p>}
             <p className="watch__meta">
-              <span>{fmtClock(episode.durationSec)}</span>
+              {episode.durationSec > 0 && <span>{fmtClock(episode.durationSec)}</span>}
               {episode.publishedAt && <span>{fmtDate(episode.publishedAt, sl)}</span>}
-              {episode.views ? <span>{fmtCompact(episode.views, sl)} {t('views')}</span> : null}
+              {episode.views > 0 ? <span>{fmtCompact(episode.views, sl)} {t('views')}</span> : null}
               {show.tags.map((x) => <TagPill key={x} tag={tagMap.get(x)} small />)}
             </p>
-            {episode.synopsis && <p className="watch__synopsis">{episode.synopsis}</p>}
-            {!episode.synopsis && <p className="watch__synopsis is-muted">{show.synopsis}</p>}
+            {episode.synopsis && <p className="watch__synopsis" dir="auto">{decodeEntities(episode.synopsis)}</p>}
+            {!episode.synopsis && <p className="watch__synopsis is-muted" dir="auto">{decodeEntities(show.synopsis)}</p>}
             <div className="watch__controls">
               {prev && <Link className="btn btn--ghost" to={`/watch/${showId}/${prev.id}`}><span className="chev chev--back" aria-hidden /> {t('prev_episode')}</Link>}
               {next && <Link className="btn btn--ghost" to={`/watch/${showId}/${next.id}`}>{t('next_episode')} <span className="chev" aria-hidden /></Link>}
@@ -105,7 +112,7 @@ export default function Watch() {
 
         <aside className="watch__side">
           <div className="row__head">
-            <div><h2 className="row__title">{film ? t('the_film') : `${t('episodes_of')} ${show.title}`}</h2><p className="row__sub">{film ? (show.channel?.name || show.channel?.short) : `${show.episodeCount}`}</p></div>
+            <div><h2 className="row__title">{film ? t('the_film') : <>{t('episodes_of')} <bdi>{showTitle}</bdi></>}</h2><p className="row__sub">{film ? (show.channel?.name || show.channel?.short) : total || ''}</p></div>
             <Link className="row__link" to={`/show/${show.id}`}>{t('show_page')} <span className="chev" aria-hidden /></Link>
           </div>
           <div className="watch__list">

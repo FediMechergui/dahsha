@@ -1,25 +1,68 @@
 // Thin wrapper around youtubei.js (InnerTube) - no API key required.
-import { Innertube } from 'youtubei.js';
+import { Innertube, YTNodes } from 'youtubei.js';
 import { parseDuration } from './text.js';
 
-let clientPromise = null;
-export function getClient() {
-  if (!clientPromise) {
-    clientPromise = Innertube.create({ lang: 'ar', location: 'AE', retrieve_player: false });
-  }
-  return clientPromise;
+// One InnerTube client per interface language. With hl=ar YouTube serves Arabic-localized (often
+// machine-translated and truncated) titles for English videos, so every source is listed in its own
+// content language and keeps its original titles.
+const CLIENT_LOCATIONS = { ar: 'AE', en: 'US', fr: 'FR', de: 'DE', es: 'ES' };
+const clients = new Map();
+const defaultFactory = (lang) => Innertube.create({ lang, location: CLIENT_LOCATIONS[lang] || 'US', retrieve_player: false });
+let clientFactory = defaultFactory;
+
+function normalizeLang(lang) {
+  const l = String(lang || 'ar').toLowerCase().slice(0, 2);
+  return /^[a-z]{2}$/.test(l) ? l : 'ar';
 }
 
-export async function withRetry(fn, { tries = 3, baseDelay = 800 } = {}) {
+/** Interface language used to list a source: its content language (e.g. French) or its section language. */
+export function clientLangFor(src) {
+  return normalizeLang(src?.contentLang || src?.lang);
+}
+
+export function getClient(lang = 'ar') {
+  const l = normalizeLang(lang);
+  if (!clients.has(l)) {
+    const p = Promise.resolve().then(() => clientFactory(l));
+    p.catch(() => clients.delete(l)); // a failed session start is retried on the next call
+    clients.set(l, p);
+  }
+  return clients.get(l);
+}
+
+/** Tests swap the client factory (e.g. replaying recorded InnerTube responses); null restores the default. */
+export function setClientFactory(fn) {
+  clientFactory = fn || defaultFactory;
+  clients.clear();
+}
+
+export async function withRetry(fn, { tries = 3, baseDelay = 800, retryIf = () => true } = {}) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
     try { return await fn(); } catch (e) {
       lastErr = e;
+      if (!retryIf(e) || i === tries - 1) break;
       await new Promise((r) => setTimeout(r, baseDelay * (i + 1) * (1 + Math.random())));
     }
   }
   throw lastErr;
 }
+
+/** "34 videos", "١٢ فيديو", "1,234 vidéos" → number; null when the text carries no count. */
+export function parseCount(text) {
+  if (text == null) return null;
+  const s = String(text)
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  const m = s.match(/\d[\d,.\s  ٬]*/);
+  if (m) return Number(m[0].replace(/\D/g, ''));
+  if (/واحد|^\s*(one|un|une)\b/i.test(s)) return 1; // "فيديو واحد", "one video"
+  if (/فيديوهان|فيديوان/.test(s)) return 2;
+  return null;
+}
+
+// YouTube answers a deleted, private or never-existing playlist with an ERROR alert instead of contents.
+const isGoneAlert = (e) => e?.info?.type === 'Alert' && e.info.alert_type === 'ERROR';
 
 export async function pool(items, worker, concurrency = 4, onProgress) {
   const q = [...items];
@@ -42,6 +85,7 @@ const PLAYLIST_ID_RE = /^(PL|UU|FL|LL|OL|RD)[\w-]+$/;
 
 // Known channels → parsing profile. Unknown channels fall back to heuristics on title/handle.
 const KNOWN_PROFILES = {
+  'UCjP-MiAEn9DPvUHNyGEs7Wg': { profile: 'creator', lang: 'en', short: 'hochelaga', brands: ['hochelaga'] },
   UCLiTe0aOHShx7hXGyqZ9UIw: { profile: 'natgeo', lang: 'ar', short: 'ناشونال جيوغرافيك' },
   UCKjzHGaZFF8J4nWfMbImUWg: { profile: 'asharq', lang: 'ar', short: 'الشرق ديسكفري وايلدلايف' },
   UCJdfy_z2iMsODx70_c2HHxQ: { profile: 'asharq', lang: 'ar', short: 'الشرق ديسكفري' },
@@ -60,6 +104,7 @@ const KNOWN_PROFILES = {
   UCsXVk37bltHxD1rDPwtNM8Q: { profile: 'creator', lang: 'en', short: 'Kurzgesagt', brands: ['Kurzgesagt', 'Kurzgesagt – In a Nutshell'] },
   'UCZaT_X_mc0BI-djXOlfhqWQ': { profile: 'generic-en', lang: 'en', short: 'VICE News', brands: ['VICE News', 'VICE'] },
   'UCHnyfMqiRRG1u-2MsSQLbXA': { profile: 'creator', lang: 'en', short: 'Veritasium', brands: ['Veritasium'] },
+  'UCct9aR7HC79Cv2g-9oDOTLw': { profile: 'creator', lang: 'en', short: 'ReligionForBreakfast', brands: ['ReligionForBreakfast', 'Religion For Breakfast'] },
 };
 
 export function detectProfile(id, title = '', url = '') {
@@ -123,85 +168,125 @@ async function describePlaylist(id) {
   return { type: 'playlist', id, title, url: `https://www.youtube.com/playlist?list=${id}`, profile: det.profile, lang: det.lang, short: author || title };
 }
 
-function mapVideoItem(v) {
+const RELATIVE_RE = /قبل|خلال|منذ|\bago\b|il y a|\bvor\b|\bhace\b|streamed|premiered/i;
+
+// Channel tabs and playlists are served as LockupView nodes (youtubei.js >= 16 exposes them in
+// `videos`); older renderers (GridVideo, PlaylistVideo) are still mapped for safety.
+export function mapVideoItem(v) {
   const id = v.content_id || v.id;
   const title = v.metadata?.title?.text ?? v.title?.text ?? v.title ?? '';
   const durationText = v.content_image?.overlays?.[0]?.badges?.[0]?.text ?? v.duration?.text ?? '';
-  const rowsAll = (v.metadata?.metadata?.metadata_rows || []).map((r) => (r.metadata_parts || []).map((p) => p.text?.text).filter(Boolean).join(' • '));
-  const metaRow = rowsAll.find((r) => /قبل|خلال|ago|مشاهد|views/i.test(r)) || rowsAll[1] || '';
-  const [views, relative] = metaRow.split(' • ');
+  // Metadata parts look like [author?, co-author?, views, age]; author parts vary (collaborations),
+  // so the age is found by its wording and the view count is the numeric part right before it.
+  const parts = (v.metadata?.metadata?.metadata_rows || []).flatMap((r) => (r.metadata_parts || []).map((p) => p.text?.text?.trim()).filter(Boolean));
+  const ageAt = parts.findLastIndex((p) => RELATIVE_RE.test(p));
+  const viewsPart = ageAt > 0 && /[\d٠-٩]/.test(parts[ageAt - 1]) ? parts[ageAt - 1] : parts.find((p) => /views|مشاهد|vues/i.test(p));
   return {
     id,
     title: String(title),
     durationSec: parseDuration(durationText),
     durationText,
-    views: views || v.view_count?.text || null,
-    relative: relative || v.published?.text || null,
+    views: viewsPart || v.view_count?.text || null,
+    relative: (ageAt >= 0 ? parts[ageAt] : null) || v.published?.text || null,
     thumb: v.content_image?.image?.[0]?.url ?? v.thumbnails?.[0]?.url ?? null,
   };
 }
 const validVideo = (v) => v.id && /^[\w-]{11}$/.test(v.id);
 
+export function mapPlaylistItem(p) {
+  const id = p.content_id || p.id;
+  const title = p.metadata?.title?.text ?? p.title?.text ?? p.title ?? '';
+  const thumb = p.content_image?.primary_thumbnail?.image?.[0]?.url ?? p.thumbnails?.[0]?.url ?? null;
+  const countText = p.content_image?.primary_thumbnail?.overlays?.[0]?.badges?.[0]?.text ?? p.video_count?.text ?? '';
+  const coverVideo = p.renderer_context?.command_context?.on_tap?.payload?.videoId ?? (thumb?.match(/\/vi\/([\w-]{11})\//)?.[1] ?? null);
+  return { id, title: String(title), thumb, countText, count: parseCount(countText), signature: `${countText}|${coverVideo}` };
+}
+
+// Feeds stop when two pages in a row parse to nothing: a layout the parser does not understand
+// would otherwise walk every continuation and still return no videos.
+const MAX_EMPTY_PAGES = 2;
+
+// youtubei.js keeps PLAYLIST/ALBUM/PODCAST/SHOW lockups only; channels also file series as COURSE lockups.
+function playlistNodes(page) {
+  const courses = page.memo?.getType?.(YTNodes.LockupView)?.filter((l) => l.content_type === 'COURSE') || [];
+  return [...page.playlists, ...courses];
+}
+
 /** All playlists of a channel with a cheap change signature (count badge + cover video id). */
-export async function listChannelPlaylists(channelId) {
-  const yt = await getClient();
+export async function listChannelPlaylists(channelId, { lang } = {}) {
+  const yt = await getClient(lang);
   const ch = await withRetry(() => yt.getChannel(channelId));
   if (!ch.has_playlists) return [];
   let page = await withRetry(() => ch.getPlaylists());
-  const all = [...page.playlists];
+  const all = playlistNodes(page);
   let guard = 0;
-  while (page.has_continuation && guard++ < 80) {
+  let empty = all.length ? 0 : 1;
+  while (page.has_continuation && guard++ < 80 && empty < MAX_EMPTY_PAGES) {
     page = await withRetry(() => page.getContinuation());
-    all.push(...page.playlists);
+    const items = playlistNodes(page);
+    all.push(...items);
+    empty = items.length ? 0 : empty + 1;
   }
+  const seen = new Set();
   return all
-    .map((p) => {
-      const id = p.content_id || p.id;
-      const title = p.metadata?.title?.text ?? p.title?.text ?? p.title ?? '';
-      const thumb = p.content_image?.primary_thumbnail?.image?.[0]?.url ?? p.thumbnails?.[0]?.url ?? null;
-      const countText = p.content_image?.primary_thumbnail?.overlays?.[0]?.badges?.[0]?.text ?? p.video_count?.text ?? '';
-      const coverVideo = p.renderer_context?.command_context?.on_tap?.payload?.videoId ?? (thumb?.match(/\/vi\/([\w-]{11})\//)?.[1] ?? null);
-      return { id, title: String(title), thumb, countText, signature: `${countText}|${coverVideo}` };
-    })
-    .filter((p) => p.id && p.title);
+    .map(mapPlaylistItem)
+    .filter((p) => p.id && p.title && !seen.has(p.id) && seen.add(p.id));
 }
 
 /**
  * The channel's uploads tab (newest first). Stops early when it meets a video id in `knownIds`
- * (incremental refresh) or after `max` videos.
+ * (incremental refresh), after `max` videos, or after pages that parse to nothing.
+ * `parsed` is the number of video items understood (0 means the listing is empty or unreadable).
  */
-export async function listChannelUploads(channelId, { max = 400, knownIds = null } = {}) {
-  const yt = await getClient();
+export async function listChannelUploads(channelId, { max = 400, knownIds = null, lang } = {}) {
+  const yt = await getClient(lang);
   const ch = await withRetry(() => yt.getChannel(channelId));
-  if (!ch.has_videos) return { videos: [], complete: true };
+  if (!ch.has_videos) return { videos: [], complete: true, parsed: 0 };
   let page = await withRetry(() => ch.getVideos());
   const out = [];
+  const ids = new Set();
   let guard = 0;
   let hitKnown = false;
+  let empty = 0;
   const take = (items) => {
+    let n = 0;
     for (const v of items.map(mapVideoItem).filter(validVideo)) {
-      if (knownIds && knownIds.has(v.id)) { hitKnown = true; }
-      out.push(v);
+      n++;
+      if (knownIds && knownIds.has(v.id)) hitKnown = true;
+      if (!ids.has(v.id)) { ids.add(v.id); out.push(v); }
     }
+    empty = n ? 0 : empty + 1;
   };
   take(page.videos);
-  while (!hitKnown && out.length < max && page.has_continuation && guard++ < 200) {
+  while (!hitKnown && out.length < max && page.has_continuation && guard++ < 200 && empty < MAX_EMPTY_PAGES) {
     page = await withRetry(() => page.getContinuation());
     take(page.videos);
   }
-  return { videos: out.slice(0, Math.max(max, out.length)), complete: !page.has_continuation };
+  return { videos: out, complete: !page.has_continuation, parsed: out.length };
 }
 
-/** Playlist contents: every video with its duration (from the badge) and relative age. */
-export async function getPlaylistVideos(playlistId) {
-  const yt = await getClient();
-  let page = await withRetry(() => yt.getPlaylist(playlistId));
+/**
+ * Playlist contents: every video with its duration (from the badge) and relative age.
+ * `expectedCount` is the playlist's own video count ("34 videos"), used to spot truncated results.
+ * A deleted or private playlist throws an error with code 'PLAYLIST_GONE'.
+ */
+export async function getPlaylistVideos(playlistId, { lang } = {}) {
+  const yt = await getClient(lang);
+  let page;
+  try {
+    page = await withRetry(() => yt.getPlaylist(playlistId), { retryIf: (e) => !isGoneAlert(e) });
+  } catch (e) {
+    if (isGoneAlert(e)) throw Object.assign(new Error(`playlist ${playlistId} is gone: ${e.message}`), { code: 'PLAYLIST_GONE' });
+    throw e;
+  }
   const info = page.info || {};
   const videos = [...page.videos];
   let guard = 0;
-  while (page.has_continuation && guard++ < 100) {
+  let empty = videos.length ? 0 : 1;
+  while (page.has_continuation && guard++ < 100 && empty < MAX_EMPTY_PAGES) {
     page = await withRetry(() => page.getContinuation());
     videos.push(...page.videos);
+    empty = page.videos.length ? 0 : empty + 1;
   }
   return {
     id: playlistId,
@@ -209,18 +294,34 @@ export async function getPlaylistVideos(playlistId) {
     description: info.description ?? null,
     thumb: info.thumbnails?.[0]?.url ?? null,
     lastUpdated: info.last_updated ?? null,
+    expectedCount: parseCount(info.total_items),
     videos: videos.map(mapVideoItem).filter(validVideo),
   };
 }
 
-/** Per-video details via the raw player endpoint: description, publish date, exact duration. */
-export async function getVideoDetails(videoId) {
-  const yt = await getClient();
+// /player answers a removed or never-existing video with status ERROR and no videoDetails. A private
+// video answers LOGIN_REQUIRED with a "private" reason; other LOGIN_REQUIRED answers (bot checks) are
+// not proof that the video is gone.
+export function isUnavailablePlayability(ps) {
+  if (!ps) return false;
+  if (ps.status === 'ERROR') return true;
+  return ps.status === 'LOGIN_REQUIRED' && /private|خاص|priv[ée]/i.test(ps.reason || '');
+}
+
+/**
+ * Per-video details via the raw player endpoint: description, publish date, exact duration.
+ * A video YouTube reports as removed/private resolves to { id, unavailable: true, status, reason }.
+ */
+export async function getVideoDetails(videoId, { lang } = {}) {
+  const yt = await getClient(lang);
   try {
     const r = await withRetry(() => yt.actions.execute('/player', { videoId, client: 'WEB', parse: false }), { tries: 2 });
     const d = r?.data ?? r;
     const vd = d?.videoDetails;
     const mf = d?.microformat?.playerMicroformatRenderer;
+    if (!vd && isUnavailablePlayability(d?.playabilityStatus)) {
+      return { id: videoId, unavailable: true, status: d.playabilityStatus.status, reason: d.playabilityStatus.reason || null, fetchedAt: new Date().toISOString() };
+    }
     if (!vd) throw new Error('no videoDetails');
     return {
       id: videoId,
@@ -232,6 +333,8 @@ export async function getVideoDetails(videoId) {
       category: mf?.category ?? null,
       keywords: vd.keywords ?? [],
       isPrivate: !!vd.isPrivate,
+      isLive: !!vd.isLive,
+      isLiveContent: !!vd.isLiveContent,
       playable: d?.playabilityStatus?.status === 'OK',
       fetchedAt: new Date().toISOString(),
     };
@@ -248,6 +351,8 @@ export async function getVideoDetails(videoId) {
       category: b.category ?? null,
       keywords: b.keywords ?? [],
       isPrivate: !!b.is_private,
+      isLive: !!b.is_live,
+      isLiveContent: !!b.is_live_content,
       playable: bi.playability_status?.status === 'OK',
       fetchedAt: new Date().toISOString(),
       fallback: true,
@@ -256,10 +361,16 @@ export async function getVideoDetails(videoId) {
 }
 
 /** Lightweight "what did the channel upload lately" feed (15 newest uploads, keyless RSS). */
-export async function fetchChannelFeed(channelId) {
-  const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, { headers: { 'accept-language': 'ar' } });
+export async function fetchChannelFeed(channelId, { lang } = {}) {
+  const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, {
+    headers: { 'accept-language': normalizeLang(lang) },
+    signal: AbortSignal.timeout(15000),
+  });
   if (!res.ok) throw new Error(`feed ${res.status}`);
-  const xml = await res.text();
+  return parseChannelFeed(await res.text());
+}
+
+export function parseChannelFeed(xml) {
   const entries = [];
   const re = /<entry>([\s\S]*?)<\/entry>/g;
   let m;
@@ -274,5 +385,9 @@ export async function fetchChannelFeed(channelId) {
 }
 
 function decodeXml(s) {
-  return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
+  // &amp; last, so "&amp;lt;" stays "&lt;" instead of being decoded twice.
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&amp;/g, '&');
 }

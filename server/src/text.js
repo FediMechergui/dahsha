@@ -34,6 +34,120 @@ export function parseDuration(text) {
 export const hasArabic = (s = '') => /[؀-ۿ]/.test(s);
 
 // ---------------------------------------------------------------------------------------------
+// HTML entities and display titles
+// ---------------------------------------------------------------------------------------------
+
+const NAMED_ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', shy: '', hellip: '…', ndash: '–', mdash: '—',
+  lsquo: '‘', rsquo: '’', sbquo: '‚', ldquo: '“', rdquo: '”', bdquo: '„', laquo: '«', raquo: '»', prime: '′', Prime: '″',
+  times: '×', divide: '÷', middot: '·', bull: '•', deg: '°', copy: '©', reg: '®', trade: '™', euro: '€', pound: '£',
+  lrm: '‎', rlm: '‏', zwnj: '‌', zwj: '‍',
+  aacute: 'á', agrave: 'à', acirc: 'â', auml: 'ä', atilde: 'ã', aring: 'å', aelig: 'æ', ccedil: 'ç',
+  eacute: 'é', egrave: 'è', ecirc: 'ê', euml: 'ë', iacute: 'í', igrave: 'ì', icirc: 'î', iuml: 'ï', ntilde: 'ñ',
+  oacute: 'ó', ograve: 'ò', ocirc: 'ô', ouml: 'ö', otilde: 'õ', oslash: 'ø', uacute: 'ú', ugrave: 'ù', ucirc: 'û', uuml: 'ü',
+  yacute: 'ý', yuml: 'ÿ', szlig: 'ß', oelig: 'œ',
+  Aacute: 'Á', Agrave: 'À', Acirc: 'Â', Auml: 'Ä', Ccedil: 'Ç', Eacute: 'É', Egrave: 'È', Ecirc: 'Ê', Iacute: 'Í', Ntilde: 'Ñ',
+  Oacute: 'Ó', Ouml: 'Ö', Oslash: 'Ø', Uacute: 'Ú', Uuml: 'Ü', OElig: 'Œ',
+};
+// WordPress sometimes emits Windows-1252 code points as numeric entities (&#150; for an en dash).
+const CP1252 = { 128: '€', 130: '‚', 132: '„', 133: '…', 139: '‹', 145: '‘', 146: '’', 147: '“', 148: '”', 150: '–', 151: '—', 153: '™', 155: '›' };
+
+/** Decode named, decimal and hex HTML entities (twice, for double-encoded "&amp;#8230;"). */
+export function decodeEntities(value) {
+  if (value == null) return value;
+  let s = String(value);
+  for (let pass = 0; pass < 2 && s.includes('&'); pass++) {
+    s = s.replace(/&(#\d{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,15});/gi, (m, body) => {
+      if (body[0] !== '#') return Object.hasOwn(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body] : Object.hasOwn(NAMED_ENTITIES, body.toLowerCase()) ? NAMED_ENTITIES[body.toLowerCase()] : m;
+      const code = /^#x/i.test(body) ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      if (CP1252[code]) return CP1252[code];
+      if (!code || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff) || code < 32 || (code >= 127 && code < 160)) return code === 9 || code === 10 ? ' ' : m;
+      return String.fromCodePoint(code);
+    });
+  }
+  return s;
+}
+
+/**
+ * Display title: entities decoded, stray markup and escaped quotes removed, whitespace collapsed.
+ * Safe for provider titles too (no casing or wording changes).
+ */
+export function cleanTitle(value) {
+  if (value == null) return value;
+  return decodeEntities(value)
+    .replace(/<\/?[a-z][^<>]*>/gi, ' ')
+    .replace(/\\+(['"’])/g, '$1')
+    .replace(/[\u0000-\u001f\u007f​﻿]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Synopsis text: like cleanTitle but keeps line breaks and drops a WordPress "[…]" excerpt tail. */
+export function cleanSynopsis(value) {
+  if (!value) return '';
+  return decodeEntities(value)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?[a-z][^<>]*>/gi, ' ')
+    .replace(/\\+(['"’])/g, '$1')
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f​﻿]/g, ' ')
+    .replace(/\s*\[\s*(?:…|\.\.\.)\s*\]\s*$/u, '')
+    .replace(/[ \t ]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .trim();
+}
+
+// All-caps YouTube titles ("TOP 4 UNBELIEVABLE INSTANCES OF ALIENS") → display casing. Acronyms,
+// Roman numerals, short unknown tokens (likely acronyms) and tokens with digits stay as they are.
+const ACRONYMS = new Set(('NASA BBC WWII WWI WW2 WW1 USA UK DNA CIA FBI NFL NBA NHL MLB UFO UFOS UAP AI HBO CNN PBS NSA KGB MI5 MI6 ISIS NATO UN EU USSR '
+  + 'LAPD NYPD DEA ATF IRS ISS SAS SWAT CEO LGBT LGBTQ HIV AIDS COVID DIY SOS VR TV DC NYC LA UAE JFK MLK IRA MMA UFC WWE NCAA GMO OMG '
+  + 'IQ OCD PTSD ADHD VICE NYC SUV ATV GPS CGI DJ MC MVP NBC CBS ABC ESPN MTV IMAX NHS NYU MIT UCLA FDA EPA ICU ER CPR DUI KKK IRL '
+  + 'BTS NCT K-POP CSI NCIS RAF RAAF USAF USMC SEAL SEALS OK').split(' '));
+const SHORT_WORDS = new Set(('a an the and but or nor of in on at to for by with from vs via as up off out into onto over per than '
+  + 'i is it its be am are was were has had do did does can may new old big top bad all any one two six ten our his her him she he we '
+  + 'you who why how what when day war man men boy god law age air art ask buy car cat cop cow cry cut dad die dig dog dry due eat egg '
+  + 'end era eye far fat few fix fly fun gap gas get got gun guy hat hey hit hot ice ill jet job joy key kid lab lay led leg let lie lit '
+  + 'log lot low mad map mix mom mud net not now odd oil own pay pet pig pit pop pot put ran rat raw red rid row run sad saw say sea see '
+  + 'set sit sky son spy sun tax tea tie tip toe too toy try use van wet win won yes yet zoo ant ape bee bug cub elk fox hen owl yak '
+  + 'ark axe bay bow box fog fur hut ink inn lip nut pan pen pie rib rod rug sin tag tin tub vet wax wig wit aid aim bet bid bin bit cap '
+  + 'den dot ear fan fee fit gem hug jaw lid mob nap pad pin rap ray rim rip rob rot rub sip sum tap tow wed so no my me if us go do oh '
+  + 'way web who').split(' '));
+const MINOR_WORDS = new Set('a an the and but or nor of in on at to for by with from vs via as per into onto over than up off out'.split(' '));
+const isRoman = (w) => /^(?=[IVX]{2,4}$)X{0,3}(IX|IV|V?I{0,3})$/.test(w);
+
+/**
+ * Re-case a fully upper-case Latin title for display. Mixed-case titles, Arabic titles and titles with
+ * fewer than 6 Latin letters are returned unchanged. `lang` 'fr' uses sentence case.
+ */
+export function tidyCase(title, { lang = 'en' } = {}) {
+  if (!title || hasArabic(title)) return title;
+  const s = String(title);
+  if (/\p{Ll}/u.test(s)) return title;
+  const letters = s.match(/\p{Lu}/gu) || [];
+  if (letters.length < 6) return title;
+  const words = s.match(/[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu) || [];
+  if (!words.some((w) => w.length >= 4 && !/\d/.test(w) && !ACRONYMS.has(w.replace(/['’]S$/, '')))) return title;
+  let first = true;
+  return s.replace(/([^\s]+)/g, (token) => {
+    const m = token.match(/^([^\p{L}\p{N}]*)([\p{L}\p{N}][\p{L}\p{N}'’\-.&/_]*?)([^\p{L}\p{N}]*)$/u);
+    if (!m) return token;
+    const [, pre, word, post] = m;
+    const atStart = first || /[:(\[|—–-]$/.test(pre);
+    first = /[:|—–.!?]$/.test(post) || /^[—–-]$/.test(word);
+    const base = word.replace(/['’]S$/, '');
+    const lower = word.toLowerCase();
+    // Unknown short tokens: two letters, or three without a vowel ("TFW", "MLK"), read as acronyms.
+    const shortAcronym = !SHORT_WORDS.has(lower) && !SHORT_WORDS.has(base.toLowerCase()) && (word.length <= 2 || (word.length === 3 && !/[AEIOUY]/.test(word)));
+    let out = word;
+    if (/\d/.test(word) || /[./_&]/.test(word) || isRoman(word) || (ACRONYMS.has(base) && (lang !== 'fr' || word.length > 2))) out = word;
+    else if (lang === 'fr') out = atStart ? word[0] + word.slice(1).toLowerCase() : word.toLowerCase();
+    else if (shortAcronym) out = word;
+    else if (!atStart && MINOR_WORDS.has(word.toLowerCase())) out = word.toLowerCase();
+    else out = word.toLowerCase().replace(/(^|[-])(\p{L})/gu, (x, sep, ch) => sep + ch.toUpperCase());
+    return pre + out + post;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
 // Branding / generic playlists
 // ---------------------------------------------------------------------------------------------
 
@@ -51,8 +165,14 @@ export function isBranding(part) {
 
 // Playlist names that are collections / events rather than shows.
 const GENERIC_PLAYLIST = /(حلقات كاملة|حلقة كاملة|اليوم العالمي|يوم العالمي|يوم الأرض|يوم الارض|شهر |moments|مقاطع|الأكثر مشاهدة|الاكثر مشاهدة|أفضل |مميز|highlights|best of|full episodes|أسبوع |رمضان|عيد |^العلوم والتاريخ$|^الحياة البرية$|^وثائقيات$|^أفلام وثائقية|أفلام وثائقية متنوعة|متنوعة|#shorts|shorts|مختارات|مسابقة|الأحدث|أحدث |جديد القناة|^خلفيات |ترند|الأعلى مشاهدة|اخترنا لكم|__uploads__|^الجائزة|مهرجان|^أفلام (قصيرة|الطلبة|الطلاب)|الأكثر رواجاً|^جديد)/i;
+// English collection playlists ("MEGA Episodes | National Geographic", "Nat Geo Animals Newest Videos",
+// "Now Trending", "Livestreams", "Favorites"/"المفضلة"). Anchored so real series such as
+// "Beyond the Spotlight" or "... | A National Geographic YouTube Original Series" stay shows.
+const COLLECTION_PLAYLIST = /^(mega episodes?|livestreams?|live streams?|live|now trending|trending( videos| now)?|newest (videos|uploads?)|latest( videos| uploads?)?|recent( videos| uploads?)|new (videos|uploads)|documentary films|full documentaries|(web|disney\+) originals|welt spotlight|favou?rites|المفضلة)$|(newest videos|latest videos|newest uploads?|recent uploads|latest & greatest)$/i;
 export function isGenericPlaylist(title = '') {
-  return GENERIC_PLAYLIST.test(String(title).trim());
+  const t = cleanTitle(String(title)).trim();
+  if (GENERIC_PLAYLIST.test(t)) return true;
+  return splitPipes(t).some((p, i) => (i === 0 || i === 1) && COLLECTION_PLAYLIST.test(p.replace(/[!.]+$/, '').trim()));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -349,13 +469,26 @@ const EN_BRANDS = [
   /^(documentary special|documentary|full documentary|full episode|official series playlist|all episodes|all parts|official trailer)$/i,
 ];
 const norm = (s) => String(s).replace(/[’'"“”]/g, "'").replace(/\s+/g, ' ').trim();
+// YouTube serves localized titles for some English uploads; these Arabic segments are labels, not shows.
+const AR_LABELS = /^(الحلق[ةه] الكامل[ةه]|حلق[ةه] كامل[ةه]|الفيلم الكامل|فيلم وثائقي( كامل)?|وثائقي( \S+)?|الجمعي[ةه] الجغرافي[ةه] الوطني[ةه]|المفضل[ةه])$/;
 function isBrandingEn(part, brands = []) {
   const p = norm(part).toLowerCase().replace(/[.,!]+$/, '');
   if (EN_BRANDS.some((re) => re.test(p))) return true;
+  // "Curiosity Stream Original", "A National Geographic Original Series"
+  const unbranded = p.replace(/^an?\s+/, '').replace(/\s+(youtube\s+)?originals?(\s+(series|documentary|film))?$/, '').trim();
+  if (unbranded !== p && (EN_BRANDS.some((re) => re.test(unbranded)) || brands.some((b) => b && unbranded === norm(b).toLowerCase()))) return true;
+  if (hasArabic(p) && (AR_LABELS.test(p.trim()) || isBranding(p))) return true;
   return brands.some((b) => b && p === norm(b).toLowerCase());
 }
-const EN_MARKERS = /\s*[\(\[]?\s*(full (episode|documentary|film|movie|special)|mega episode|full ep\.?|complete (episode|documentary)|hd|4k|official)\s*[\)\]]?\s*/gi;
-const stripMarkers = (s) => norm(String(s).replace(EN_MARKERS, ' ')).replace(/^[\s|:\-–—]+|[\s|:\-–—]+$/g, '').trim();
+const EN_MARKERS = /\s*[\(\[]?\s*(?<![\p{L}\p{N}])(full (episodes?|documentar(?:y|ies)|films?|movies?|specials?|series)|mega episodes?|full ep\.?|complete (episodes?|documentar(?:y|ies))|hd|4k|official)(?![\p{L}\p{N}])\s*[\)\]]?\s*/giu;
+const stripMarkers = (s) => norm(String(s).replace(EN_MARKERS, ' ')).replace(/^[\s|:\-–—]+|[\s|:\-–—]+$/g, '').replace(/\(\s*\)|\[\s*\]/g, '').trim();
+// Promotional title segments ("LIVESTREAM", "BRAND NEW SERIES", "New Episodes Tuesdays at 9/8c",
+// "Season 1 Full Episodes", "MEGA EPISODE Compilation") never name a show.
+const EN_PROMO = /^(🔴\s*)?(live ?streams?|live|brand new( series| episodes?)?|all[- ]new( episodes?)?|new (drama )?(series|episodes?|season)\b.*|(series |season )?premieres?\b.*|(now )?streaming (now|on)\b.*|watch (now|more|the full)\b.*|(mega episodes?|compilation)( compilation)?|((season|s)\s*\d{1,2}\s*)?(mega episodes?\s*)?(full episodes?|episodes?)( compilation)?|.*\b\d{1,2}(:\d{2})?\s*\/\s*\d{1,2}(:\d{2})?\s*c\b.*)$/i;
+const isPromoEn = (part) => {
+  const p = norm(part).replace(/[.,!]+$/, '').trim();
+  return EN_PROMO.test(p) || !stripMarkers(p);
+};
 
 // "S2 E5", "Season 2, Episode 5", "Season 2 Episode 5", "Episode 5", "Ep. 5", "Part 2", "(2/3)", "(S1)"
 function enNumbers(text) {

@@ -4,9 +4,12 @@ import { Badge, PlayIcon, ProgressBar } from './Bits.jsx';
 import { useProgress } from '../hooks/useProgress.js';
 import { useLang } from '../lib/i18n.jsx';
 import { fmtClock, fmtDate, fmtCompact, isNew } from '../lib/format.js';
+import { decodeEntities, episodeHeadline, isNumberedEpisodeTitle } from '../lib/text.js';
 
 /**
  * layout: "list" (show page, watch sidebar) | "grid" (rows, search)
+ * showShowTitle: the card stands alone (rows, search, My List). A generic episode title
+ * ('الحلقة الكاملة', 'Episode 3') never headlines it: the show title does, the label goes below.
  */
 export default function EpisodeCard({ show, episode, layout = 'grid', index, active = false, showShowTitle = false }) {
   const progress = useProgress()[episode.id];
@@ -14,9 +17,11 @@ export default function EpisodeCard({ show, episode, layout = 'grid', index, act
   const ratio = progress && progress.duration ? progress.position / progress.duration : 0;
   const fresh = isNew(episode.publishedAt);
   const film = show.kind === 'film';
-  const num = film ? null : (episode.number ?? (index != null ? index + 1 : null));
+  const head = episodeHeadline(show, episode, { lang, withShow: showShowTitle });
+  const num = film || (layout === 'list' && isNumberedEpisodeTitle(head.title)) ? null : (episode.number ?? (index != null ? index + 1 : null));
+  const sub = (episode.classification || show.classification)?.status === 'uncertain' ? (lang === 'en' ? 'Not yet classified' : 'لم يُصنّف بعد') : showShowTitle ? (film ? t('kind_film_label') : head.sub) : null;
   return (
-    <Link to={`/watch/${show.id}/${episode.id}`} className={`ep ep--${layout} ${active ? 'ep--active' : ''}`}>
+    <Link to={`/watch/${show.id}/${episode.id}`} className={`ep ep--${layout} ${active ? 'ep--active' : ''} ${head.generic && showShowTitle ? 'ep--generic' : ''}`}>
       <div className="ep__media">
         <Thumb videoId={episode.id} fallbackThumbs={show.poster} thumbs={episode.thumbs} alt="" className="ep__img" start={layout === 'grid' ? 'sd' : 'hq'} />
         {episode.durationSec > 0 && <span className="ep__dur">{fmtClock(episode.durationSec)}</span>}
@@ -27,17 +32,16 @@ export default function EpisodeCard({ show, episode, layout = 'grid', index, act
       </div>
       <div className="ep__body">
         <div className="ep__top">
-          {num != null && <span className="ep__num">{num}</span>}
-          <h4 className="ep__title">{film ? show.title : episode.title}</h4>
-          {fresh && <Badge tone="new">{t('badge_new')}</Badge>}
+          {num != null && !(showShowTitle && head.generic) && <span className="ep__num">{num}</span>}
+          <h4 className="ep__title" dir="auto">{head.title}</h4>
         </div>
-        {showShowTitle && !film && <p className="ep__show">{show.title}</p>}
-        {showShowTitle && film && <p className="ep__show">{t('kind_film_label')}</p>}
+        {sub && <p className={`ep__show ${head.generic ? 'ep__show--label' : ''}`} dir="auto">{sub}</p>}
         <p className="ep__meta">
+          {fresh && <Badge tone="new">{t('badge_new')}</Badge>}
           {episode.publishedAt && <span>{fmtDate(episode.publishedAt, lang)}</span>}
-          {episode.views ? <span>{fmtCompact(episode.views, lang)} {t('views')}</span> : null}
+          {episode.views > 0 ? <span>{fmtCompact(episode.views, lang)} {t('views')}</span> : null}
         </p>
-        {layout === 'list' && episode.synopsis && <p className="ep__synopsis">{episode.synopsis}</p>}
+        {layout === 'list' && episode.synopsis && <p className="ep__synopsis" dir="auto">{decodeEntities(episode.synopsis)}</p>}
       </div>
     </Link>
   );

@@ -24,9 +24,24 @@ const LANG_NAMES = {
   de: { ar: 'بالألمانية', en: 'In German', short: 'DE' },
   es: { ar: 'بالإسبانية', en: 'In Spanish', short: 'ES' },
 };
+const displayNames = new Map();
+function languageName(code, uiLang) {
+  try {
+    if (!displayNames.has(uiLang)) displayNames.set(uiLang, new Intl.DisplayNames([uiLang === 'en' ? 'en' : 'ar'], { type: 'language', fallback: 'none' }));
+    return displayNames.get(uiLang).of(code) || null;
+  } catch { return null; }
+}
+/** True for a real ISO 639-1 code; provider card labels such as 'hd' or 'tv' are not languages. */
+export function isLanguageCode(code) {
+  if (typeof code !== 'string' || !/^[a-z]{2}$/.test(code)) return false;
+  if (LANG_NAMES[code]) return true;
+  return !!languageName(code, 'en');
+}
 export function contentLangBadge(show, uiLang) {
-  const cl = show?.contentLang;
-  if (!cl || cl === (show.lang || 'ar')) return null;
-  const n = LANG_NAMES[cl] || { ar: cl.toUpperCase(), en: cl.toUpperCase(), short: cl.toUpperCase() };
-  return { short: n.short, label: n[uiLang] || n.en };
+  const cl = typeof show?.contentLang === 'string' ? show.contentLang.toLowerCase() : null;
+  if (!cl || cl === (show.lang || 'ar') || !isLanguageCode(cl)) return null;
+  const n = LANG_NAMES[cl];
+  if (n) return { short: n.short, label: n[uiLang] || n.en };
+  const name = languageName(cl, uiLang);
+  return { short: cl.toUpperCase(), label: name ? (uiLang === 'en' ? `In ${name}` : `بال${name.replace(/^ال/, '')}`) : cl.toUpperCase() };
 }

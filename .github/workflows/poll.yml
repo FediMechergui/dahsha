@@ -1,0 +1,88 @@
+# Hourly fast path between the 6-hourly full refreshes: reads every YouTube channel's RSS feed
+# (`node server/src/cli.js poll`), fetches details for unseen uploads, re-exports, and redeploys only
+# when the catalogue differs from what production serves (data/deploy.json fingerprint). It shares
+# the "refresh" concurrency group with refresh.yml, so the two never overlap or race on the snapshot.
+name: Poll YouTube feeds
+
+on:
+  schedule:
+    - cron: '47 * * * *'   # hourly, away from refresh.yml's :17 start
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Deploy and save the snapshot even if the regression check fails'
+        type: boolean
+        default: false
+      deploy:
+        description: 'Deploy even if the catalogue did not change'
+        type: boolean
+        default: false
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_PRODUCT: dahsha
+      GH_TOKEN: ${{ github.token }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      SKIP_PROVIDER_SYNC: '1'   # providers are scanned by refresh.yml only
+      REGRESSION_FORCE: ${{ inputs.force && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm ci --prefix server && npm ci --prefix client
+      - name: Test
+        run: npm test
+      - name: Restore data snapshot
+        id: restore
+        run: node scripts/snapshot.js restore
+      - name: Record restored catalogue counts
+        run: node scripts/check-regression.js record --out "$RUNNER_TEMP/restored-counts.json"
+      - name: Poll YouTube RSS feeds
+        run: |
+          status=0
+          node server/src/cli.js poll || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "::error title=YouTube ingestion looks broken::Every channel feed returned zero videos. Nothing was deployed and the data snapshot was not saved."
+            printf '### YouTube ingestion looks broken\n\nEvery channel feed returned zero videos (`cli.js poll` exited with code 3). Nothing was deployed and the data snapshot was left untouched.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+      - name: Export static data
+        run: node server/src/export.js
+      - name: Regression check
+        id: guard
+        run: node scripts/check-regression.js --restored "$RUNNER_TEMP/restored-counts.json" --write-baseline
+      - name: Compare with production
+        id: changes
+        run: node scripts/check-regression.js changed
+      - name: Build & deploy to Vercel
+        if: success() && env.VERCEL_TOKEN != '' && (steps.changes.outputs.changed == 'true' || inputs.deploy)
+        env:
+          REGRESSION_CHECKED: '1'
+          DEPLOY_SNAPSHOT_PENDING: '1'
+        run: |
+          npm install -g vercel@latest
+          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          vercel build --prod --token "$VERCEL_TOKEN"
+          node scripts/prepare-deployment.js dahsha
+          vercel deploy --prebuilt --prod --yes --archive=tgz --token "$VERCEL_TOKEN"
+      - name: Nothing new to deploy
+        if: success() && steps.changes.outputs.changed != 'true' && !inputs.deploy
+        run: echo "Production already serves this catalogue; deploy skipped." >> "$GITHUB_STEP_SUMMARY"
+      - name: Save data snapshot
+        if: always() && steps.restore.outcome == 'success' && steps.guard.outcome == 'success'
+        run: node scripts/snapshot.js save ${{ inputs.force && '--force' || '' }}

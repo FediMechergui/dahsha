@@ -10,9 +10,10 @@ import { useProgress, continueWatching } from '../hooks/useProgress.js';
 import { useLang } from '../lib/i18n.jsx';
 import { fmtNumber, titlesLabel, episodesLabel } from '../lib/format.js';
 import { channelColor } from '../lib/channels.js';
+import { byRecency as byLatest, hasRecency } from '../lib/catalog-helpers.js';
 
-const byLatest = (a, b) => (b.latestAt || '').localeCompare(a.latestAt || '');
 const ROW = 12;
+const channelSub = (c, lang) => [Number.isFinite(c.shows) && c.shows > 0 ? titlesLabel(c.shows, lang) : null, Number.isFinite(c.episodes) && c.episodes > 0 ? episodesLabel(c.episodes, lang) : null].filter(Boolean).join(' • ');
 
 export default function Home() {
   const { catalog, recentEpisodes } = useCatalog();
@@ -22,14 +23,14 @@ export default function Home() {
 
   const { featured, newest, films, popular, byChannel, byTag } = useMemo(() => {
     if (!catalog) return { featured: [], newest: [], films: [], popular: [], byChannel: [], byTag: [] };
-    const shows = catalog.shows;
+    const shows = catalog.shows.filter(s => s.classification?.status !== 'uncertain');
     const perChannel = new Map();
     for (const s of [...shows].filter((x) => x.kind === 'series' && x.episodeCount >= 2 && !x.synopsisGenerated).sort(byLatest)) {
       if (s.channel?.id && !perChannel.has(s.channel.id)) perChannel.set(s.channel.id, s);
     }
     let featured = [...perChannel.values()].slice(0, 6);
     if (featured.length < 3) featured = [...featured, ...shows.filter((x) => !featured.includes(x) && !x.synopsisGenerated).sort(byLatest).slice(0, 6 - featured.length)];
-    const newest = [...shows].filter((s) => s.kind === 'series').sort(byLatest).slice(0, ROW);
+    const newest = shows.filter((s) => s.kind === 'series' && hasRecency(s)).sort(byLatest).slice(0, ROW);
     const filmsList = [...shows].filter((s) => s.kind === 'film').sort(byLatest).slice(0, ROW);
     const popular = shows.filter(s => s.totalViews > 0).sort((a, b) => b.totalViews - a.totalViews).slice(0, ROW);
     const byChannel = (catalog.channels || [])
@@ -77,8 +78,14 @@ export default function Home() {
         )}
 
         <Row title={t('row_latest_eps')} sub={t('row_latest_eps_sub')} to="/browse?sort=latest" className="row--episodes">
-          {recentEpisodes.slice(0, ROW).map(({ show, episode }) => <EpisodeCard key={episode.id} show={show} episode={episode} showShowTitle />)}
+          {recentEpisodes.filter(({show}) => show.classification?.status !== 'uncertain').slice(0, ROW).map(({ show, episode }) => <EpisodeCard key={episode.id} show={show} episode={episode} showShowTitle />)}
         </Row>
+
+        {catalog.shows.some(s => s.classification?.status === 'uncertain') && (
+          <Row title={lang === 'en' ? 'New uploads' : 'فيديوهات جديدة'} sub={lang === 'en' ? 'Not yet classified' : 'لم تُصنّف بعد'} to="/browse?classification=uncertain">
+            {catalog.shows.filter(s => s.classification?.status === 'uncertain').sort(byLatest).slice(0, ROW).map(s => <ShowCard key={s.id} show={s} />)}
+          </Row>
+        )}
 
         {newest.length > 0 && (
           <Row title={t('row_new_series')} to="/browse?kind=series&sort=latest">
@@ -93,7 +100,7 @@ export default function Home() {
         )}
 
         {byChannel.map(({ channel, shows }) => (
-          <Row key={channel.id} title={<span className="row__chtitle" style={{ '--ch': channelColor(channel) }}><i />{channel.name}</span>} sub={`${titlesLabel(channel.shows, lang)} • ${episodesLabel(channel.episodes, lang)}`} to={`/browse?channel=${encodeURIComponent(channel.id)}`}>
+          <Row key={channel.id} title={<span className="row__chtitle" style={{ '--ch': channelColor(channel) }}><i />{channel.name}</span>} sub={channelSub(channel, lang) || undefined} to={`/browse?channel=${encodeURIComponent(channel.id)}`}>
             {shows.map((s, i) => <ShowCard key={s.id} show={s} index={i} hideChannel />)}
           </Row>
         ))}

@@ -2,8 +2,10 @@
 import { useSyncExternalStore } from 'react';
 
 import { PRODUCT } from '../lib/product.js';
+import { aliasSignature, migrateStoredIds } from '../lib/catalog-helpers.js';
 const KEY_PROGRESS = `${PRODUCT}.progress.v1`;
 const KEY_FAV = `${PRODUCT}.favorites.v1`;
+const KEY_ALIASES = `${PRODUCT}.aliases-applied.v1`;
 
 function load(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -46,6 +48,24 @@ export const favoritesStore = {
   },
   all: () => favorites,
 };
+
+/**
+ * C1: show ids can be renamed by a rebuild (catalog.idAliases = { oldId: newId }). Rewrites the
+ * stored favourites and progress entries once per alias map; idempotent if it runs again.
+ */
+export function migrateShowIds(aliases) {
+  if (!aliases || !Object.keys(aliases).length) return false;
+  const signature = aliasSignature(aliases);
+  try { if (localStorage.getItem(KEY_ALIASES) === signature) return false; } catch { return false; }
+  const result = migrateStoredIds({ progress, favorites }, aliases);
+  if (result.changed) {
+    progress = result.progress; favorites = result.favorites;
+    save(KEY_PROGRESS, progress); save(KEY_FAV, favorites);
+    emit();
+  }
+  try { localStorage.setItem(KEY_ALIASES, signature); } catch { /* storage unavailable */ }
+  return result.changed;
+}
 
 export function useProgress() {
   return useSyncExternalStore(subscribe, () => progress);

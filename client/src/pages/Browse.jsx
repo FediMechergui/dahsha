@@ -1,4 +1,6 @@
 import { api } from '../lib/api.js';
+import { DOCUMENTARIES } from '../lib/product.js';
+import { byRecency, resourceOf } from '../lib/catalog-helpers.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -21,6 +23,7 @@ export default function Browse() {
   const sort = params.get('sort') || 'latest';
   const q = params.get('q') || '';
   const source = params.get('source') || '';
+  const classification = params.get('classification') || '';
 
   const SORTS = [
     { id: 'latest', label: t('sort_latest') }, { id: 'title', label: t('sort_title') }, { id: 'episodes', label: t('sort_episodes') },
@@ -37,23 +40,25 @@ export default function Browse() {
   const base = useMemo(() => {
     if (!catalog) return [];
     let list = catalog.shows;
+    if (classification) list = list.filter(s => s.classification?.status === classification);
     if (channel) list = list.filter((s) => s.channel?.id === channel);
     if (kind) list = list.filter((s) => s.kind === kind);
     if (source === 'myflixer') list = list.filter((s) => s.channel?.id === 'myflixer' || s.id.startsWith('mf:'));
-    if (source === 'youtube') list = list.filter((s) => !s.id.startsWith('mf:') && s.channel?.id !== 'myflixer');
+    if (source === 'youtube' || source === 'channels') list = list.filter((s) => resourceOf(s) === 'channels');
+    if (source === 'web') list = list.filter((s) => resourceOf(s) === 'web');
     return list;
-  }, [catalog, channel, kind, source]);
+  }, [catalog, channel, kind, source, classification]);
 
   const shows = useMemo(() => {
     let list = base;
     if (tag) list = list.filter((s) => s.tags.includes(tag));
     if (q) { const n = q.trim().toLowerCase(); list = list.filter((s) => s.title.toLowerCase().includes(n) || s.altTitles.some((x) => x.toLowerCase().includes(n))); }
     const by = {
-      latest: (a, b) => (b.latestAt || '').localeCompare(a.latestAt || ''),
-      title: (a, b) => a.title.localeCompare(b.title, lang),
-      episodes: (a, b) => b.episodeCount - a.episodeCount,
+      latest: byRecency,
+      title: (a, b) => (a.title || '').localeCompare(b.title || '', lang),
+      episodes: (a, b) => (b.episodeCount || 0) - (a.episodeCount || 0),
       views: (a, b) => (b.totalViews || 0) - (a.totalViews || 0),
-      duration: (a, b) => b.totalDurationSec - a.totalDurationSec,
+      duration: (a, b) => (b.totalDurationSec || 0) - (a.totalDurationSec || 0),
     }[sort] || (() => 0);
     return [...list].sort(by);
   }, [base, tag, sort, q, lang]);
@@ -61,15 +66,16 @@ export default function Browse() {
   // Progressive rendering: a few dozen cards first, more as the sentinel scrolls into view.
   const [limit, setLimit] = useState(PAGE);
   const sentinel = useRef(null);
+  // Live provider discovery only returns English titles, so the Arabic section never asks for it.
   useEffect(() => {
     let cancelled = false;
-    if (channel || source === 'youtube' || source === 'myflixer') return undefined;
+    if (channel || (source && source !== 'web') || (DOCUMENTARIES && lang === 'ar')) return undefined;
     const page = Math.ceil(limit / PAGE);
     if (page > 500) return undefined;
-    Promise.allSettled((kind ? [kind] : ['film', 'series']).map(k => api.discover({ kind:k, page, genre:tag })))
+    Promise.allSettled((kind ? [kind] : ['film', 'series']).map(k => api.discover({ kind:k, page, genre:tag, latest: sort === 'latest' })))
       .then(results => { if (!cancelled) registerShows(results.flatMap(r => r.status === 'fulfilled' ? r.value.items || [] : [])); });
     return () => { cancelled = true; };
-  }, [kind, tag, channel, source, lang, limit, registerShows]);
+  }, [kind, tag, channel, source, sort, lang, limit, registerShows]);
 
   useEffect(() => { setLimit(PAGE); }, [tag, channel, kind, sort, q, lang]);
   useEffect(() => {

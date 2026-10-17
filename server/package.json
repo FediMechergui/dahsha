@@ -11,6 +11,6 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "youtubei.js": "^15.0.1"
+    "youtubei.js": "^18.1.0"
   }
 }
