@@ -7,14 +7,19 @@ import { useCatalog } from '../hooks/useCatalog.jsx';
 import { useFavorites, useProgress, continueWatching, progressStore } from '../hooks/useProgress.js';
 import { useLang } from '../lib/i18n.jsx';
 import { titlesLabel, episodesLabel } from '../lib/format.js';
+import { favoriteCardIndex } from '../lib/catalog-helpers.js';
 
 export default function MyList() {
-  const { catalog, showMap, episodeIndex } = useCatalog();
+  const { catalog, episodeIndex } = useCatalog();
   const { t, lang } = useLang();
   const favs = useFavorites();
   const progress = useProgress();
 
-  const favShows = useMemo(() => favs.map((id) => showMap.get(id)).filter(Boolean), [favs, showMap]);
+  // A favourite saved under a provider card that is now an uncertain version (show.versions) or an
+  // offering of another card lists that card, once. ShowPage resolves the same index (favoriteIdsOf),
+  // so that card's heart reads "In My List" and removing it drops every id it is stored under.
+  const index = useMemo(() => favoriteCardIndex(catalog?.shows), [catalog]);
+  const favShows = useMemo(() => [...new Map(favs.map((id) => index.get(id)).filter(Boolean).map((s) => [s.id, s])).values()], [favs, index]);
   const cont = useMemo(() => continueWatching(progress, catalog, 40), [progress, catalog]);
   const finished = useMemo(() => Object.entries(progress)
     .filter(([id, p]) => p.finished && episodeIndex.has(id))

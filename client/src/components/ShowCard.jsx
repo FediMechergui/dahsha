@@ -6,6 +6,7 @@ import { useLang, channelName } from '../lib/i18n.jsx';
 import { episodesLabel, isNew, fmtDuration } from '../lib/format.js';
 import { channelColor, contentLangBadge } from '../lib/channels.js';
 import { cleanTitle } from '../lib/text.js';
+import { discoveredOn, PROVIDER_NAMES, recencyOf } from '../lib/catalog-helpers.js';
 
 // Most thumbnails already carry a printed title or logo, so the card keeps text and badges off the
 // image: title, channel and badges sit below it.
@@ -14,7 +15,10 @@ export default function ShowCard({ show, size = 'md', index, hideChannel = false
   const { t, lang } = useLang();
   const tag = tagMap.get(show.primaryTag);
   const cl = contentLangBadge(show, lang);
-  const fresh = isNew(show.latestAt);
+  // "New" follows the card's recency (latestAt, or a provider discovery / new provider episode).
+  const fresh = isNew(recencyOf(show));
+  const discovered = fresh ? discoveredOn(show) : null;
+  const newTitle = discovered ? (lang === 'en' ? `New on ${PROVIDER_NAMES[discovered]}` : `جديد على ${PROVIDER_NAMES[discovered]}`) : undefined;
   const film = show.kind === 'film';
   const count = Number.isFinite(show.episodeCount) && show.episodeCount > 0 ? show.episodeCount : 0;
   const pending = show.classification?.status === 'uncertain';
@@ -35,7 +39,7 @@ export default function ShowCard({ show, size = 'md', index, hideChannel = false
         <p className="card__meta">
           {channel ? <span className="card__channel"><i />{channel}</span> : tag && <span className="card__tag"><i />{tag.label}</span>}
           <span className="card__kind">{kindText}</span>
-          {fresh && <Badge tone="new">{t('badge_new')}</Badge>}
+          {fresh && <Badge tone="new" title={newTitle}>{t('badge_new')}</Badge>}
           {cl && <Badge tone="lang" title={cl.label}>{cl.short}</Badge>}
         </p>
       </div>

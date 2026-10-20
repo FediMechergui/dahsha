@@ -6,16 +6,56 @@ import { useLang } from '../lib/i18n.jsx';
 import { Spinner } from '../components/Bits.jsx';
 import { fmtDate, fmtRelative, fmtNumber } from '../lib/format.js';
 import { channelColor } from '../lib/channels.js';
-import { WEB_PROVIDERS, withChannelStats } from '../lib/catalog-helpers.js';
+import { providerFreshness, WEB_PROVIDERS, withChannelStats } from '../lib/catalog-helpers.js';
 
 const isProviderSource = (s) => s.type === 'provider' || s.type === 'myflixer' || WEB_PROVIDERS.includes(s.id);
 const num = (n) => (typeof n === 'number' && Number.isFinite(n) ? n : null);
 
 const PROFILE_LABEL = {
-  ar: { natgeo: 'ناشونال جيوغرافيك', asharq: 'الشرق ديسكفري', dw: 'دي دبليو', aljazeera: 'الجزيرة الوثائقية', generic: 'عام', 'natgeo-en': 'Nat Geo', 'dw-en': 'DW', frontline: 'Frontline', history: 'History', freedoc: 'Free Documentary', creator: 'صانع محتوى', 'generic-en': 'عام' },
-  en: { natgeo: 'Nat Geo AD', asharq: 'Asharq Discovery', dw: 'DW Arabic', aljazeera: 'Al Jazeera', generic: 'generic', 'natgeo-en': 'Nat Geo', 'dw-en': 'DW', frontline: 'Frontline', history: 'History', freedoc: 'Free Documentary', creator: 'creator', 'generic-en': 'generic' },
+  ar: { natgeo: 'ناشونال جيوغرافيك', asharq: 'الشرق ديسكفري', dw: 'دي دبليو', aljazeera: 'الجزيرة الوثائقية', generic: 'عام', 'natgeo-en': 'Nat Geo', 'dw-en': 'DW', frontline: 'Frontline', history: 'History', freedoc: 'Free Documentary', creator: 'صانع محتوى', 'generic-en': 'عام', 'ar-show': 'برامج', 'ar-films': 'أفلام وثائقية' },
+  en: { natgeo: 'Nat Geo AD', asharq: 'Asharq Discovery', dw: 'DW Arabic', aljazeera: 'Al Jazeera', generic: 'generic', 'natgeo-en': 'Nat Geo', 'dw-en': 'DW', frontline: 'Frontline', history: 'History', freedoc: 'Free Documentary', creator: 'creator', 'generic-en': 'generic', 'ar-show': 'shows', 'ar-films': 'films' },
 };
 const LANG_LABEL = { ar: { ar: 'العربية', en: 'الإنجليزية' }, en: { ar: 'Arabic', en: 'English' } };
+// Per-provider freshness (catalog.providerSync.providers): last success, last new title, failures.
+const SYNC_LABEL = {
+  ar: { updated: 'آخر استجابة ناجحة', newest: 'آخر عنوان جديد', never: 'لا استجابة ناجحة بعد', since: 'متعطّل منذ', fails: (n) => (n === 2 ? 'محاولتان فاشلتان متتاليتان' : n <= 10 ? `${n} محاولات فاشلة متتالية` : `${n} محاولة فاشلة متتالية`) },
+  en: { updated: 'updated', newest: 'last new title', never: 'no successful scan yet', since: 'failing since', fails: (n) => `${n} failed scans in a row` },
+};
+
+/**
+ * Freshness lines of one crawled provider (FMovies/HDToday): its own last success, last new title
+ * and current error, never the shared providerSync.lastRefreshAt (which a failed provider used to
+ * advance). Catalogues without providerSync.providers keep the old "last sync" line and error.
+ */
+export function ProviderSyncInfo({ providerSync, id }) {
+  const { t, lang } = useLang();
+  const fresh = providerFreshness(providerSync, id);
+  if (!fresh) return null;
+  const S = SYNC_LABEL[lang] || SYNC_LABEL.en;
+  const lines = (fresh.legacy
+    ? [fresh.lastSyncAt && { at: fresh.lastSyncAt, text: `${t('provider_sync')} ${fmtRelative(fresh.lastSyncAt, lang)}` }]
+    : [
+      fresh.lastSuccessAt ? { at: fresh.lastSuccessAt, text: `${S.updated} ${fmtRelative(fresh.lastSuccessAt, lang)}` } : { text: S.never },
+      fresh.lastNewRecordAt && { at: fresh.lastNewRecordAt, text: `${S.newest} ${fmtRelative(fresh.lastNewRecordAt, lang)}` },
+    ]).filter(Boolean);
+  const failing = fresh.lastError && !fresh.legacy
+    ? [fresh.lastSuccessAt ? `${S.since} ${fmtDate(fresh.lastSuccessAt, lang, { short: true })}` : null, fresh.consecutiveFailures > 1 ? S.fails(fresh.consecutiveFailures) : null].filter(Boolean).join(' • ')
+    : '';
+  return (
+    <>
+      {lines.length > 0 && (
+        <small className="source__sync">
+          {lines.map((x, i) => <span key={i} title={x.at ? fmtDate(x.at, lang) : undefined}>{i ? ' • ' : ''}{x.text}</span>)}
+        </small>
+      )}
+      {fresh.lastError && (
+        <small className={`source__error${fresh.stale ? ' is-stale' : ''}`} style={fresh.stale ? { color: 'var(--danger)' } : undefined}>
+          {t('provider_error')}: <bdi>{fresh.lastError}</bdi>{failing ? ` — ${failing}` : ''}
+        </small>
+      )}
+    </>
+  );
+}
 
 export default function Sources() {
   const { catalog, all, status, connected, refresh, pushToast, checking } = useCatalog();
@@ -50,7 +90,8 @@ export default function Sources() {
 
   const stageLabel = { idle: t('idle'), listing: t('status_listing'), playlists: t('status_playlists'), details: t('status_details'), building: t('status_building') };
   const channelStats = new Map(withChannelStats(all?.channels || [], all?.shows || [], null).map((c) => [c.id, c]));
-  const providerSync = all?.providerSync || catalog?.providerSync || null;
+  // status.json carries the same providerSync and may be newer than the loaded catalogue.
+  const providerSync = status?.providerSync || all?.providerSync || catalog?.providerSync || null;
   const generated = status?.generatedAt || all?.generatedAt;
 
   return (
@@ -114,14 +155,12 @@ export default function Sources() {
                 num(c.films) != null ? `${fmtNumber(c.films, lang)} ${t('films_').toLowerCase()}` : null,
                 num(c.episodes) > 0 ? `${fmtNumber(c.episodes, lang)} ${t('episodes_count')}` : null,
               ].filter(Boolean).join(', ') : '';
-              const syncError = provider ? providerSync?.errors?.[s.id] : null;
               const parts = [
                 provider ? t('web_provider') : s.type === 'channel' ? t('channel') : t('playlist'),
                 !provider && s.profile ? `${t('profile')} ${PROFILE_LABEL[lang][s.profile] || s.profile}` : null,
                 LANG_LABEL[lang][s.lang || c?.lang] || null,
                 s.scanUploads ? t('scans_uploads', { n: s.maxUploads }) : null,
                 counts || t('not_indexed'),
-                provider && providerSync?.lastRefreshAt ? `${t('provider_sync')} ${fmtRelative(providerSync.lastRefreshAt, lang)}` : null,
               ].filter(Boolean);
               return (
                 <li key={s.id} className="source" style={{ '--ch': channelColor(s) }}>
@@ -129,7 +168,7 @@ export default function Sources() {
                     <b><i className="source__dot" /><bdi>{lang === 'en' && s.lang !== 'en' ? s.title : (s.short || s.title)}</bdi></b>
                     {s.url && <a href={s.url} target="_blank" rel="noreferrer" dir="ltr">{s.url}</a>}
                     <small>{parts.join(' • ')}</small>
-                    {syncError && <small className="source__error">{t('provider_error')}: {syncError}</small>}
+                    {provider && <ProviderSyncInfo providerSync={providerSync} id={s.id} />}
                   </div>
                   {!api.static && DOCUMENTARIES && <button className="btn btn--text danger" disabled={s.managed} onClick={() => remove(s)}>{t('remove')}</button>}
                 </li>

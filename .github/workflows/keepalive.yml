@@ -3,11 +3,17 @@
 # re-enables the scheduled workflows and pushes an empty commit to the dedicated "keepalive" branch.
 # vercel.json disables Vercel deployments for that branch, and pushes made with GITHUB_TOKEN do not
 # trigger other workflows.
+#
+# Twice a day it also checks that the live site is being updated: it fails (and GitHub emails the
+# failure, which a disabled or failing refresh workflow cannot do for itself) when
+# https://dahsha.vercel.app/data/status.json cannot be read or its generatedAt is more than
+# MAX_AGE_HOURS old. refresh.yml deploys every 6 hours, so 12 hours means two missed deploys.
 name: Keep schedules alive
 
 on:
   schedule:
-    - cron: '29 5 1 * *'   # 05:29 UTC on the 1st of every month
+    - cron: '29 5 1 * *'     # 05:29 UTC on the 1st of every month: re-enable + keepalive push
+    - cron: '41 8,20 * * *'  # 08:41 and 20:41 UTC: is the live catalogue fresh?
   workflow_dispatch:
 
 concurrency:
@@ -15,13 +21,48 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 jobs:
-  keepalive:
+  freshness:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      SITE_URL: https://dahsha.vercel.app
+      MAX_AGE_HOURS: '12'
+    steps:
+      - name: Check that the live catalogue is fresh
+        run: |
+          status_file="$RUNNER_TEMP/status.json"
+          url="$SITE_URL/data/status.json?ts=$(date +%s)"
+          if ! curl -fsSL --retry 3 --retry-delay 30 --retry-all-errors --max-time 30 -H 'cache-control: no-cache' -o "$status_file" "$url"; then
+            echo "::error title=Live catalogue unreachable::Could not read $SITE_URL/data/status.json."
+            printf '### Live catalogue unreachable\n\n`%s/data/status.json` could not be read.\n' "$SITE_URL" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          generated=$(jq -r '.generatedAt // empty' "$status_file" 2>/dev/null || true)
+          if [ -z "$generated" ] || ! generated_s=$(date -u -d "$generated" +%s 2>/dev/null); then
+            echo "::error title=Live catalogue has no update time::$SITE_URL/data/status.json has no readable generatedAt."
+            exit 1
+          fi
+          now_s=$(date -u +%s)
+          age_min=$(( (now_s - generated_s) / 60 ))
+          age="$(( age_min / 60 )) h $(( age_min % 60 )) min"
+          built=$(curl -fsS --max-time 30 "$SITE_URL/data/deploy.json?ts=$now_s" 2>/dev/null | jq -r '"built \(.builtAt // "?") by \(.builtBy // "?"), data generation \(.dataGeneration // "?")"' 2>/dev/null || echo 'no deploy.json')
+          printf '### Live catalogue freshness\n\n- status.json generatedAt: %s (%s ago)\n- deploy.json: %s\n- limit: %s hours\n' "$generated" "$age" "$built" "$MAX_AGE_HOURS" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(( now_s - generated_s ))" -gt "$(( MAX_AGE_HOURS * 3600 ))" ]; then
+            echo "::error title=Live catalogue is stale::$SITE_URL was last updated $age ago ($generated), more than $MAX_AGE_HOURS hours. Check the 'Refresh catalogue & deploy' and 'Poll YouTube feeds' runs, and whether their schedules are still enabled."
+            exit 1
+          fi
+          echo "Live catalogue updated $age ago ($generated); $built."
+
+  keepalive:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '29 5 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:

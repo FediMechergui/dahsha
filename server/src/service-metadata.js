@@ -2,8 +2,9 @@ import { readJson, writeJson } from './store.js';
 import { titleKey } from './merge-library.js';
 
 // Networks are title metadata, never inferred from the streaming player host.
-// Every catalogue rebuild drops show.tvm, so lookups (hits and misses) are kept per show id in
-// server/data/service-metadata-<product>.json and only missing or stale (> 30 days) series are queried.
+// Lookups (hits and misses) are kept per show id in server/data/service-metadata-<product>.json;
+// mergeCachedProviders (provider-sync.js) re-applies them on every rebuild and export, and only
+// missing or stale (> 30 days) series are queried again.
 const RECHECK_DAYS = 30;
 const TIMEOUT_MS = 10000;
 const MAX_429_RETRIES = 3;
@@ -26,7 +27,9 @@ async function fetchTvmaze(url, { sleep = realSleep } = {}) {
 
 const tvmOf = row => ({ id: row.id, w: row.weight || 0, r: row.rating?.average || 0, svc: row.webChannel?.name || row.network?.name || null, img: row.image?.medium, st: row.status, c: row.webChannel?.country?.code || row.network?.country?.code });
 // A cached answer belongs to the title it was looked up with; a renamed show is looked up again.
-const sameTitle = (entry, show) => !!entry && entry.key === titleKey(show.title);
+// Entries written before titleKey decoded entities and read '&' as 'and' carry the older key.
+const legacyKey = value => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const sameTitle = (entry, show) => !!entry && typeof entry === 'object' && (entry.key === titleKey(show.title) || entry.key === legacyKey(show.title));
 const isFresh = (entry, show, now) => sameTitle(entry, show) && now - (Date.parse(entry.checkedAt || '') || 0) <= RECHECK_DAYS * 86400e3;
 
 /** Copy cached TVmaze metadata onto the shows it was looked up for. Returns how many received tvm. */
@@ -34,9 +37,9 @@ export function applyServiceMetadata(shows, cache) {
   let applied = 0;
   for (const show of shows || []) {
     const entry = cache?.[show.id];
-    if (!sameTitle(entry, show)) continue;
-    if (entry.tvm) { show.tvm = entry.tvm; applied++; }
-    show.serviceCheckedAt = entry.checkedAt;
+    if (!show?.title || !sameTitle(entry, show)) continue;
+    if (entry.tvm && typeof entry.tvm === 'object') { show.tvm = entry.tvm; applied++; }
+    if (entry.checkedAt) show.serviceCheckedAt = entry.checkedAt;
   }
   return applied;
 }
@@ -44,7 +47,8 @@ export function applyServiceMetadata(shows, cache) {
 /** Restores cached network metadata, then queries TVmaze for at most `limit` uncached or stale series. */
 export async function enrichServices(catalog, { limit = 100, product = catalog?.product || 'dahsha', fetchJson = fetchTvmaze, now = Date.now(), delayMs = 200, log = console.log } = {}) {
   const file = serviceMetadataFile(product);
-  const cache = readJson(file, {});
+  const stored = readJson(file, {});
+  const cache = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
   const shows = catalog?.shows || [];
   applyServiceMetadata(shows, cache);
   const provider = show => Number(/^(fm|hd):/.test(show.id));

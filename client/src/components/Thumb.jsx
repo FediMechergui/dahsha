@@ -6,8 +6,10 @@ import { isPortraitUrl } from '../lib/text.js';
  * fitPortrait: a 2:3 provider poster in a landscape box is shown whole (contain) over a blurred,
  * darkened copy of itself instead of being centre-cropped. Detected from the URL up front and from
  * the decoded image size for posters the URL does not reveal.
+ * label: text for the placeholder drawn when no image exists (a few provider titles have no art);
+ * the placeholder takes the tag/channel colour of the card around it (--tag / --ch).
  */
-export default function Thumb({ thumbs, videoId, fallbackThumbs, alt='', className='', start='max', eager=false, fitPortrait=true }) {
+export default function Thumb({ thumbs, videoId, fallbackThumbs, alt='', className='', start='max', eager=false, fitPortrait=true, label='' }) {
   const candidates=thumbnailCandidates(thumbs,videoId,start,fallbackThumbs);
   const key=candidates.join('|');
   const [failed,setFailed]=useState([]);
@@ -15,7 +17,10 @@ export default function Thumb({ thumbs, videoId, fallbackThumbs, alt='', classNa
   const [tall,setTall]=useState(null);
   useEffect(()=>{setFailed([]);setLoaded(null);setTall(null);},[key]);
   const src=candidates.find(url=>!failed.includes(url));
-  if(!src)return <div className={`thumb thumb--empty ${className}`} role={alt?'img':undefined} aria-label={alt || undefined} />;
+  if(!src)return <div className={`thumb thumb--empty ${className}`} role={alt?'img':undefined} aria-label={alt || undefined}>
+    <i className="thumb__mark" aria-hidden />
+    {label && <span className="thumb__label" dir="auto" aria-hidden>{label}</span>}
+  </div>;
   const next=()=>setFailed(previous=>previous.includes(src)?previous:[...previous,src]);
   const portrait=fitPortrait && (isPortraitUrl(src) || tall===src);
   return <>

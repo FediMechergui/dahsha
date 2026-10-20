@@ -6,21 +6,30 @@ import { fmtRelative } from '../lib/format.js';
 import { Logo } from './Bits.jsx';
 import { api } from '../lib/api.js';
 
+// CI rebuilds and deploys every 6 hours; data older than two missed runs means the updates stopped
+// (a failing or auto-disabled workflow cannot report that itself), so the pill says so.
+const STALE_AFTER_MS = 12 * 3600e3;
+
 function StatusPill() {
   const { status, connected, refresh, checking } = useCatalog();
   const { t, lang } = useLang();
   const busy = status?.refreshing || checking;
+  const last = status?.lastRefreshAt || status?.generatedAt;
+  const age = last ? Date.now() - Date.parse(last) : NaN;
+  const stale = connected && !busy && age > STALE_AFTER_MS;
   const label = checking ? t('status_checking')
     : !connected ? t('status_offline')
+    : stale ? (lang === 'en' ? 'Not updated recently' : 'لم يُحدَّث مؤخراً')
     : api.static ? t('status_static')
     : busy ? ({ details: t('status_details'), playlists: t('status_playlists'), building: t('status_building') }[status.stage] || t('status_listing'))
     : t('status_live');
   const pct = status?.refreshing && status.progress ? Math.round((status.progress.done / Math.max(1, status.progress.total)) * 100) : null;
-  const last = status?.lastRefreshAt || status?.generatedAt;
-  const title = last ? `${t('status_last')} ${fmtRelative(last, lang)}` : t('status_never');
+  const when = last ? `${t('status_last')} ${fmtRelative(last, lang)}` : t('status_never');
+  // The label is hidden on narrower headers (dot only), so the tooltip leads with it.
+  const title = `${label} · ${when}`;
   return (
     // Static web/APK builds: the pill is the manual "check for updates" control.
-    <button className={`pill ${!connected && !checking ? 'pill--off' : busy ? 'pill--busy' : 'pill--live'}`} onClick={() => !busy && refresh()} title={busy ? title : `${title} — ${api.static ? t('status_check') : t('status_click')}`}>
+    <button className={`pill ${!connected && !checking ? 'pill--off' : busy ? 'pill--busy' : stale ? 'pill--stale' : 'pill--live'}`} onClick={() => !busy && refresh()} title={busy ? title : `${title} — ${api.static ? t('status_check') : t('status_click')}`}>
       <i className="dot" />
       <span>{label}{pct != null ? ` ${pct}%` : ''}</span>
     </button>

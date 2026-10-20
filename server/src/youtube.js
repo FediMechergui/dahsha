@@ -92,6 +92,17 @@ const KNOWN_PROFILES = {
   UCET6sWl4Xcu: { profile: 'dw', lang: 'ar', short: 'دي دبليو' },
   'UCET6sWl4Xcu-U8Ka9PJPrwA': { profile: 'dw', lang: 'ar', short: 'دي دبليو' },
   UC0LSnqrwqtMwl2YwfUpO66g: { profile: 'aljazeera', lang: 'ar', short: 'الجزيرة الوثائقية' },
+  // Arabic shows (the Daheeh's channels; text.js parseArShow) and documentary-film channels (parseArFilms),
+  // as sources.json configures them (2026-10-19); their title filters and showGroup live there. World
+  // Odyssey (UCUETY-zVLykpUQlVweNaLsg) was dropped again: it disables embedding on every upload.
+  'UC-4KnPMmZzwAzW7SbVATUZQ': { profile: 'ar-show', lang: 'ar', short: 'AJ+ كبريت', brands: ['AJ+ كبريت', 'AJ+', 'كبريت'], maxUploads: 3000 },
+  UCtJmfVv0a52Bu7BnJJtZXKw: { profile: 'ar-show', lang: 'ar', short: 'نيو ميديا', brands: ['New Media Academy Life', 'New Media Academy', 'نيو ميديا'], maxUploads: 3000 },
+  'UC4CqD-RfKw-eE8xSFByMIHw': { profile: 'ar-show', lang: 'ar', short: 'متحف المستقبل', brands: ['Museum of The Future', 'متحف المستقبل', 'Museum of The Future متحف المستقبل'] },
+  UCZrs1_RojgqE0zKN9evvfJw: { profile: 'ar-films', lang: 'ar', short: 'Discovery Travel', brands: ['Discovery Travel'], maxUploads: 1500 },
+  UCKo9YhpBHN7FzOSFleKZvLg: { profile: 'ar-films', lang: 'ar', short: 'آفاق', brands: ['آفاق World Docs', 'آفاق', 'World Docs'], maxUploads: 1500 },
+  UCSNjn6j2NvWYSSB7xrAJaXg: { profile: 'ar-films', lang: 'ar', short: 'أسرار خفية', brands: ['أسرار خفية - مصعب', 'أسرار خفية'], maxUploads: 1500 },
+  UCcxFARHBsl_Ufy0WwnekavA: { profile: 'ar-films', lang: 'ar', short: 'الغرب الوثائقية', brands: ['الغرب الوثائقية', 'WestDocs'], maxUploads: 1500 },
+  'UC4tNC0SDwlGrx1SpTz-gJGA': { profile: 'ar-films', lang: 'ar', short: 'Hayah', brands: ['Hayah Documentary', 'Hayah Documentry', 'حياة الوثائقية'], maxUploads: 1500 },
   // English
   UCpVm7bg6pXKo1Pr6k5kxG9A: { profile: 'natgeo-en', lang: 'en', short: 'National Geographic', brands: ['National Geographic', 'Nat Geo'] },
   UCW39zufHfsuGgpLviKh297Q: { profile: 'dw-en', lang: 'en', short: 'DW Documentary', brands: ['DW Documentary', 'DW'] },
@@ -157,7 +168,7 @@ async function describeChannel(id) {
   const title = ch.metadata?.title || id;
   const url = ch.metadata?.url || `https://www.youtube.com/channel/${id}`;
   const det = detectProfile(id, title, url);
-  return { type: 'channel', id, title, url, profile: det.profile, lang: det.lang, short: det.short || title, brands: det.brands || [title], scanUploads: true, maxUploads: /^dw/.test(det.profile) || det.profile === 'creator' ? 1500 : 400 };
+  return { type: 'channel', id, title, url, profile: det.profile, lang: det.lang, short: det.short || title, brands: det.brands || [title], scanUploads: true, maxUploads: det.maxUploads || (/^dw/.test(det.profile) || det.profile === 'creator' ? 1500 : 400) };
 }
 async function describePlaylist(id) {
   const yt = await getClient();
@@ -212,11 +223,17 @@ function playlistNodes(page) {
   return [...page.playlists, ...courses];
 }
 
-/** All playlists of a channel with a cheap change signature (count badge + cover video id). */
+/**
+ * All playlists of a channel with a cheap change signature (count badge + cover video id). The array
+ * carries `complete`: true when the walk read the tab to its last page, false when it stopped early
+ * (page guard, unreadable pages) or the channel shows no playlists tab. A complete listing can still
+ * omit playlists (what YouTube lists depends on the requesting region), so absence is never proof
+ * that a playlist is gone.
+ */
 export async function listChannelPlaylists(channelId, { lang } = {}) {
   const yt = await getClient(lang);
   const ch = await withRetry(() => yt.getChannel(channelId));
-  if (!ch.has_playlists) return [];
+  if (!ch.has_playlists) return Object.assign([], { complete: false });
   let page = await withRetry(() => ch.getPlaylists());
   const all = playlistNodes(page);
   let guard = 0;
@@ -228,9 +245,10 @@ export async function listChannelPlaylists(channelId, { lang } = {}) {
     empty = items.length ? 0 : empty + 1;
   }
   const seen = new Set();
-  return all
+  const list = all
     .map(mapPlaylistItem)
     .filter((p) => p.id && p.title && !seen.has(p.id) && seen.add(p.id));
+  return Object.assign(list, { complete: !page.has_continuation });
 }
 
 /**
@@ -299,30 +317,82 @@ export async function getPlaylistVideos(playlistId, { lang } = {}) {
   };
 }
 
-// /player answers a removed or never-existing video with status ERROR and no videoDetails. A private
-// video answers LOGIN_REQUIRED with a "private" reason; other LOGIN_REQUIRED answers (bot checks) are
-// not proof that the video is gone.
+const runsText = (t) => (typeof t === 'string' ? t : t?.simpleText ?? t?.content ?? (t?.runs || []).map((r) => r.text).join('')) || '';
+
+/** The reason and sub-reason a /player playabilityStatus gives, as one line ('' when it gives none). */
+export function playabilityText(ps) {
+  const es = ps?.errorScreen;
+  const parts = [ps?.reason, runsText(es?.playerErrorMessageRenderer?.reason), runsText(es?.playerErrorMessageRenderer?.subreason),
+    runsText(es?.playerInterstitialRenderer?.content?.interstitialViewModel?.description)];
+  return [...new Set(parts.map((p) => String(p || '').trim()).filter(Boolean))].join(' - ');
+}
+
+// Answers about the requester, not the video: bot and age checks, "try again later", "the page needs to be
+// reloaded" (a session problem), country or region limits. They never count as the video being gone.
+const REQUESTER_RE = /try again|later|reload|\bbot\b|robot|confirm|country|region|لاحق|إعادة تحميل|روبوت|تأكيد|بلد|دولة|منطقة/i;
+const REMOVED_RE = /removed|deleted|terminated|no longer available|تمت إزالة|حذف|لم يعد متاح/i;
+
+/**
+ * Whether /player says the video itself is gone: status ERROR (removed or never existed), LOGIN_REQUIRED
+ * with a "private" reason, or UNPLAYABLE with a removal reason. Checked only when the answer carries no
+ * videoDetails; bot checks, rate limits and geo restrictions are not proof that a video is gone.
+ */
 export function isUnavailablePlayability(ps) {
   if (!ps) return false;
+  const text = playabilityText(ps);
+  if (REQUESTER_RE.test(text)) return false;
   if (ps.status === 'ERROR') return true;
-  return ps.status === 'LOGIN_REQUIRED' && /private|خاص|priv[ée]/i.test(ps.reason || '');
+  if (ps.status === 'LOGIN_REQUIRED') return /private|خاص|priv[ée]/i.test(text);
+  return ps.status === 'UNPLAYABLE' && REMOVED_RE.test(text);
 }
 
 /**
- * Per-video details via the raw player endpoint: description, publish date, exact duration.
- * A video YouTube reports as removed/private resolves to { id, unavailable: true, status, reason }.
+ * A details answer (or stored record) that carries no data: the getBasicInfo fallback without a
+ * duration, or neither a title nor a duration. A "gone" answer is not a stub.
  */
-export async function getVideoDetails(videoId, { lang } = {}) {
+export function isDetailStub(d) {
+  if (!d || d.gone) return false;
+  return (d.fallback === true && !d.durationSec) || (!d.title && !d.durationSec);
+}
+
+/** oEmbed answer for a public video: true (embeddable), false (401: embedding disabled), undefined (anything else). */
+export async function oembedEmbeddable(videoId) {
+  try {
+    const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    return res.status === 200 ? true : res.status === 401 ? false : undefined;
+  } catch { return undefined; }
+}
+
+// Embedding: playableInEmbed when /player gives it (only on playable answers); otherwise the microformat's
+// embed block, whose absence is confirmed with oEmbed. undefined when nothing tells.
+async function embeddableOf(videoId, ps, mf, oembed) {
+  if (ps?.playableInEmbed === false) return false;
+  if (ps?.playableInEmbed === true || mf?.embed) return true;
+  if (!mf) return undefined;
+  return oembed(videoId);
+}
+
+/**
+ * Per-video details via the raw player endpoint: description, publish date, exact duration, and
+ * `embeddable` when known. A video YouTube reports as removed or private resolves to
+ * { id, gone: true, status, reason } (one check: the scheduler confirms it on a later run before it
+ * marks the video unavailable). When /player gives no videoDetails otherwise, getBasicInfo is tried
+ * (fallback: true); a fallback without a duration is a stub (isDetailStub). Network errors throw.
+ */
+export async function getVideoDetails(videoId, { lang, oembed = oembedEmbeddable } = {}) {
   const yt = await getClient(lang);
   try {
     const r = await withRetry(() => yt.actions.execute('/player', { videoId, client: 'WEB', parse: false }), { tries: 2 });
     const d = r?.data ?? r;
     const vd = d?.videoDetails;
     const mf = d?.microformat?.playerMicroformatRenderer;
-    if (!vd && isUnavailablePlayability(d?.playabilityStatus)) {
-      return { id: videoId, unavailable: true, status: d.playabilityStatus.status, reason: d.playabilityStatus.reason || null, fetchedAt: new Date().toISOString() };
+    const ps = d?.playabilityStatus;
+    if (!vd && isUnavailablePlayability(ps)) {
+      return { id: videoId, gone: true, status: ps.status, reason: playabilityText(ps) || null, fetchedAt: new Date().toISOString() };
     }
-    if (!vd) throw new Error('no videoDetails');
+    if (!vd) throw new Error(`no videoDetails (${[ps?.status, playabilityText(ps)].filter(Boolean).join(': ') || 'no playability status'})`);
+    const embeddable = await embeddableOf(videoId, ps, mf, oembed);
     return {
       id: videoId,
       title: vd.title ?? '',
@@ -335,7 +405,8 @@ export async function getVideoDetails(videoId, { lang } = {}) {
       isPrivate: !!vd.isPrivate,
       isLive: !!vd.isLive,
       isLiveContent: !!vd.isLiveContent,
-      playable: d?.playabilityStatus?.status === 'OK',
+      playable: ps?.status === 'OK',
+      ...(embeddable === undefined ? {} : { embeddable }),
       fetchedAt: new Date().toISOString(),
     };
   } catch (e) {
@@ -354,13 +425,18 @@ export async function getVideoDetails(videoId, { lang } = {}) {
       isLive: !!b.is_live,
       isLiveContent: !!b.is_live_content,
       playable: bi.playability_status?.status === 'OK',
+      ...(b.embed ? { embeddable: true } : {}),
       fetchedAt: new Date().toISOString(),
       fallback: true,
+      playerError: String(e?.message || e).slice(0, 200), // why /player gave nothing (shows in the poll and refresh logs)
     };
   }
 }
 
-/** Lightweight "what did the channel upload lately" feed (15 newest uploads, keyless RSS). */
+/**
+ * Lightweight "what did the channel upload lately" feed (15 newest uploads, keyless RSS). Entries are
+ * { id, title, published, short }; `short` is true for Shorts (their link is /shorts/<id>).
+ */
 export async function fetchChannelFeed(channelId, { lang } = {}) {
   const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, {
     headers: { 'accept-language': normalizeLang(lang) },
@@ -379,7 +455,8 @@ export function parseChannelFeed(xml) {
     const id = e.match(/<yt:videoId>([\w-]{11})<\/yt:videoId>/)?.[1];
     const title = e.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '';
     const published = e.match(/<published>([^<]+)<\/published>/)?.[1] ?? null;
-    if (id) entries.push({ id, title: decodeXml(title), published });
+    const link = e.match(/<link rel="alternate" href="([^"]+)"/)?.[1] ?? '';
+    if (id) entries.push({ id, title: decodeXml(title), published, short: /\/shorts\//.test(link) });
   }
   return entries;
 }

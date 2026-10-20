@@ -10,20 +10,54 @@ export function isWebProviderShow(show) {
   return WEB_PROVIDERS.includes(show.channelId || show.channel?.id) || PROVIDER_ID.test(show.id || '');
 }
 export const resourceOf = (show) => (isWebProviderShow(show) ? 'web' : 'channels');
+export const PROVIDER_NAMES = { myflixer: 'Myflixer', fmovies: 'FMovies', hdtoday: 'HDToday' };
 
-// C3: "latest/new" means latestAt and nothing else; a missing latestAt is never new.
-const stamp = (s) => (typeof s?.latestAt === 'string' ? s.latestAt : '');
+// ── recency (C3 + provider contract 6) ─────────────────────────────────────────────────────────
+// A card is as recent as the newer of latestAt (YouTube and Myflixer dates) and updatedAt, the
+// build's show-level date: a genuine FMovies/HDToday discovery or a newly listed provider episode.
+// updatedAt is only written where it differs from latestAt, and neither is trusted beyond the
+// catalogue's build time (clock-skewed source dates). A title with neither (the bulk-imported
+// provider cards, catalogues older than the field) is undated: never "latest" and never "new".
+const timeOf = (v) => (typeof v === 'string' && v ? Date.parse(v) : NaN);
+/** The newest valid ISO string of `values` (as given), or `cap` when that is earlier; null when none is valid. */
+function newest(values, cap) {
+  let best = null, at = NaN;
+  for (const v of values) { const t = timeOf(v); if (Number.isFinite(t) && (best === null || t > at)) { best = v; at = t; } }
+  if (best === null) return null;
+  const limit = timeOf(cap);
+  return Number.isFinite(limit) && at > limit ? cap : best;
+}
+/** Recency of a show computed from its fields, capped at `cap` (the catalogue's generatedAt) when given. */
+export const showRecency = (show, cap = null) => newest([show?.latestAt, show?.updatedAt], cap);
+/** The recency normalizeCatalog stored on the show (recentAt), else computed from its fields. */
+export const recencyOf = (show) => (show && typeof show === 'object' && 'recentAt' in show ? show.recentAt || null : showRecency(show));
 export function byRecency(a, b) {
-  const x = stamp(a), y = stamp(b);
+  const x = recencyOf(a) || '', y = recencyOf(b) || '';
   return x < y ? 1 : x > y ? -1 : 0;
 }
-export const hasRecency = (show) => Number.isFinite(Date.parse(show?.latestAt || ''));
+export const hasRecency = (show) => !!recencyOf(show);
+/**
+ * Episode recency: the later of its publish date and the date a provider first listed it (addedAt,
+ * exported only for real Myflixer/provider discoveries). Without addedAt (every YouTube episode) the
+ * publishedAt string is used as is, which keeps the 60k-episode "latest episodes" pass cheap.
+ */
+export function episodeRecency(episode) {
+  if (episode?.addedAt == null) return typeof episode?.publishedAt === 'string' && episode.publishedAt ? episode.publishedAt : null;
+  return newest([episode.publishedAt, episode.addedAt]);
+}
+/** 'fmovies' / 'hdtoday' when the card is recent because it was newly listed there (discoveredAt). */
+export function discoveredOn(show) {
+  const at = timeOf(show?.discoveredAt);
+  if (!Number.isFinite(at) || timeOf(recencyOf(show)) !== at) return null;
+  return /^fm:/.test(show.id || '') ? 'fmovies' : /^hd:/.test(show.id || '') ? 'hdtoday' : null;
+}
 
 /** Newest episodes across shows, at most `perShow` per show so one series cannot fill the row. */
 export function recentEpisodesOf(shows, { perShow = 2, limit = 40 } = {}) {
-  const list = [];
-  for (const show of shows || []) for (const episode of show.episodes || []) if (typeof episode.publishedAt === 'string' && episode.publishedAt) list.push({ show, episode });
-  list.sort((a, b) => (a.episode.publishedAt < b.episode.publishedAt ? 1 : a.episode.publishedAt > b.episode.publishedAt ? -1 : 0));
+  const dated = [];
+  for (const show of shows || []) for (const episode of show.episodes || []) { const at = episodeRecency(episode); if (at) dated.push({ at, item: { show, episode } }); }
+  dated.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  const list = dated.map((x) => x.item);
   const counts = new Map();
   const out = [];
   for (const item of list) {
@@ -53,7 +87,8 @@ export function withChannelStats(channels, shows, lang) {
     d.shows += 1;
     if (s.kind === 'film') d.films += 1; else if (s.kind === 'series') d.series += 1;
     d.episodes += finite(s.episodeCount) || 0;
-    if (s.latestAt && (!d.latestAt || s.latestAt > d.latestAt)) d.latestAt = s.latestAt;
+    const at = recencyOf(s);
+    if (at && (!d.latestAt || at > d.latestAt)) d.latestAt = at;
   }
   const out = [];
   for (const c of channels || []) {
@@ -137,6 +172,36 @@ export function mergeLiveShow(base, live) {
   return merged;
 }
 
+// ── seasons ────────────────────────────────────────────────────────────────────────────────────
+/** An episode's labelled group (seasonLabel: a programme's era on one channel, "AJ+ كبريت 2017–2020"), or null. */
+export const seasonLabelOf = (e) => (typeof e?.seasonLabel === 'string' && e.seasonLabel.trim() ? e.seasonLabel.trim() : null);
+/**
+ * The episode groups of a show page: numbered seasons (ascending) and labelled groups (episode
+ * seasonLabel, e.g. a programme's era on one channel: "AJ+ كبريت 2017–2020") where the episode list
+ * (catalogue order) first reaches them, then the episodes with neither ({ other: true }). Each group is
+ * { key, season, label, other, episodes }. [] when there are fewer than two seasons and labelled groups
+ * together: the page then lists the episodes as one list.
+ */
+export function seasonGroups(show) {
+  const groups = new Map();
+  const other = [];
+  for (const e of show?.episodes || []) {
+    const label = seasonLabelOf(e);
+    const season = label ? null : Number.isInteger(e?.season) ? e.season : null;
+    if (label == null && season == null) { other.push(e); continue; }
+    const key = label != null ? `label:${label}` : `season:${season}`;
+    if (!groups.has(key)) groups.set(key, { key, season, label, other: false, episodes: [] });
+    groups.get(key).episodes.push(e);
+  }
+  if (groups.size < 2) return [];
+  const list = [...groups.values()];
+  // Numbered seasons keep ascending order in the slots they hold (live provider episodes may arrive
+  // after the catalogue's); labelled groups keep their place.
+  const numbered = list.filter((g) => g.label == null).sort((a, b) => a.season - b.season);
+  const ordered = list.map((g) => (g.label == null ? numbered.shift() : g));
+  return other.length ? [...ordered, { key: 'other', season: null, label: null, other: true, episodes: other }] : ordered;
+}
+
 /** Only provider-backed titles gain anything from the live title API; YouTube records are complete. */
 export function needsLiveTitle(id, base) {
   if (!base || PROVIDER_ID.test(id || '') || isWebProviderShow(base)) return true;
@@ -206,6 +271,95 @@ export function mergeAliases(sections) {
   return out;
 }
 
+/**
+ * The alias map the app acts on: the union of the loaded sections' idAliases without any key that
+ * is a live card (or a card's offering) in one of them. Each section is (re)loaded on its own, so
+ * the loaded sections can come from different deploys, and a renamed id can come back in a later
+ * build (show-ids.js then swaps the alias): the union may then rename an id that is live where the
+ * user sees it. Such an id is neither redirected (App.jsx) nor rewritten in the stored favourites
+ * and progress (migrateShowIds); once every section is on the same deploy the full map applies.
+ */
+export function liveAliases(sections) {
+  const merged = mergeAliases(sections);
+  const keys = Object.keys(merged);
+  if (!keys.length) return merged;
+  const live = new Set();
+  for (const s of sections || []) for (const show of s?.shows || []) {
+    if (show?.id) live.add(show.id);
+    for (const o of show?.offerings || []) if (o?.id) live.add(o.id);
+  }
+  const out = {};
+  for (const k of keys) if (!live.has(k)) out[k] = merged[k];
+  return out;
+}
+
+// ── favourites of grouped cards ────────────────────────────────────────────────────────────────
+/**
+ * The card My List shows for a stored favourite id: a card's own id first, then the ids of its
+ * offerings and versions (former provider cards now grouped into it), the first card listing one wins.
+ */
+export function favoriteCardIndex(shows) {
+  const map = new Map();
+  for (const s of shows || []) if (s?.id) map.set(s.id, s);
+  for (const s of shows || []) for (const x of [...(s?.offerings || []), ...(s?.versions || [])]) if (x?.id && !map.has(x.id)) map.set(x.id, s);
+  return map;
+}
+
+/**
+ * Every id a favourite of `show` may be stored under: its own id, then the ids of its offerings and
+ * versions (of the record and of `rows`, e.g. its catalogue row) that `cardOf` resolves to this card
+ * or to no card. An id that is a card of its own, or that My List lists under another card, is left
+ * out: it is that card's favourite.
+ */
+export function favoriteIdsOf(show, { rows = [], cardOf = () => null } = {}) {
+  if (!show?.id) return [];
+  const ids = [show.id];
+  for (const row of [show, ...(rows || [])]) for (const x of [...(row?.offerings || []), ...(row?.versions || [])]) {
+    if (!x?.id || ids.includes(x.id)) continue;
+    const card = cardOf(x.id);
+    if (!card || card.id === show.id) ids.push(x.id);
+  }
+  return ids;
+}
+
+/** The favourites after toggling a card: adds `showId`, or removes every id the card may be stored under. */
+export function toggleFavorite(favorites, showId, ids = [showId]) {
+  const list = Array.isArray(favorites) ? favorites : [];
+  const keys = new Set([showId, ...(ids || [])]);
+  return list.some((x) => keys.has(x)) ? list.filter((x) => !keys.has(x)) : [showId, ...list];
+}
+
+// ── provider freshness (provider contract 6, providerSync) ────────────────────────────────────
+/** The crawled providers providerSync reports on (Myflixer is refreshed with the YouTube sources). */
+export const SYNCED_PROVIDERS = ['fmovies', 'hdtoday'];
+const STALE_MS = 24 * 3600e3;
+const isoOrNull = (v) => (Number.isFinite(timeOf(v)) ? v : null);
+/**
+ * Freshness of one crawled provider for the Sources page, or null when providerSync says nothing
+ * about it. Current catalogues carry providerSync.providers[id] (last success, last new title,
+ * last error, failed scans in a row); stale = failing and no success for over 24 h (the CI warning
+ * rule). Older catalogues only have the shared lastRefreshAt (stamped even when a provider failed)
+ * and errors[id]: those come back as { legacy: true, lastSyncAt, lastError }.
+ */
+export function providerFreshness(sync, id, now = Date.now()) {
+  if (!sync || typeof sync !== 'object' || !id) return null;
+  const errors = sync.errors && typeof sync.errors === 'object' ? sync.errors : {};
+  const p = sync.providers && typeof sync.providers === 'object' ? sync.providers[id] : null;
+  if (p && typeof p === 'object') {
+    const lastSuccessAt = isoOrNull(p.lastSuccessAt);
+    const lastError = (typeof p.lastError === 'string' && p.lastError) || null;
+    const failures = Number.isInteger(p.consecutiveFailures) && p.consecutiveFailures > 0 ? p.consecutiveFailures : lastError ? 1 : 0;
+    return {
+      legacy: false, ok: !lastError, lastSuccessAt, lastNewRecordAt: isoOrNull(p.lastNewRecordAt), lastAttemptAt: isoOrNull(p.lastAttemptAt),
+      lastError, consecutiveFailures: failures,
+      stale: !!lastError && (!lastSuccessAt || now - timeOf(lastSuccessAt) > STALE_MS),
+    };
+  }
+  if (!SYNCED_PROVIDERS.includes(id) && !errors[id]) return null;
+  const lastError = (typeof errors[id] === 'string' && errors[id]) || null;
+  return { legacy: true, ok: !lastError, lastSyncAt: isoOrNull(sync.lastRefreshAt), lastError };
+}
+
 // ── updates ────────────────────────────────────────────────────────────────────────────────────
 export function versionedUrl(url, version) {
   if (!version) return url;
@@ -228,8 +382,8 @@ export function newEpisodesBetween(prev, next) {
   const known = new Set();
   for (const s of prev.shows) for (const e of s.episodes || []) known.add(e.id);
   const out = [];
-  for (const s of next.shows) for (const e of s.episodes || []) if (!known.has(e.id)) out.push({ show: s, episode: e });
-  return out.sort((a, b) => ((a.episode.publishedAt || '') < (b.episode.publishedAt || '') ? 1 : -1));
+  for (const s of next.shows) for (const e of s.episodes || []) if (!known.has(e.id)) out.push({ show: s, episode: e, at: episodeRecency(e) || '' });
+  return out.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).map(({ show, episode }) => ({ show, episode }));
 }
 
 /** Live rows only belong to the section of their own language (language-neutral rows go everywhere). */

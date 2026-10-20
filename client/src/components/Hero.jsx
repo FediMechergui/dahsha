@@ -9,7 +9,8 @@ import { cleanTitle, decodeEntities, isPortraitUrl } from '../lib/text.js';
 import { landscapeArt, portraitArt } from '../lib/catalog-helpers.js';
 
 // Slide art usually has a title printed on it, so the text never sits on the sharp image: the
-// slide is shown framed beside the text block, over a blurred, darkened copy of itself.
+// slide is shown framed beside the text block (stacked above it on phones), over a blurred,
+// darkened copy of itself. A 2:3 poster gets a portrait frame instead of a 16:9 crop.
 function artOf(show) {
   const thumbs = landscapeArt(show.poster);
   const videoId = show.posterId || show.posterVideoId || show.episodes?.[0]?.id;
@@ -46,7 +47,7 @@ export default function Hero({ shows }) {
         );
       })}
       <div className="hero__shade" />
-      <div className="container hero__body" key={show.id}>
+      <div className={`container hero__body ${art.portrait ? 'hero__body--portrait' : ''}`} key={show.id}>
         <div className="hero__text">
           <p className="hero__kicker">
             <ChannelPill channel={show.channel} small />
@@ -65,7 +66,7 @@ export default function Hero({ shows }) {
           </div>
         </div>
         <Link to={`/show/${show.id}`} className={`hero__frame ${art.portrait ? 'hero__frame--portrait' : ''}`} aria-label={title} tabIndex={-1}>
-          <Thumb videoId={art.videoId} thumbs={art.thumbs} alt="" start="max" eager />
+          <Thumb videoId={art.videoId} thumbs={art.thumbs} alt="" start="max" eager label={title} />
         </Link>
       </div>
       {shows.length > 1 && (

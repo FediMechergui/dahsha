@@ -1,0 +1,38 @@
+# Weekly dependency update pull requests. server/package.json held youtubei.js at ^15 (15.1.1) while
+# 16.0-18.1 shipped the LockupView parsing that YouTube's new layout needs, and in October every
+# channel listing came back empty. Each pull request runs the test suite (.github/workflows/test.yml).
+# Server and client minor/patch updates are grouped into one pull request each; majors, and every
+# youtubei.js update, get a pull request of their own so their changes are reviewed on their own.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      server-minor:
+        patterns: ['*']
+        exclude-patterns: ['youtubei.js']
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /client
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      client-minor:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']

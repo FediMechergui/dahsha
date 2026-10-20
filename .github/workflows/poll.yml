@@ -10,11 +10,15 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: 'Deploy and save the snapshot even if the regression check fails'
+        description: 'Deploy even if the catalogue regression check fails; the snapshot cache checks still apply'
         type: boolean
         default: false
       deploy:
         description: 'Deploy even if the catalogue did not change'
+        type: boolean
+        default: false
+      allow_snapshot_shrink:
+        description: 'Save the snapshot even if a cache count drops beyond SHRINK_LIMITS'
         type: boolean
         default: false
 
@@ -83,6 +87,8 @@ jobs:
       - name: Nothing new to deploy
         if: success() && steps.changes.outputs.changed != 'true' && !inputs.deploy
         run: echo "Production already serves this catalogue; deploy skipped." >> "$GITHUB_STEP_SUMMARY"
+      # The `force` input does not reach this step: snapshot.js keeps its own cache shrink checks
+      # unless allow_snapshot_shrink is set.
       - name: Save data snapshot
         if: always() && steps.restore.outcome == 'success' && steps.guard.outcome == 'success'
-        run: node scripts/snapshot.js save ${{ inputs.force && '--force' || '' }}
+        run: node scripts/snapshot.js save ${{ inputs.allow_snapshot_shrink && '--allow-shrink' || '' }}

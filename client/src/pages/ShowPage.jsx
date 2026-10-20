@@ -10,12 +10,12 @@ import { useFavorites, favoritesStore, useProgress } from '../hooks/useProgress.
 import { useLang } from '../lib/i18n.jsx';
 import { episodesLabel, fmtDuration, fmtDate, fmtCompact, yearOf } from '../lib/format.js';
 import { contentLangBadge } from '../lib/channels.js';
-import { cleanTitle, decodeEntities } from '../lib/text.js';
-import { landscapeArt, portraitArt } from '../lib/catalog-helpers.js';
+import { cleanTitle, decodeEntities, networkInfo } from '../lib/text.js';
+import { favoriteCardIndex, favoriteIdsOf, landscapeArt, portraitArt, seasonGroups } from '../lib/catalog-helpers.js';
 
 export default function ShowPage() {
   const { id } = useParams();
-  const { catalog, all } = useCatalog();
+  const { catalog, all, allShowMap } = useCatalog();
   const { t, lang } = useLang();
   const favs = useFavorites();
   const progress = useProgress();
@@ -32,6 +32,8 @@ export default function ShowPage() {
     const sameTag = catalog.shows.filter((s) => s.id !== show.id && s.tags.some((x) => show.tags.includes(x)));
     return [...sameTag.filter((s) => s.channel?.id === show.channel?.id), ...sameTag.filter((s) => s.channel?.id !== show.channel?.id)].slice(0, 14);
   }, [catalog, show]);
+  // The same id → card index My List uses (a favourite stored under a version/offering id).
+  const favIndex = useMemo(() => favoriteCardIndex(catalog?.shows), [catalog]);
 
   if (!catalog) return null;
   if (show?.detailsLoading && !show.title) return <div className="page container" role="status">{t('loading')}</div>;
@@ -40,16 +42,24 @@ export default function ShowPage() {
   const film = show.kind === 'film';
   const inProgress = show.episodes.map((e) => ({ e, p: progress[e.id] })).filter((x) => x.p && !x.p.finished && x.p.position > 30).sort((a, b) => b.p.at - a.p.at)[0];
   const next = inProgress?.e || show.episodes.find((e) => !progress[e.id]?.finished) || show.episodes[0];
-  const isFav = favs.includes(show.id);
+  // A favourite saved under one of this card's versions or offerings (a former provider card) is
+  // this card's favourite: My List lists it here, so the heart reads it and removing drops every id.
+  const favIds = favoriteIdsOf(show, { rows: [allShowMap?.get(show.id)], cardOf: (x) => favIndex.get(x) || allShowMap?.get(x) || null });
+  const isFav = favIds.some((x) => favs.includes(x));
   const years = [yearOf(show.firstAt), yearOf(show.latestAt)].filter(Boolean);
   const yearLabel = show.year ? String(show.year) : years.length ? (years[0] === years[1] ? `${years[0]}` : `${years[0]}–${years[1]}`) : null;
   const seasons = show.seasons || [];
+  // Numbered seasons and labelled groups (a programme's era on one channel, episode.seasonLabel).
+  const groups = seasonGroups(show);
+  const seasonCount = groups.length ? groups.filter((g) => !g.other).length : seasons.length;
   const sl = show.lang || lang; // formatting language for this show's content
   const title = cleanTitle(show.title);
   const count = Math.max(Number.isFinite(show.episodeCount) ? show.episodeCount : 0, show.episodes.length);
   const portrait = portraitArt(show);
   const videoId = show.posterId || show.posterVideoId || show.episodes?.[0]?.id;
   const langBadge = contentLangBadge(show, lang);
+  // TVmaze network metadata (server/src/service-metadata.js); the lean catalogue row may carry it when the full record does not.
+  const network = networkInfo(show.tvm || allShowMap?.get(id)?.tvm, lang);
 
   return (
     <div className="page page--show" dir={sl === 'en' ? 'ltr' : 'rtl'}>
@@ -60,7 +70,7 @@ export default function ShowPage() {
       </div>
       <div className="container show__head">
         <div className={`show__poster ${portrait ? 'show__poster--portrait' : ''}`}>
-          {portrait ? <Thumb thumbs={{...show.poster,custom:portrait}} videoId={show.posterId || show.posterVideoId} alt={title} eager /> : <Thumb videoId={videoId} thumbs={show.poster} alt={title} start="sd" eager />}
+          {portrait ? <Thumb thumbs={{...show.poster,custom:portrait}} videoId={show.posterId || show.posterVideoId} alt={title} eager label={title} /> : <Thumb videoId={videoId} thumbs={show.poster} alt={title} start="sd" eager label={title} />}
         </div>
         <div className="show__info">
           <p className="show__kicker">
@@ -70,11 +80,18 @@ export default function ShowPage() {
           </p>
           <h1 className="show__title" dir="auto">{title}</h1>
           <p className="show__meta">
-            {film ? (show.totalDurationSec > 0 ? <span>{fmtDuration(show.totalDurationSec, lang)}</span> : null) : count > 0 ? <span>{episodesLabel(count, lang)}{seasons.length > 1 ? ` • ${seasons.length} ${t('seasons')}` : ''}</span> : null}
+            {film ? (show.totalDurationSec > 0 ? <span>{fmtDuration(show.totalDurationSec, lang)}</span> : null) : count > 0 ? <span>{episodesLabel(count, lang)}{seasonCount > 1 ? ` • ${seasonCount} ${t('seasons')}` : ''}</span> : null}
             {!film && show.totalDurationSec > 0 && <span>{fmtDuration(show.totalDurationSec, lang)}</span>}
             {yearLabel && <span>{yearLabel}</span>}
             {show.totalViews > 0 ? <span>{fmtCompact(show.totalViews, lang)} {t('views')}</span> : null}
           </p>
+          {network && <p className="show__network">
+            <span className="show__network-label">{lang === 'en' ? 'Originally on' : 'الشبكة الأصلية'}</span>
+            <b dir="auto">{network.name}</b>
+            {network.country && <span>{network.country}</span>}
+            {network.status && <span>{network.status}</span>}
+            {network.url && <a className="show__network-src" href={network.url} target="_blank" rel="noopener noreferrer">{lang === 'en' ? 'via TVmaze' : 'المصدر: TVmaze'}</a>}
+          </p>}
           <div className="show__tags">{show.tags.map((x) => <TagPill key={x} tag={tagMap.get(x)} />)}</div>
           <p className={`show__synopsis ${show.synopsisGenerated ? 'is-generated' : ''}`} dir="auto">{decodeEntities(show.synopsis)}</p>
           {show.versions?.length > 0 && <section aria-label="Available versions">
@@ -89,7 +106,7 @@ export default function ShowPage() {
               <PlayIcon /> {inProgress ? t('continue_watching') : film ? t('watch_film') : t('watch_now')}
             </Link>}
             {!next && <p role="status">{show.detailsLoading ? t('loading') : show.detailsError || t('episode_missing')}</p>}
-            <button className={`btn btn--ghost fav-btn ${isFav ? 'is-active' : ''}`} onClick={() => favoritesStore.toggle(show.id)}>
+            <button className={`btn btn--ghost fav-btn ${isFav ? 'is-active' : ''}`} onClick={() => favoritesStore.toggle(show.id, favIds)}>
               <HeartIcon filled={isFav} /> {isFav ? t('in_my_list') : t('add_to_list')}
             </button>
           </div>
@@ -104,25 +121,18 @@ export default function ShowPage() {
             <p className="row__sub">{film || !count ? '' : episodesLabel(count, lang)}{show.latestAt ? `${film || !count ? '' : ' — '}${film ? t('published') : t('last_added')} ${fmtDate(show.latestAt, lang)}` : ''}</p>
           </div>
         </div>
-        {seasons.length > 1 ? seasons.map((season) => (
-          <section key={season} className="season">
-            <h3 className="season__title">{t('season')} {season}</h3>
+        {groups.length ? groups.map((g) => (
+          <section key={g.key} className="season">
+            {/* A label is data in either script ("AJ+ كبريت 2017–2020"): isolated, so it reads the same in RTL and LTR pages. */}
+            <h3 className={`season__title${g.label != null ? ' season__title--label' : ''}`}>{g.other ? t('other_episodes') : g.label != null ? <bdi>{g.label}</bdi> : `${t('season')} ${g.season}`}</h3>
             <div className="ep-list">
-              {show.episodes.filter((e) => e.season === season).map((e, i) => <EpisodeCard key={e.id} show={show} episode={e} index={i} layout="list" />)}
+              {g.episodes.map((e, i) => <EpisodeCard key={e.id} show={show} episode={e} index={i} layout="list" />)}
             </div>
           </section>
         )) : (
           <div className="ep-list">
             {show.episodes.map((e, i) => <EpisodeCard key={e.id} show={show} episode={e} index={i} layout="list" />)}
           </div>
-        )}
-        {seasons.length > 1 && show.episodes.some((e) => e.season == null) && (
-          <section className="season">
-            <h3 className="season__title">{t('other_episodes')}</h3>
-            <div className="ep-list">
-              {show.episodes.filter((e) => e.season == null).map((e, i) => <EpisodeCard key={e.id} show={show} episode={e} index={i} layout="list" />)}
-            </div>
-          </section>
         )}
       </div>
 

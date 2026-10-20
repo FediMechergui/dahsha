@@ -6,9 +6,9 @@ import { DOCUMENTARIES } from '../lib/product.js';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useLang, channelName } from '../lib/i18n.jsx';
-import { cleanTitle, decodeEntities, episodeHeadline, isolate } from '../lib/text.js';
+import { cleanTitle, decodeEntities, isolate, newEpisodeLine } from '../lib/text.js';
 import {
-  fillMissing, mergeAliases, mergeEpisodes, newEpisodesBetween, recentEpisodesOf, rowFitsSection, shouldReload, withChannelStats,
+  fillMissing, liveAliases, mergeEpisodes, newEpisodesBetween, recentEpisodesOf, rowFitsSection, shouldReload, showRecency, withChannelStats,
 } from '../lib/catalog-helpers.js';
 import { migrateShowIds } from './useProgress.js';
 
@@ -27,7 +27,7 @@ export const thumbsOf = (videoId) => (videoId && /^[\w-]{11}$/.test(videoId) ? {
 const cleanEpisode = (e, showId) => ({ ...e, showId, title: cleanTitle(e.title), thumbs: e.thumbs || thumbsOf(e.id), synopsis: decodeEntities(e.synopsis || '') });
 
 /** Turn the lean list payload into the full-looking objects the pages use. */
-function normalizeCatalog(raw) {
+export function normalizeCatalog(raw) {
   if (!raw || !Array.isArray(raw.shows)) return { shows: [], channels: [], tags: [], stats: {}, generatedAt: null, ...(raw || {}), shows: [] };
   const channelMap = new Map((raw.channels || []).map((c) => [c.id, c]));
   const shows = raw.shows.map((s) => {
@@ -43,10 +43,14 @@ function normalizeCatalog(raw) {
       synopsis: decodeEntities(s.synopsis || s.blurb || ''),
       altTitles: (s.altTitles || []).map(cleanTitle).filter(Boolean),
       seasons: s.seasons || [],
-      // C3: only latestAt marks something as new in Dahsha; a missing value is never "latest".
+      // latestAt stays the YouTube/Myflixer date shown as text; publishedAt never stands in for it in Dahsha.
       latestAt: s.latestAt || (!DOCUMENTARIES ? s.publishedAt : null) || null,
       firstAt: s.firstAt || s.publishedAt || null,
     };
+    // C3 + provider contract 6: what "latest"/"new" sorts and badges on, i.e. the newer of latestAt and
+    // the build's updatedAt (provider discoveries and new provider episodes), never later than the build.
+    // null for undated titles (the bulk-imported FMovies/HDToday cards), which are never "latest".
+    show.recentAt = showRecency(show, raw.generatedAt);
     show.episodes = (s.episodes?.length ? s.episodes : !DOCUMENTARIES && s.kind === 'film' ? [{ id: s.id, title: s.title, publishedAt: s.publishedAt }] : []).map((e) => cleanEpisode(e, s.id));
     return show;
   });
@@ -123,11 +127,10 @@ export function CatalogProvider({ children }) {
     const tt = tRef.current;
     const n = fresh.length;
     const first = fresh[0];
-    const head = episodeHeadline(first.show, first.episode, { lang: langRef.current, withShow: true });
     pushToast({
       kind: 'new',
       title: n === 1 ? tt('toast_new_one') : tt('toast_new_many', { n }),
-      body: n === 1 ? [head.title, head.sub].filter(Boolean).map(isolate).join(' — ') : `${isolate(cleanTitle(first.show.title))} ${tt('toast_and_more', { n: n - 1 })}`,
+      body: n === 1 ? newEpisodeLine(first.show, first.episode, { lang: langRef.current }) : `${isolate(cleanTitle(first.show.title))} ${tt('toast_and_more', { n: n - 1 })}`,
       to: n === 1 ? `/watch/${first.show.id}/${first.episode.id}` : '/browse?sort=latest',
       ttl: 14000,
     });
@@ -234,7 +237,11 @@ export function CatalogProvider({ children }) {
           pushToast({
             kind: 'new',
             title: n === 1 ? tt('toast_new_one') : tt('toast_new_many', { n }),
-            body: n === 1 ? `${isolate(cleanTitle(first.title))} — ${isolate(cleanTitle(first.showTitle))}${first.channel ? ` (${first.channel})` : ''}` : `${isolate(cleanTitle(first.showTitle))} ${tt('toast_and_more', { n: n - 1 })}`,
+            // Same headline as the static toast and the episode cards: an empty (Myflixer placeholder)
+            // or generic title gives way to the show title and, when the diff row carries them, S/E.
+            body: n === 1
+              ? newEpisodeLine({ title: first.showTitle, kind: first.kind }, { title: first.title, season: first.season, number: first.number }, { lang: langRef.current, channel: first.channel })
+              : `${isolate(cleanTitle(first.showTitle))} ${tt('toast_and_more', { n: n - 1 })}`,
             to: n === 1 ? `/watch/${first.showId}/${first.id}` : '/browse?sort=latest',
             ttl: 14000,
           });
@@ -286,11 +293,14 @@ export function CatalogProvider({ children }) {
     for (const s of loaded) for (const x of s.shows) if (!seen.has(x.id)) { seen.add(x.id); shows.push(x); }
     const channels = []; const cseen = new Set();
     for (const s of loaded) for (const c of s.channels || []) if (!cseen.has(c.id)) { cseen.add(c.id); channels.push(c); }
-    return { ...base, shows, channels, idAliases: mergeAliases(loaded) };
+    // C1: the loaded sections can come from different deploys, so an alias key that is live in one
+    // of them is dropped (liveAliases): the redirect (App.jsx) and the migration below act on one map.
+    return { ...base, shows, channels, idAliases: liveAliases(loaded) };
   }, [sections, lang]);
 
   const idAliases = all?.idAliases && Object.keys(all.idAliases).length ? all.idAliases : NO_ALIASES;
-  // C1: move favourites/progress from renamed show ids (runs once per alias map).
+  // C1: move favourites/progress from renamed show ids (runs once per alias map), never off an id
+  // that is still live in a loaded section.
   useEffect(() => { if (idAliases !== NO_ALIASES) migrateShowIds(idAliases); }, [idAliases]);
 
   const catalog = useMemo(() => scopeCatalog(sections[lang] ? all : null, lang), [all, sections, lang]);
@@ -302,6 +312,12 @@ export function CatalogProvider({ children }) {
     const showMap = new Map(catalog.shows.map((s) => [s.id, s]));
     const episodeIndex = new Map();
     for (const s of catalog.shows) for (const e of s.episodes) episodeIndex.set(e.id, { show: s, episode: e });
+    // Episodes of uncertain versions (show.versions[]) resolve to the version's own page, so My List's
+    // finished list finds the ids their progress is stored under.
+    for (const s of catalog.shows) for (const v of s.versions || []) {
+      const show = { ...v, lang: v.lang || s.lang, poster: v.poster || s.poster, channel: s.channel };
+      for (const e of v.episodes || []) if (!episodeIndex.has(e.id)) episodeIndex.set(e.id, { show, episode: { ...e, showId: v.id } });
+    }
     // At most two cards per show: one series whose episodes share a date cannot fill the row.
     const recentEpisodes = recentEpisodesOf(catalog.shows, { perShow: 2, limit: 40 });
     return { tagMap, channelMap, showMap, episodeIndex, recentEpisodes };

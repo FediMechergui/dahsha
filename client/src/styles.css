@@ -130,6 +130,34 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .pill--busy .dot { background: var(--accent); animation: blink 1s infinite; }
 .pill--busy { color: var(--accent); border-color: rgba(255, 204, 0, 0.4); }
 .pill--off .dot { background: var(--danger); }
+/* Data older than 12 h: the scheduled updates have stopped (see Header.jsx). */
+.pill--stale { color: #ffb35c; border-color: rgba(255, 179, 92, 0.45); }
+.pill--stale .dot { background: #ffb35c; }
+/* The header row never overflows and the search box never collapses: above the burger breakpoint
+   it keeps a usable floor (min-width) and the other items give way first, in steps measured with
+   the English labels (Sora: the nav alone is ~526px, the tagline ~170px) and the Arabic ones:
+   - 1360px and below (EN): a stale or busy pill ("Not updated recently") is a coloured dot;
+   - 1280px and below (EN): the tagline under the brand name goes;
+   - 1180px and below: every pill is a dot (state and age in its tooltip), as on phones;
+   - 1100px and below: tighter nav links and gaps, and the short language label;
+   - 960px and below: the burger menu, where the search box may shrink (rules further down,
+     which override these steps). No step has a lower bound, so fractional viewport widths
+     (zoomed or scaled displays) never fall between two of them. Media queries count a desktop
+     scrollbar (~17px) that the row does not get, so each step leaves that much spare. */
+.hdr__nav a { white-space: nowrap; }
+.hdr__search { min-width: 180px; }
+@media (max-width: 1360px) {
+  html[lang="en"] .pill--stale span, html[lang="en"] .pill--busy span { display: none; }
+  html[lang="en"] .pill--stale, html[lang="en"] .pill--busy { padding: 8px; }
+}
+@media (max-width: 1280px) { html[lang="en"] .hdr__brand small { display: none; } }
+@media (max-width: 1180px) { .pill span { display: none; } .pill { padding: 8px; } }
+@media (max-width: 1100px) {
+  .hdr__inner { gap: 10px; }
+  .hdr__nav a { padding-inline: 6px; }
+  .hdr__lang .hdr__lang-full { display: none; }
+  .hdr__lang .hdr__lang-short { display: inline; }
+}
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(111, 212, 140, 0.55); } 70% { box-shadow: 0 0 0 7px rgba(111, 212, 140, 0); } 100% { box-shadow: 0 0 0 0 rgba(111, 212, 140, 0); } }
 @keyframes blink { 50% { opacity: 0.3; } }
 
@@ -149,14 +177,21 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .hero { position: relative; min-height: min(78vh, 760px); display: flex; align-items: flex-end; padding-bottom: 56px; padding-top: var(--hdr-h); overflow: hidden; isolation: isolate; }
 .hero__bg { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s var(--ease); z-index: -2; }
 .hero__bg.is-active { opacity: 1; }
-.hero__bg img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.02); }
+/* Slide art usually has a title or logo printed on it, so the backdrop is only an ambient, blurred
+   and darkened wash; the sharp image is shown once, framed beside the text (.hero__frame). */
+.hero__bg img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.15); filter: blur(28px) brightness(0.5) saturate(1.25); }
 .hero__shade { position: absolute; inset: 0; z-index: -1; background:
-  linear-gradient(to top, var(--bg) 0%, rgba(10, 11, 13, 0.75) 32%, rgba(10, 11, 13, 0.15) 70%, rgba(10, 11, 13, 0.5) 100%),
-  linear-gradient(to left, rgba(10, 11, 13, 0.85) 0%, rgba(10, 11, 13, 0.35) 45%, transparent 75%); }
-/* The body is the page container (full width, so the text hugs the reading-start edge: right in
-   Arabic, left in English); only the text lines are capped in width. */
-.hero__body { animation: rise 0.7s var(--ease) both; }
+  linear-gradient(to top, var(--bg) 0%, rgba(10, 11, 13, 0.6) 28%, rgba(10, 11, 13, 0.25) 70%, rgba(10, 11, 13, 0.55) 100%); }
+/* The body is the page container: text at the reading-start edge (right in Arabic, left in
+   English), the framed artwork at the other edge. The grid follows the page direction. */
+.hero__body { animation: rise 0.7s var(--ease) both; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, min(44%, 620px)); gap: clamp(24px, 4vw, 56px); align-items: center; }
+.hero__body--portrait { grid-template-columns: minmax(0, 1fr) auto; }
+.hero__text { min-width: 0; }
 .hero__kicker, .hero__title, .hero__meta, .hero__synopsis, .hero__actions { max-width: 760px; }
+.hero__frame { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: var(--radius-lg); overflow: hidden; isolation: isolate; background: var(--surface-2); border: 1px solid var(--line-2); box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.85); transition: transform 0.4s var(--ease), border-color 0.25s; }
+.hero__frame:hover { transform: translateY(-3px); border-color: rgba(255, 204, 0, 0.55); }
+.hero__frame img { width: 100%; height: 100%; object-fit: cover; }
+.hero__frame--portrait { aspect-ratio: 2 / 3; width: clamp(180px, 20vw, 290px); }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 .hero__kicker { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-family: var(--font-display); font-size: 14px; font-weight: 500; margin-bottom: 14px; flex-wrap: wrap; }
 .hero__title { font-size: clamp(34px, 6vw, 72px); font-weight: 900; line-height: 1.08; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.6); }
@@ -167,9 +202,44 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .hero__dots { position: absolute; bottom: 22px; inset-inline: 0; display: flex; gap: 6px; justify-content: flex-end; }
 .hero__dot { width: 22px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); transition: 0.3s; }
 .hero__dot.is-active { background: var(--accent); width: 40px; }
-@media (max-width: 720px) { .hero { min-height: 82vh; padding-bottom: 44px; } .hero__dots { justify-content: center; bottom: 14px; } .hero__actions .btn { flex: 1; justify-content: center; } }
+@media (max-width: 720px) {
+  /* Phones: the framed artwork sits above the text, whole, instead of a centre crop behind it.
+     The slides rotate every 8 s and touch never pauses them, so the hero keeps ONE height for every
+     slide (the stats strip and rows below must not move): each block has a bounded height (frame
+     of a fixed height, one kicker line, at most two title lines, two meta rows and two synopsis
+     lines, one row of buttons), the hero reserves their sum and the slide sits at its top.
+     Keep the reserved sum in step with the blocks (server/test/client-media.test.js checks it). */
+  .hero {
+    --hero-frame-h: calc(min(100vw - 2 * var(--gutter), 560px) * 9 / 16);
+    --hero-title-size: clamp(28px, 8.5vw, 42px);
+    --hero-title-lh: 1.08;
+    align-items: flex-start; padding-bottom: 44px;
+    min-height: calc(var(--hdr-h) + 12px + var(--hero-frame-h) + 16px /* top pad, frame, gap */
+      + 30px + 14px                                                 /* kicker */
+      + (2 * var(--hero-title-lh) + 0.12) * var(--hero-title-size)  /* title, 2 lines + pad */
+      + 16px + 50px                                                 /* meta, 2 rows */
+      + 16px + 2 * 1.8 * 16.5px                                     /* synopsis, 2 lines */
+      + 24px + 46px                                                 /* buttons */
+      + 44px);                                                      /* bottom pad (dots) */
+  }
+  /* The clamped title clips at its padding box: 0.12em of padding keeps the descenders of its last
+     line (Arabic final ي reaches 0.44em below the baseline) without showing the top of a third
+     line; Arabic needs the taller line height for that. */
+  html[lang="ar"] .hero { --hero-title-lh: 1.35; }
+  .hero__dots { justify-content: center; bottom: 14px; }
+  .hero__body, .hero__body--portrait { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 12px; }
+  .hero__frame { order: -1; width: 100%; max-width: 560px; }
+  /* A 2:3 poster is as tall as the 16:9 frame, not taller. */
+  .hero__frame--portrait { width: auto; height: var(--hero-frame-h); justify-self: start; }
+  .hero__kicker { height: 30px; flex-wrap: nowrap; overflow: hidden; }
+  .hero__title { font-size: var(--hero-title-size); line-height: var(--hero-title-lh); padding-bottom: 0.12em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hero__meta { font-size: 14.5px; line-height: 1.65; gap: 2px 18px; max-height: 50px; overflow: hidden; }
+  .hero__synopsis { font-size: 16.5px; line-height: 1.8; -webkit-line-clamp: 2; }
+  .hero__actions { height: 46px; flex-wrap: nowrap; }
+  .hero__actions .btn { flex: 1; min-width: 0; justify-content: center; }
+}
 
-.stats-strip { display: flex; gap: 32px; flex-wrap: wrap; padding: 6px 0 24px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.stats-strip { display: flex; gap: 32px; flex-wrap: wrap; padding-block: 6px 24px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .stats-strip > div { display: flex; align-items: baseline; gap: 8px; }
 .stats-strip b { font-family: var(--font-display); font-size: 24px; font-weight: 800; color: var(--accent); }
 .stats-strip span { color: var(--text-2); font-size: 14px; }
@@ -209,7 +279,7 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .card:hover .card__play svg { transform: scale(1); }
 .card__body { padding: 10px 2px 0; }
 .card__title { font-size: 16px; font-weight: 700; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card__meta { color: var(--text-3); font-size: 13px; margin-top: 3px; display: flex; gap: 10px; }
+.card__meta { color: var(--text-3); font-size: 13px; margin-top: 3px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; }
 .card__tag { display: inline-flex; align-items: center; gap: 6px; }
 .card__tag i { width: 7px; height: 7px; border-radius: 50%; background: var(--tag); }
 
@@ -220,8 +290,9 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .chpill:hover { background: color-mix(in srgb, var(--ch) 26%, transparent); }
 .chpill--sm { padding: 2px 9px; font-size: 12px; }
 .chpill__dot { width: 8px; height: 8px; border-radius: 2px; background: var(--ch); }
-.card__channel { position: absolute; bottom: 8px; inset-inline-start: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.62); backdrop-filter: blur(6px); font-family: var(--font-display); font-weight: 700; font-size: 11.5px; color: #fff; }
-.card__channel i { width: 7px; height: 7px; border-radius: 2px; background: var(--ch); }
+/* In the meta line below the image (thumbnails already carry the channel's own logo). */
+.card__channel { display: inline-block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); font-family: var(--font-display); font-weight: 600; }
+.card__channel i { display: inline-block; vertical-align: middle; width: 7px; height: 7px; border-radius: 2px; background: var(--ch); margin-inline-end: 6px; position: relative; top: -1px; }
 .badge--film { background: rgba(255, 255, 255, 0.92); color: #111; }
 .badge--lang { background: #6c8cff; color: #fff; letter-spacing: 0.08em; }
 .filterbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 4px 0 14px; }
@@ -242,6 +313,8 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .show__kicker { gap: 12px; }
 .season { margin-top: 18px; }
 .season__title { font-size: 17px; font-weight: 800; color: var(--accent); margin: 0 4px 8px; }
+/* A labelled group ("AJ+ كبريت 2017–2020"): the <bdi> keeps mixed-script labels in order in RTL and LTR pages; a long one wraps on phones. */
+.season__title--label { overflow-wrap: break-word; }
 .tagpill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--tag) 45%, transparent); background: color-mix(in srgb, var(--tag) 14%, transparent); color: var(--text); font-family: var(--font-display); font-weight: 500; font-size: 13.5px; transition: background 0.2s; }
 .tagpill:hover { background: color-mix(in srgb, var(--tag) 28%, transparent); }
 .tagpill--sm { padding: 3px 9px; font-size: 12px; }
@@ -265,6 +338,19 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .ep__num { flex: none; min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; background: var(--surface-2); color: var(--text-2); font-family: var(--font-display); font-weight: 800; font-size: 13px; padding-inline: 6px; }
 .ep__title { font-size: 15.5px; font-weight: 700; line-height: 1.35; flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ep__show { color: var(--accent); font-size: 13px; margin-top: 2px; font-family: var(--font-display); }
+/* Generic episode titles ('الحلقة الكاملة', 'Episode 3'): the show title headlines the card and the
+   placeholder becomes a small neutral label instead of the accent show line. */
+.ep--generic .ep__title { font-weight: 800; }
+.ep__show--label, .watch__label { display: inline-block; max-width: 100%; margin-top: 5px; padding: 1px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); color: var(--text-2); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.6; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.watch__label { margin-top: 8px; font-size: 13px; }
+/* Provider series reuse the show poster for every episode: the list shows a numbered tile over a
+   blurred copy of it instead (EpisodeCard.jsx). */
+.ep__media--tile { background: var(--surface); }
+.thumb.ep__img--ambient { object-fit: cover; filter: blur(16px) brightness(0.45) saturate(1.2); transform: scale(1.2); }
+.ep:hover .thumb.ep__img--ambient { transform: scale(1.26); }
+.ep__tile { position: absolute; inset: 0; padding-bottom: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--text); text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6); pointer-events: none; }
+.ep__tile small { font-family: var(--font-display); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--accent); }
+.ep__tile b { font-family: var(--font-display); font-size: clamp(30px, 3.2vw, 44px); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
 .ep__meta { color: var(--text-3); font-size: 12.5px; margin-top: 3px; display: flex; gap: 12px; flex-wrap: wrap; }
 .ep__synopsis { color: var(--text-2); font-size: 14px; line-height: 1.7; margin-top: 8px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
@@ -274,7 +360,14 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .ep--list .ep__body { padding: 2px 0 0; }
 .ep--list .ep__title { font-size: 17px; -webkit-line-clamp: 2; }
 .ep-list { display: flex; flex-direction: column; gap: 6px; }
-@media (max-width: 640px) { .ep--list { grid-template-columns: 1fr; gap: 10px; padding: 8px; } }
+@media (max-width: 640px) {
+  .ep--list { grid-template-columns: 1fr; gap: 10px; padding: 8px; }
+  /* A numbered tile carries no picture worth a full-width box: keep it beside the text. */
+  .ep--list.ep--tiled { grid-template-columns: 128px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .ep--tiled .ep__tile { padding-bottom: 26px; }
+  .ep--tiled .ep__tile b { font-size: 24px; }
+  .ep--tiled .ep__tile small { display: none; }
+}
 
 /* ───────────────────────── chips / grid / toolbar ───────────────────────── */
 .chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 12px; scrollbar-width: none; margin-inline: calc(var(--gutter) * -1); padding-inline: var(--gutter); position: sticky; top: var(--hdr-h); z-index: 5; background: linear-gradient(var(--bg) 80%, transparent); }
@@ -292,10 +385,12 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 
 /* ───────────────────────── show page ───────────────────────── */
 .show__backdrop { position: absolute; inset-inline: 0; top: 0; height: min(70vh, 640px); overflow: hidden; z-index: 0; }
-.show__backdrop img { width: 100%; height: 100%; object-fit: cover; filter: saturate(1.1); }
+/* Ambient only: the sharp artwork (often with a printed title) is shown once, in .show__poster. */
+.show__backdrop img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.15); filter: blur(26px) brightness(0.55) saturate(1.2); }
 .show__shade { position: absolute; inset: 0; background: linear-gradient(to top, var(--bg) 8%, rgba(10, 11, 13, 0.55) 55%, rgba(10, 11, 13, 0.6) 100%); }
 .show__head { position: relative; z-index: 1; padding-top: calc(var(--hdr-h) + min(28vh, 260px)); display: grid; grid-template-columns: 340px 1fr; gap: 36px; align-items: end; }
 .show__poster { border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--line-2); aspect-ratio: 16 / 9; background: var(--surface-2); }
+.show__poster { position: relative; isolation: isolate; }
 .show__poster img { width: 100%; height: 100%; object-fit: cover; }
 .show__poster--portrait { aspect-ratio: 2 / 3; max-width: 260px; }
 @media (max-width: 900px) { .show__poster--portrait { max-width: 200px; } }
@@ -304,6 +399,13 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .show__meta { display: flex; gap: 16px; flex-wrap: wrap; color: var(--text-2); margin-top: 12px; font-size: 14.5px; }
 .show__meta span + span::before { content: '•'; margin-inline-end: 16px; color: var(--text-3); }
 .show__tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+/* TVmaze network line (show.tvm): 'Originally on Netflix • United States • Ended • via TVmaze'. */
+.show__network { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 10px; color: var(--text-2); font-size: 14px; }
+.show__network-label { color: var(--text-3); font-size: 13px; }
+.show__network b { color: var(--text); font-family: var(--font-display); font-weight: 700; }
+.show__network > span:not(.show__network-label)::before, .show__network > a::before { content: '•'; margin-inline-end: 12px; color: var(--text-3); }
+.show__network-src { color: var(--text-3); font-size: 12.5px; }
+.show__network-src:hover { color: var(--accent); }
 .show__synopsis { margin-top: 16px; font-size: 16.5px; line-height: 1.85; max-width: 760px; color: #e5e0d3; }
 .show__synopsis.is-generated { color: var(--text-2); }
 .show__actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
@@ -312,6 +414,8 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 @media (max-width: 900px) {
   .show__head { grid-template-columns: 1fr; gap: 18px; padding-top: calc(var(--hdr-h) + 16vh); }
   .show__poster { max-width: 420px; }
+  /* Repeated here: the rule above would otherwise stretch a 2:3 poster to 420px wide (630px tall). */
+  .show__poster--portrait { max-width: 200px; }
 }
 
 /* ───────────────────────── watch ───────────────────────── */
@@ -338,6 +442,8 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .watch__list .ep--list { grid-template-columns: 150px 1fr; gap: 12px; padding: 8px; }
 .watch__list .ep__title { font-size: 14.5px; }
 .watch__list .ep__synopsis { display: none; }
+.watch__list .ep__tile b { font-size: 26px; }
+.watch__list .ep__tile small { font-size: 10.5px; }
 @media (max-width: 1100px) { .watch { grid-template-columns: 1fr; } .watch__side { position: static; max-height: none; } .watch__list { max-height: none; } }
 
 /* ───────────────────────── toasts ───────────────────────── */
@@ -351,6 +457,28 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 .toast__link { color: var(--accent); font-family: var(--font-display); font-weight: 700; font-size: 13.5px; margin-top: 4px; }
 .toast__close { color: var(--text-3); font-size: 20px; line-height: 1; padding: 0 4px; }
 .toast__close:hover { color: var(--text); }
+
+/* ───────────────────────── thumbnails (Thumb.jsx) ───────────────────────── */
+/* Boxes that hold a Thumb are their own stacking context so the blurred copy (z-index -1) sits
+   above the box background but under the image and the overlays (badges, play button). */
+.card__media, .ep__media { isolation: isolate; }
+/* A 2:3 poster in a 16:9 box is shown whole instead of centre-cropped... */
+.thumb.thumb--contain { object-fit: contain; }
+/* ...over a blurred, darkened copy of itself that fills the rest of the box. */
+.thumb__blur { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; filter: blur(18px) brightness(0.55) saturate(1.15); transform: scale(1.15); pointer-events: none; }
+/* No image at all: a tag/channel-coloured tile with the Dahsha frame and, when given, the title. */
+.thumb.thumb--empty {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; height: 100%; padding: 12px 16px; overflow: hidden; opacity: 1; text-align: center;
+  background:
+    radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--tag, var(--accent)) 30%, transparent), transparent 70%),
+    linear-gradient(160deg, color-mix(in srgb, var(--ch, var(--tag, #6c8cff)) 24%, var(--surface-2)), var(--surface) 80%);
+}
+.thumb__mark { flex: none; width: 22px; height: 30px; border: 4px solid color-mix(in srgb, var(--accent) 75%, transparent); border-radius: 2px; opacity: 0.7; }
+.thumb__label { max-width: 100%; font-family: var(--font-display); font-weight: 800; font-size: 15px; line-height: 1.3; color: var(--text); text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hero__frame .thumb__label, .show__poster .thumb__label { font-size: clamp(16px, 2vw, 22px); }
+/* Ambient backdrops keep only the colour wash: a mark there would float over the title. */
+.hero__bg .thumb__mark, .show__backdrop .thumb__mark { display: none; }
 
 /* ───────────────────────── misc ───────────────────────── */
 .progressbar { height: 4px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
@@ -422,9 +550,6 @@ code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; backgro
 [dir="rtl"] .row__arrow--next { background: linear-gradient(to right, var(--bg) 20%, transparent); }
 [dir="ltr"] .row__arrow--prev { background: linear-gradient(to right, var(--bg) 20%, transparent); }
 [dir="ltr"] .row__arrow--next { background: linear-gradient(to left, var(--bg) 20%, transparent); }
-[dir="ltr"] .hero__shade { background:
-  linear-gradient(to top, var(--bg) 0%, rgba(10, 11, 13, 0.75) 32%, rgba(10, 11, 13, 0.15) 70%, rgba(10, 11, 13, 0.5) 100%),
-  linear-gradient(to right, rgba(10, 11, 13, 0.85) 0%, rgba(10, 11, 13, 0.35) 45%, transparent 75%); }
 
 /* English typography */
 html[lang="en"] { --font-display: 'Sora', 'Tajawal', system-ui, sans-serif; --font-body: 'Inter', 'IBM Plex Sans Arabic', system-ui, sans-serif; }

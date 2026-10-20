@@ -105,7 +105,10 @@ function scoreText(text, kws, lang = 'ar') {
 }
 
 /**
- * @param {object} show { title, altTitles[], episodes: [{title}], synopsis, kind }
+ * @param {object} show { title, altTitles[], episodes: [{title}], synopsis, kind, topics[] }
+ *   topics: names of the topic collections the show's videos sit in ("Ancient History & Archaeology",
+ *   "Travel | DW Documentary"). The channel's own filing is a hint, not a name of the show: it counts
+ *   for at most two keywords, as much as one title keyword, however many collections there are.
  * @returns {{tags: string[], primaryTag: string}}
  */
 const memo = new Map(); // content key → result (the process rebuilds every few minutes)
@@ -116,23 +119,25 @@ export function tagShow(show) {
   const title = N([show.title, ...(show.altTitles || [])].join(' '));
   const eps = N((show.episodes || []).map((e) => e.title).join(' '));
   const desc = N(show.synopsis || '');
-  const key = `${lang}|${show.kind}|${title}|${eps}|${desc}`;
+  const topics = N((show.topics || []).join(' | '));
+  const key = `${lang}|${show.kind}|${title}|${eps}|${desc}|${topics}`;
   const cached = memo.get(key);
   if (cached) return cached;
-  const result = computeTags(title, eps, desc, show.kind, lang);
+  const result = computeTags(title, eps, desc, show.kind, lang, topics);
   if (memo.size > 20000) memo.clear();
   memo.set(key, result);
   return result;
 }
 
-function computeTags(title, eps, desc, kind, lang) {
+function computeTags(title, eps, desc, kind, lang, topics = '') {
   const show = { kind };
   // Films carry their whole meaning in the title + description, so the description weighs more.
   const descWeight = show.kind === 'film' ? 2 : 1;
   const scores = [];
   for (const t of TAGS) {
     const kw = lang === 'en' ? t.kwEn : t.kw;
-    const s = scoreText(title, kw, lang) * 4 + Math.min(scoreText(eps, kw, lang), 4) * 1.5 + Math.min(scoreText(desc, kw, lang), 5) * descWeight;
+    const s = scoreText(title, kw, lang) * 4 + Math.min(scoreText(eps, kw, lang), 4) * 1.5 + Math.min(scoreText(desc, kw, lang), 5) * descWeight
+      + Math.min(scoreText(topics, kw, lang), 2) * 2;
     if (s > 0) scores.push({ id: t.id, s });
   }
   scores.sort((a, b) => b.s - a.s);
@@ -144,4 +149,21 @@ function computeTags(title, eps, desc, kind, lang) {
 
 export function allTagDefs() {
   return [...TAGS, FALLBACK];
+}
+
+// Provider genre slugs (Myflixer categories as documentaries.js stores them, FMovies/HDToday genres)
+// folded into Dahsha's topics, as CATEGORY_TAG_MAP in documentaries.js does by category id. documentaries.js
+// renames biography → 'people' and sci-fi → 'science', which are not tag ids either.
+export const GENRE_TOPICS = {
+  war: 'history', western: 'history', 'war-politics': 'politics', news: 'politics',
+  mystery: 'crime', thriller: 'crime', horror: 'crime', adventure: 'survival', action: 'survival', sport: 'survival', sports: 'survival',
+  'sci-fi': 'science-space', 'science-fiction': 'science-space', science: 'science-space', fantasy: 'science-space', nature: 'planet',
+  biography: 'people-culture', people: 'people-culture', music: 'people-culture', musical: 'people-culture', family: 'people-culture',
+  reality: 'people-culture', talk: 'people-culture', drama: 'people-culture', comedy: 'people-culture', romance: 'people-culture',
+  animation: 'people-culture', 'tv-movie': 'people-culture', kids: 'people-culture', soap: 'people-culture',
+};
+const TAG_IDS = new Set(allTagDefs().map((t) => t.id));
+/** Tag ids for provider genre slugs: known tag ids kept, genres mapped, anything else dropped (it would show as a raw label). */
+export function genreTopicTags(slugs = []) {
+  return [...new Set((slugs || []).map((t) => (TAG_IDS.has(t) ? t : GENRE_TOPICS[t])).filter((t) => t && TAG_IDS.has(t)))];
 }

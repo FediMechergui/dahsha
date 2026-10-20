@@ -23,21 +23,26 @@ function ScrollToTop() {
 }
 
 // C1: a rebuild can rename a show (catalog.idAliases = { oldId: newId }); old links, bookmarks and
-// shared URLs redirect to the current id.
+// shared URLs redirect to the current id. An id that is live in a loaded section is never
+// redirected: a stale or mismatched alias map (a cached section, a title that changed back) must
+// not move people away from a show that exists.
+function useAliasTarget(id) {
+  const { idAliases, allShowMap } = useCatalog();
+  return allShowMap?.has(id) ? null : resolveAlias(id, idAliases);
+}
+
 function ShowRoute() {
   const { id } = useParams();
   const { search } = useLocation();
-  const { idAliases } = useCatalog();
-  const target = resolveAlias(id, idAliases);
+  const target = useAliasTarget(id);
   return target ? <Navigate replace to={`/show/${target}${search}`} /> : <ShowPage />;
 }
 
 function WatchRoute() {
   const { showId, epId } = useParams();
   const { search } = useLocation();
-  const { idAliases } = useCatalog();
   const { t } = useLang();
-  const target = resolveAlias(showId, idAliases);
+  const target = useAliasTarget(showId);
   if (target) return <Navigate replace to={`/watch/${target}/${epId}${search}`} />;
   return <Suspense fallback={<div className="page container" role="status">{t('loading')}</div>}><Watch /></Suspense>;
 }

@@ -13,6 +13,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8765", "-d", "client-terrarium/dist"],
       "port": 8765
+    },
+    {
+      "name": "dahsha-static",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["client/node_modules/vite/bin/vite.js", "preview", "--config", "client/vite.config.js", "--outDir", "client/dist", "--port", "4173", "--strictPort"],
+      "port": 4173
     }
   ]
 }

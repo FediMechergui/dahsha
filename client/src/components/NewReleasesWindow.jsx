@@ -4,15 +4,15 @@ import ShowCard from './ShowCard.jsx';
 import { useCatalog } from '../hooks/useCatalog.jsx';
 import { useLang } from '../lib/i18n.jsx';
 import { fmtRelative, titlesLabel } from '../lib/format.js';
-import { byRecency, hasRecency, resourceOf, WEB_PROVIDERS } from '../lib/catalog-helpers.js';
+import { byRecency, hasRecency, PROVIDER_NAMES, resourceOf, WEB_PROVIDERS } from '../lib/catalog-helpers.js';
 
 const WINDOW = 16;
-const PROVIDER_NAMES = { myflixer: 'Myflixer', fmovies: 'FMovies', hdtoday: 'HDToday' };
 
 /**
  * Newest titles of the active language section only (the result no longer depends on which
  * sections were loaded earlier). Sources: YouTube channels vs web providers (Myflixer, FMovies,
- * HDToday). Only titles with a latestAt are listed: an undated title is never "new" (C3).
+ * HDToday). Titles are ordered by recency (catalog-helpers): latestAt, or for FMovies/HDToday cards
+ * the build's updatedAt (a new listing or a new episode there). Undated titles are never "new" (C3).
  */
 export default function NewReleasesWindow() {
   const { catalog, status } = useCatalog();

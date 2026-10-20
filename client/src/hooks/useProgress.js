@@ -2,7 +2,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { PRODUCT } from '../lib/product.js';
-import { aliasSignature, migrateStoredIds } from '../lib/catalog-helpers.js';
+import { aliasSignature, migrateStoredIds, toggleFavorite } from '../lib/catalog-helpers.js';
 const KEY_PROGRESS = `${PRODUCT}.progress.v1`;
 const KEY_FAV = `${PRODUCT}.favorites.v1`;
 const KEY_ALIASES = `${PRODUCT}.aliases-applied.v1`;
@@ -42,8 +42,12 @@ export const progressStore = {
 
 export const favoritesStore = {
   has: (showId) => favorites.includes(showId),
-  toggle(showId) {
-    favorites = favorites.includes(showId) ? favorites.filter((x) => x !== showId) : [showId, ...favorites];
+  /**
+   * Adds the card, or removes it under every id it may be stored as (`ids`, see favoriteIdsOf: a
+   * favourite saved under a provider card that is now one of its versions or offerings).
+   */
+  toggle(showId, ids = [showId]) {
+    favorites = toggleFavorite(favorites, showId, ids);
     save(KEY_FAV, favorites); emit();
   },
   all: () => favorites,
@@ -79,6 +83,11 @@ export function continueWatching(progressMap, catalog, limit = 12) {
   if (!catalog) return [];
   const byEp = new Map();
   for (const s of catalog.shows) for (const e of s.episodes) { byEp.set(e.id, {show:s,episode:e}); for (const offering of e.offerings || []) byEp.set(offering.id,{show:s,episode:e}); }
+  // An uncertain version (show.versions[], its own page /show/<versionId>) keeps progress under its own episode ids.
+  for (const s of catalog.shows) for (const v of s.versions || []) {
+    const show = { ...v, lang: v.lang || s.lang, poster: v.poster || s.poster, channel: s.channel };
+    for (const e of v.episodes || []) for (const id of [e.id, ...(e.offerings || []).map((o) => o.id)]) if (id && !byEp.has(id)) byEp.set(id, { show, episode: { ...e, showId: v.id } });
+  }
   return Object.entries(progressMap)
     .filter(([id, p]) => !p.finished && p.position > 30 && byEp.has(id))
     .sort((a, b) => b[1].at - a[1].at)

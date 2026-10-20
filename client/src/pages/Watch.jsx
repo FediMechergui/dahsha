@@ -8,6 +8,7 @@ import { progressStore, useProgress } from '../hooks/useProgress.js';
 import { useLang } from '../lib/i18n.jsx';
 import { fmtClock, fmtDate, fmtCompact, isNew } from '../lib/format.js';
 import { cleanTitle, decodeEntities, episodeHeadline } from '../lib/text.js';
+import { episodeRecency, seasonLabelOf } from '../lib/catalog-helpers.js';
 
 export default function Watch() {
   const { showId, epId } = useParams();
@@ -30,7 +31,8 @@ export default function Watch() {
   const saved = progress[epId] || episode?.offerings?.map(o => progress[o.id]).find(Boolean);
   const startAt = useMemo(() => (saved && !saved.finished && saved.position > 15 && saved.duration - saved.position > 30 ? saved.position : 0), [epId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { document.title = episode ? `${film ? cleanTitle(show.title) : `${cleanTitle(episode.title)} — ${cleanTitle(show.title)}`} — ${appName}` : appName; return () => { document.title = appName; }; }, [episode, show, film, appName]);
+  // An empty or placeholder episode title reads 'Episode N' / 'الحلقة N' (episodeHeadline), never ' — Show'.
+  useEffect(() => { document.title = episode ? `${film ? cleanTitle(show.title) : `${episodeHeadline(show, episode, { lang: sl, number: idx + 1 }).title} — ${cleanTitle(show.title)}`} — ${appName}` : appName; return () => { document.title = appName; }; }, [episode, show, film, appName, sl, idx]);
   useEffect(() => { window.scrollTo({ top: 0 }); setCountdown(null); }, [epId]);
 
   const onProgress = useCallback((position, duration) => {
@@ -53,9 +55,10 @@ export default function Watch() {
   if (show?.detailsLoading && !episode) return <div className="page container" role="status">{t('loading')}</div>;
   if (!show || !episode) return <div className="page container"><EmptyState title={t('episode_missing')} action={<Link className="btn btn--ghost" to="/browse">{t('back_to_browse')}</Link>} /></div>;
   const showTitle = cleanTitle(show.title);
+  const seasonLabel = seasonLabelOf(episode);
   // A generic episode title ('الحلقة الكاملة', 'Full episode') does not headline the page.
-  const head = episodeHeadline(show, episode, { lang, withShow: true });
-  const nextTitle = next ? episodeHeadline(show, next, { lang }).title : '';
+  const head = episodeHeadline(show, episode, { lang: sl, withShow: true, number: idx + 1 });
+  const nextTitle = next ? episodeHeadline(show, next, { lang: sl, number: idx + 2 }).title : '';
   const total = Math.max(Number.isFinite(show.episodeCount) ? show.episodeCount : 0, show.episodes.length);
 
   return (
@@ -80,9 +83,10 @@ export default function Watch() {
             <p className="watch__crumbs">
               <ChannelPill channel={show.channel} small />
               <Link to={`/show/${show.id}`} dir="auto">{showTitle}</Link>
-              {!film && <><span className="chev" aria-hidden /><span>{episode.season != null ? `${t('season')} ${episode.season} • ` : ''}{t('episode')} {episode.number ?? idx + 1} {t('of')} {total}</span></>}
+              {/* A labelled group (seasonLabel) mixes scripts ("AJ+ كبريت 2017–2020"): isolated, so it reads the same in RTL and LTR pages. */}
+              {!film && <><span className="chev" aria-hidden /><span>{seasonLabel != null ? <><bdi>{seasonLabel}</bdi> • </> : episode.season != null ? `${t('season')} ${episode.season} • ` : ''}{t('episode')} {episode.number ?? idx + 1} {t('of')} {total}</span></>}
             </p>
-            <h1 className="watch__title"><span dir="auto">{head.title}</span> {isNew(episode.publishedAt) && <Badge tone="new">{t('badge_new')}</Badge>}</h1>
+            <h1 className="watch__title"><span dir="auto">{head.title}</span> {isNew(episodeRecency(episode)) && <Badge tone="new">{t('badge_new')}</Badge>}</h1>
             {!film && head.generic && head.sub && <p className="watch__label" dir="auto">{head.sub}</p>}
             <p className="watch__meta">
               {episode.durationSec > 0 && <span>{fmtClock(episode.durationSec)}</span>}

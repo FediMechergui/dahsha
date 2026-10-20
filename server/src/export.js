@@ -1,8 +1,8 @@
-import { mergeCachedProviders, refreshProviders, saveMergeReport } from './provider-sync.js';
+import { mergeCachedProviders, saveMergeReport, providerFreshnessLine } from './provider-sync.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PRODUCT } from './product.js';
-import { writeCatalog } from './export-catalog.js';
+import { writeCatalog, enrichmentStatus } from './export-catalog.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const args=process.argv.slice(2);
@@ -35,6 +35,11 @@ try {
   catalog = merged.catalog; saveMergeReport(PRODUCT, merged.report);
   writeCatalog(out, catalog, PRODUCT);
   console.log(`[${PRODUCT}] exported ${catalog.shows.length} titles to ${out}`);
+  // The same freshness and enrichment facts status.json carries, so a stale provider shows in the run log.
+  const providers = providerFreshnessLine(catalog.providerSync);
+  if (providers) console.log(`[${PRODUCT}] providers: ${providers}`);
+  const { sources } = enrichmentStatus();
+  console.log(`[${PRODUCT}] enrichment sources: ${!sources.length ? 'none (ARTWORK=0)' : `${sources.join(', ')}${sources.includes('tmdb') ? '' : ' (no TMDB_API_KEY)'}`}`);
 } catch (error) {
   console.error(`[${PRODUCT}] export failed: ${error.message}`);
   process.exitCode = 1;

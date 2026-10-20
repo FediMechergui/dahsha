@@ -3,10 +3,14 @@
 // re-scanning ~30k videos from scratch.
 //   node scripts/snapshot.js restore   -> downloads it into server/data. Only a missing release means
 //                                         "start from scratch"; a failed download or extract fails.
-//   node scripts/snapshot.js save      -> uploads server/data. Refuses outside CI unless --force,
-//                                         refuses when the published snapshot is newer than the one
-//                                         restored here (--overwrite-newer), and refuses when the
-//                                         caches would shrink sharply (--force).
+//                                         Warns when the restored counts are below the published
+//                                         manifest's (a stale or hand-uploaded archive).
+//   node scripts/snapshot.js save      -> uploads server/data. Every save is compared with the published
+//                                         manifest first, and each refusal lists the counts it would lose.
+//                                         Refused: outside CI (--force overrides only this), when the
+//                                         published snapshot is newer than the one restored here
+//                                         (--overwrite-newer), and when a cache would shrink (any drop
+//                                         outside CI, SHRINK_LIMITS in CI; only --allow-shrink skips it).
 // Every snapshot carries snapshot-manifest.json: a generation counter, who saved it and cache counts.
 // A copy is published as data-snapshot.json so save can compare generations without the archive.
 import { spawnSync } from 'node:child_process';
@@ -27,20 +31,28 @@ export const FILES = [
   'providers-dahsha.json', 'provider-aliases-dahsha.json', 'provider-identities-dahsha.json', 'provider-matches-dahsha.json',
   'artwork-rejects.json', // reject list for artwork matches (may also be committed; see PREFER_CHECKOUT)
   'deploy-baseline.json', // last export that passed scripts/check-regression.js (C8 fallback)
+  'show-ids.json', // show id state beside catalog.json (show-ids.js), used when catalog.json is missing
 ];
 // Service/network metadata cache (TVmaze networks); its exact name belongs to service-metadata.js.
 export const FILE_PATTERNS = [/^service-metadata[\w.-]*\.json$/];
 // When the checkout already has these, git is the source of truth and the snapshot copy is ignored,
 // so a reject removed in a commit is not resurrected by an older snapshot.
 export const PREFER_CHECKOUT = new Set(['artwork-rejects.json']);
-// Largest drop of a cache count, against the published manifest, that save accepts without --force.
-// These caches are keyed maps that normally only grow.
+// Largest drop of a cache count, against the published manifest, that a CI save accepts. These caches
+// are keyed maps that normally only grow, so an upload from anywhere else may not lower them at all
+// (local copies are the usual clobber source: in October a stale local artwork.json with 8 matches
+// replaced the 1,600+ the release held).
+// Only an explicit --allow-shrink skips these limits; --force does not.
 export const SHRINK_LIMITS = { details: 0.1, seen: 0.1, playlistVideos: 0.2, artworkMatched: 0.25 };
+export const LOCAL_SHRINK_LIMITS = Object.fromEntries(Object.keys(SHRINK_LIMITS).map((key) => [key, 0]));
+// Raw cache counts checked after a restore (catalogue counts depend on the counting code's version).
+export const CACHE_KEYS = ['details', 'seen', 'playlists', 'playlistVideos', 'artworkMatched', 'providerItems'];
 
 // No shell: paths with spaces (OneDrive folders) must reach tar/gh untouched. Windows resolves
 // gh/tar through PATH without a shell as long as we name the executable.
 const exe = (cmd) => (process.platform === 'win32' ? `${cmd}.exe` : cmd);
 const repo = () => process.env.SNAPSHOT_REPO || 'FediMechergui/dahsha';
+// save/restore take the runner as a parameter so tests can stand in for gh without touching the release.
 const gh = (args, opts = {}) => spawnSync(exe('gh'), [...args, '--repo', repo()], { encoding: 'utf8', ...opts });
 export const dataDirectory = () => path.resolve(process.env.DATA_DIR || path.join(root, 'server', 'data'));
 export const isCi = (env = process.env) => env.CI === 'true' || env.GITHUB_ACTIONS === 'true';
@@ -73,37 +85,67 @@ export function cacheCounts(dataDir) {
   counts.artworkMatched = artwork ? Object.values(artwork).filter((entry) => entry?.source).length : null;
   counts.providerItems = read('providers-dahsha.json')?.items?.length ?? null;
   const catalog = read('catalog.json');
-  const catalogCounts = catalog?.shows ? countCatalog(catalog) : null;
+  // Informational only (never guarded): a counting error must not block a save or a restore.
+  let catalogCounts = null;
+  try { catalogCounts = catalog?.shows ? countCatalog(catalog) : null; } catch { catalogCounts = null; }
   counts.catalogShows = catalogCounts?.shows ?? null;
-  counts.youtubeShows = catalogCounts?.bySource.youtube.shows ?? null;
-  counts.youtubeEpisodes = catalogCounts?.bySource.youtube.episodes ?? null;
+  counts.youtubeShows = catalogCounts?.bySource?.youtube?.shows ?? null;
+  counts.youtubeEpisodes = catalogCounts?.bySource?.youtube?.episodes ?? null;
   return counts;
 }
 
+/** Every count that is lower in `after` than in `before` (a missing count counts as 0). */
+export function countLosses(before, after, keys = Object.keys(before || {})) {
+  return keys.filter((key) => typeof before?.[key] === 'number' && before[key] > (after?.[key] ?? 0)).map((key) => ({ key, before: before[key], after: after?.[key] ?? 0 }));
+}
+export const describeLosses = (losses) => losses.map(({ key, before, after }) => `${key} ${before} -> ${after}`).join(', ');
+
 /**
- * Decides whether a save may replace the published snapshot.
- * restored: manifest found in the data dir (written by restore); remote: { exists, manifest }.
+ * Decides whether a save may replace the published snapshot. Refusals never name a bypass flag.
+ * restored: manifest found in the data dir (written by restore); remote: { exists, hasArchive, manifest }
+ * (plus error when it could not be read); local: cacheCounts() of the data dir. The returned message
+ * lists every count the upload would lose against the published manifest.
  */
-export function planSave({ ci, force = false, overwriteNewer = false, restored = null, remote = { exists: false }, local = {}, limits = SHRINK_LIMITS }) {
+export function planSave({ ci, force = false, overwriteNewer = false, allowShrink = false, restored = null, remote = { exists: false }, local = {}, limits = ci ? SHRINK_LIMITS : LOCAL_SHRINK_LIMITS }) {
   const problems = [];
-  if (!ci && !force) problems.push('snapshot save is reserved for the CI workflows; pass --force to upload from this machine');
+  if (!ci && !force) problems.push('snapshot save is reserved for the CI workflows (Refresh catalogue & deploy, Poll YouTube feeds); run one of them from GitHub Actions instead of uploading this machine\'s data');
+  const published = remote?.exists ? remote.manifest || null : null;
   const restoredGeneration = Number(restored?.generation) || 0;
-  const remoteGeneration = Number(remote?.manifest?.generation) || 0;
-  if (remote?.exists) {
-    if (!restored && !force) problems.push(`this data directory was not restored from the snapshot (no ${MANIFEST}); run "npm run snapshot:restore" first`);
-    if (remoteGeneration > restoredGeneration && !overwriteNewer) {
-      const by = remote.manifest?.runUrl ? ` by ${remote.manifest.runUrl}` : '';
-      problems.push(`the published snapshot (generation ${remoteGeneration}, saved ${remote.manifest?.savedAt || 'at an unknown time'}${by}) is newer than the one restored here (generation ${restoredGeneration}); restore it again, or pass --overwrite-newer to replace it`);
-    }
-    if (!force) {
-      for (const [key, limit] of Object.entries(limits)) {
-        const before = remote.manifest?.counts?.[key];
-        const after = local?.[key] ?? 0;
-        if (typeof before === 'number' && before > 0 && (before - after) / before > limit) problems.push(`${key} would shrink from ${before} to ${after} (more than ${Math.round(limit * 100)}%); pass --force if this is intended`);
-      }
-    }
+  const remoteGeneration = Number(published?.generation) || 0;
+  if (remote?.exists && !overwriteNewer) {
+    const by = published?.runUrl ? ` by ${published.runUrl}` : '';
+    if (!restored) problems.push(`this data directory was not restored from the published snapshot (no ${MANIFEST}); run "npm run snapshot:restore" and redo the changes on top of it`);
+    else if (remoteGeneration > restoredGeneration) problems.push(`the published snapshot (generation ${remoteGeneration}, saved ${published?.savedAt || 'at an unknown time'}${by}) is newer than the one restored here (generation ${restoredGeneration}); restore it again and redo the changes on top of it`);
   }
-  return { ok: !problems.length, problems, generation: Math.max(restoredGeneration, remoteGeneration) + 1 };
+  if (remote?.exists && !allowShrink) {
+    for (const [key, limit] of Object.entries(limits)) {
+      const before = published?.counts?.[key];
+      const after = local?.[key] ?? 0;
+      if (typeof before === 'number' && before > 0 && (before - after) / before > limit) problems.push(`${key} would shrink from ${before} to ${after}${limit > 0 ? ` (more than ${Math.round(limit * 100)}%)` : ''}`);
+    }
+    // Outside CI an unverifiable upload is refused: without counts nothing shows what it would replace.
+    if (!ci && remote.hasArchive !== false && !published?.counts) problems.push(`the published snapshot has no cache counts to compare with, so this upload cannot be checked for lost data`);
+  }
+  const losses = published?.counts ? countLosses(published.counts, local) : [];
+  const against = `the published snapshot (generation ${remoteGeneration})`;
+  const lost = remote?.error ? `the published snapshot could not be read to compare counts (${remote.error})`
+    : !remote?.exists ? 'there is no published snapshot to compare with'
+    : !published?.counts ? `${against} records no counts`
+    : losses.length ? `replacing ${against} would lose: ${describeLosses(losses)}`
+    : `no count is lower than in ${against}`;
+  const message = problems.length ? ['snapshot save refused:', ...problems.map((p) => `- ${p}`), `Counts: ${lost}.`].join('\n') : '';
+  return { ok: !problems.length, problems, losses, message, generation: Math.max(restoredGeneration, remoteGeneration) + 1 };
+}
+
+/** Problems with a just-restored snapshot, judged against the published manifest (warnings only). */
+export function restoreWarnings(published, manifest, counts) {
+  if (!published) return [`the release has no ${MANIFEST_ASSET}, so the restored counts cannot be checked`];
+  const warnings = [];
+  const pubGen = Number(published.generation) || 0, gotGen = Number(manifest?.generation) || 0;
+  if (pubGen !== gotGen) warnings.push(`the archive holds generation ${gotGen}${manifest?.savedAt ? ` (saved ${manifest.savedAt})` : ''} but the published manifest is generation ${pubGen}${published.savedAt ? ` (saved ${published.savedAt})` : ''}`);
+  const losses = countLosses(published.counts, counts, CACHE_KEYS);
+  if (losses.length) warnings.push(`restored caches are below the published manifest (generation ${pubGen}): ${describeLosses(losses)}`);
+  return warnings;
 }
 
 function tar(args, cwd) {
@@ -156,8 +198,8 @@ export function extractArchive(archiveFile, dataDir, { now = new Date() } = {}) 
 }
 
 /** Reads the release: { exists:false } only when GitHub says it does not exist; other errors throw. */
-function remoteState(work) {
-  const view = gh(['release', 'view', TAG, '--json', 'assets']);
+function remoteState(work, run = gh) {
+  const view = run(['release', 'view', TAG, '--json', 'assets']);
   if (view.status !== 0) {
     if (/release not found/i.test(view.stderr || '')) return { exists: false };
     throw new Error(`cannot read release ${TAG}: ${(view.stderr || view.error?.message || `exit ${view.status}`).trim()}`);
@@ -165,7 +207,7 @@ function remoteState(work) {
   const assets = (JSON.parse(view.stdout).assets || []).map((asset) => asset.name);
   let manifest = null;
   if (assets.includes(MANIFEST_ASSET)) {
-    const download = gh(['release', 'download', TAG, '--pattern', MANIFEST_ASSET, '--dir', work, '--clobber']);
+    const download = run(['release', 'download', TAG, '--pattern', MANIFEST_ASSET, '--dir', work, '--clobber']);
     manifest = download.status === 0 ? readJson(path.join(work, MANIFEST_ASSET)) : null;
     if (!manifest) throw new Error(`cannot read ${MANIFEST_ASSET} from release ${TAG}: ${(download.stderr || '').trim()}`);
   }
@@ -173,45 +215,48 @@ function remoteState(work) {
 }
 
 const describe = (counts) => Object.entries(counts).filter(([, v]) => v !== null).map(([k, v]) => `${k} ${v}`).join(', ');
+// GitHub Actions turns ::warning:: / ::error:: lines on stdout into annotations on the run.
+function annotate(env, out, level, title, text) {
+  if (env.GITHUB_ACTIONS === 'true') out.log(`::${level} title=${title}::${text.replace(/%/g, '%25').replace(/\r?\n/g, '%0A')}`);
+  else out[level === 'error' ? 'error' : 'warn'](`${level}: ${text}`);
+}
 
-function restore(dataDir) {
+export function restore(dataDir, { env = process.env, run = gh, out = console } = {}) {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'dahsha-snapshot-'));
   try {
-    const remote = remoteState(work);
-    if (!remote.exists) { console.log(`no "${TAG}" release - starting from scratch`); return 0; }
+    const remote = remoteState(work, run);
+    if (!remote.exists) { out.log(`no "${TAG}" release - starting from scratch`); return 0; }
     if (!remote.hasArchive) throw new Error(`release ${TAG} exists but has no ${ARCHIVE}; refusing to start from scratch`);
-    const download = gh(['release', 'download', TAG, '--pattern', ARCHIVE, '--dir', work, '--clobber'], { stdio: ['ignore', 'inherit', 'inherit'] });
+    const download = run(['release', 'download', TAG, '--pattern', ARCHIVE, '--dir', work, '--clobber'], { stdio: ['ignore', 'inherit', 'inherit'] });
     if (download.status !== 0 || !fs.existsSync(path.join(work, ARCHIVE))) throw new Error(`downloading ${ARCHIVE} failed`);
     const { manifest, kept } = extractArchive(path.join(work, ARCHIVE), dataDir);
-    console.log(`snapshot restored: generation ${manifest.generation}${manifest.legacy ? ' (made before manifests)' : `, saved ${manifest.savedAt}${manifest.runUrl ? ` by ${manifest.runUrl}` : ''}`}`);
-    if (kept.length) console.log(`kept the checked-out ${kept.join(', ')}`);
+    out.log(`snapshot restored: generation ${manifest.generation}${manifest.legacy ? ' (made before manifests)' : `, saved ${manifest.savedAt}${manifest.runUrl ? ` by ${manifest.runUrl}` : ''}`}`);
+    if (kept.length) out.log(`kept the checked-out ${kept.join(', ')}`);
     // Logged so a rolled-back cache is visible at the top of the run, not only in later stages.
-    console.log(`restored caches: ${describe(cacheCounts(dataDir))}`);
+    const counts = cacheCounts(dataDir);
+    out.log(`restored caches: ${describe(counts)}`);
+    for (const warning of restoreWarnings(remote.manifest, manifest, counts)) annotate(env, out, 'warning', 'Snapshot restore', warning);
     return 0;
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
 }
 
-function save(dataDir, { force, overwriteNewer }) {
-  const ci = isCi();
-  if (!ci && !force) {
-    console.error('snapshot save refused: the data snapshot is written by the CI workflows (Refresh catalogue & deploy / Poll YouTube feeds). Run one of them from GitHub Actions, or pass --force if you really mean to upload this machine\'s data.');
-    return 1;
-  }
+export function save(dataDir, { force = false, overwriteNewer = false, allowShrink = false } = {}, { env = process.env, run = gh, out = console } = {}) {
+  const ci = isCi(env);
   const entries = snapshotEntries(dataDir);
-  if (!entries.length) { console.error('nothing to snapshot'); return 1; }
+  if (!entries.length) { out.error('snapshot save refused: nothing to snapshot'); return 1; }
+  if (ci && force) out.log('note: --force only lets a save run outside CI; the generation and cache checks still apply');
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'dahsha-snapshot-'));
   try {
     const restored = readManifest(dataDir);
-    const remote = remoteState(work);
+    let remote;
+    // Outside CI without --force the save is refused anyway; the release is read only to report the losses.
+    try { remote = remoteState(work, run); } catch (error) { if (ci || force) throw error; remote = { exists: false, error: error.message }; }
     const local = cacheCounts(dataDir);
-    const plan = planSave({ ci, force, overwriteNewer, restored, remote, local });
-    if (!plan.ok) {
-      for (const problem of plan.problems) console.error(`snapshot save refused: ${problem}`);
-      return 1;
-    }
-    const server = process.env.GITHUB_SERVER_URL || 'https://github.com';
+    const plan = planSave({ ci, force, overwriteNewer, allowShrink, restored, remote, local });
+    if (!plan.ok) { annotate(env, out, 'error', 'Snapshot save refused', plan.message); return 1; }
+    const server = env.GITHUB_SERVER_URL || 'https://github.com';
     const manifest = {
       version: 1,
       generation: plan.generation,
@@ -219,43 +264,54 @@ function save(dataDir, { force, overwriteNewer }) {
       restoredGeneration: Number(restored?.generation) || 0,
       restoredAt: restored?.restoredAt || null,
       by: ci ? 'ci' : 'local',
-      workflow: process.env.GITHUB_WORKFLOW || null,
-      runId: process.env.GITHUB_RUN_ID || null,
-      runUrl: process.env.GITHUB_RUN_ID && process.env.GITHUB_REPOSITORY ? `${server}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : null,
-      sha: process.env.GITHUB_SHA || null,
+      overrides: [force && 'force', overwriteNewer && 'overwrite-newer', allowShrink && 'allow-shrink'].filter(Boolean),
+      workflow: env.GITHUB_WORKFLOW || null,
+      runId: env.GITHUB_RUN_ID || null,
+      runUrl: env.GITHUB_RUN_ID && env.GITHUB_REPOSITORY ? `${server}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null,
+      sha: env.GITHUB_SHA || null,
       counts: local,
       files: entries,
     };
-    fs.writeFileSync(path.join(dataDir, MANIFEST), JSON.stringify(manifest, null, 1));
+    const manifestFile = path.join(dataDir, MANIFEST);
+    const previous = fs.existsSync(manifestFile) ? fs.readFileSync(manifestFile) : null;
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 1));
     fs.writeFileSync(path.join(work, MANIFEST_ASSET), JSON.stringify(manifest, null, 1));
-    const archive = createArchive(dataDir, [...entries, MANIFEST]);
+    let archive = null;
     try {
+      archive = createArchive(dataDir, [...entries, MANIFEST]);
       if (!remote.exists) {
-        const created = gh(['release', 'create', TAG, '--title', 'Data snapshot (auto)', '--notes', 'Cached Dahsha catalogue metadata used by this repository. Updated automatically by the CI workflows; do not upload by hand.', '--latest=false']);
+        const created = run(['release', 'create', TAG, '--title', 'Data snapshot (auto)', '--notes', 'Cached Dahsha catalogue metadata used by this repository. Updated automatically by the CI workflows; do not upload by hand.', '--latest=false']);
         if (created.status !== 0) throw new Error(`creating release ${TAG} failed: ${(created.stderr || '').trim()}`);
       }
       // Archive first, manifest second: a reader never sees a manifest newer than the archive.
-      const upload = gh(['release', 'upload', TAG, ARCHIVE, '--clobber'], { cwd: dataDir, stdio: ['ignore', 'inherit', 'inherit'] });
+      const upload = run(['release', 'upload', TAG, ARCHIVE, '--clobber'], { cwd: dataDir, stdio: ['ignore', 'inherit', 'inherit'] });
       if (upload.status !== 0) throw new Error(`uploading ${ARCHIVE} failed`);
-      const uploadManifest = gh(['release', 'upload', TAG, MANIFEST_ASSET, '--clobber'], { cwd: work, stdio: ['ignore', 'inherit', 'inherit'] });
+      const uploadManifest = run(['release', 'upload', TAG, MANIFEST_ASSET, '--clobber'], { cwd: work, stdio: ['ignore', 'inherit', 'inherit'] });
       if (uploadManifest.status !== 0) throw new Error(`uploading ${MANIFEST_ASSET} failed`);
+    } catch (error) {
+      // The data dir keeps describing what it was restored from, so a retry plans the same generation.
+      if (previous) fs.writeFileSync(manifestFile, previous); else fs.rmSync(manifestFile, { force: true });
+      throw error;
     } finally {
-      fs.rmSync(archive, { force: true });
+      if (archive) fs.rmSync(archive, { force: true });
     }
-    console.log(`snapshot saved: generation ${manifest.generation} (${entries.join(', ')})`);
-    console.log(`saved caches: ${describe(local)}`);
+    out.log(`snapshot saved: generation ${manifest.generation} (${entries.join(', ')})`);
+    out.log(`saved caches: ${describe(local)}`);
     return 0;
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
 }
 
-export function main(argv = process.argv.slice(2)) {
+const SAVE_FLAGS = { '--force': 'force', '--overwrite-newer': 'overwriteNewer', '--allow-shrink': 'allowShrink' };
+
+export function main(argv = process.argv.slice(2), deps = {}) {
   const [mode, ...flags] = argv;
   const dataDir = dataDirectory();
-  if (mode === 'restore') return restore(dataDir);
-  if (mode === 'save') return save(dataDir, { force: flags.includes('--force'), overwriteNewer: flags.includes('--overwrite-newer') });
-  console.error('usage: node scripts/snapshot.js restore | save [--force] [--overwrite-newer]');
+  const unknown = flags.filter((flag) => mode !== 'save' || !SAVE_FLAGS[flag]);
+  if (mode === 'restore' && !unknown.length) return restore(dataDir, deps);
+  if (mode === 'save' && !unknown.length) return save(dataDir, Object.fromEntries(flags.map((flag) => [SAVE_FLAGS[flag], true])), deps);
+  console.error('usage: node scripts/snapshot.js restore | save [--force] [--overwrite-newer] [--allow-shrink]');
   return 1;
 }
 

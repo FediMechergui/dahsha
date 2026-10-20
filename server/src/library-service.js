@@ -9,6 +9,7 @@ import { mergeLibrary, mergeShow, episodeOfferings, showOfferings } from './merg
 import { getFmoviesDetails, parseFmoviesId, searchFmovies, fmoviesServers, FMOVIES_BASE, fetchFmoviesPage } from './fmovies.js';
 import { documentedTvServers, getHdtodayDetails, parseHdtodayId, searchHdtoday, resolveHdtodayServers, HDTODAY_BASE, fetchHdtodayPage } from './hdtoday.js';
 import { getTitleDetails, searchContent, resolveMyflixerStream, fetchMovies, fetchSeries } from './myflixer.js';
+import { siteDate } from './documentaries.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 let liveResolver, loaded, loadedStamp;
@@ -29,11 +30,25 @@ export function readLibrary() {
   if(stamp!==loadedStamp){loaded=JSON.parse(fs.readFileSync(file,'utf8'));if(!process.env.VERCEL)loaded=mergeCachedProviders(loaded,PRODUCT).catalog;loadedStamp=stamp;}
   return loaded;
 }
-function locate(catalog,id) {
+function find(catalog,id) {
   for (const show of catalog.shows || []) {
     if (show.id===id || show.offerings?.some(o=>o.id===id)) return show;
     const version=show.versions?.find(v=>v.id===id || v.offerings?.some(o=>o.id===id));
     if (version) return {...version,providerMetadata:true,documentary:version.documentary ?? version.offerings?.some(o=>o.documentary===true)};
+  }
+  return null;
+}
+// C1: a rebuild can rename a show (catalog.idAliases = {oldId: liveId}); old links still resolve.
+export function locate(catalog,id) {
+  const found=find(catalog,id);
+  if(found || typeof id!=='string')return found;
+  const aliases=catalog?.idAliases && typeof catalog.idAliases==='object' ? catalog.idAliases : {};
+  // Follows a chain of renames (an older map may not be flattened); a cycle ends the search.
+  for(let current=id,seen=new Set([id]);Object.hasOwn(aliases,current);){
+    const next=aliases[current];
+    if(typeof next!=='string' || !next || seen.has(next))return null;
+    const show=find(catalog,next);if(show)return show;
+    seen.add(next);current=next;
   }
   return null;
 }
@@ -47,6 +62,14 @@ function trustedSource(id,source) {
   }catch{}
   return null;
 }
+// Recency of a card: updatedAt (provider-sync showUpdatedAt, present only when newer than latestAt), then
+// latestAt. Never providerUpdatedAt: that is a provider row's crawl time (the whole bulk import shares
+// one), so undated cards go last instead of outranking every dated title.
+const recencyKey=s=>String(s.updatedAt||s.latestAt||s.publishedAt||'');
+// Myflixer listings give site-local dates without an offset; read them as site time (documentaries.js siteDate).
+export const siteDatedRow=s=>{const out={...s};for(const k of ['publishedAt','firstAt','latestAt'])if(s[k])out[k]=siteDate(s[k])||s[k];return out;};
+// A malformed live search/discovery row is left out of the results instead of failing the request.
+const skipLiveRow=(row,error)=>console.warn(`[library] skipped provider row ${row?.id}: ${error.message}`);
 const hydrated=new Map();
 export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PRODUCT}={}) {
   if(typeof id!=='string'||id.length>350)return null;
@@ -160,7 +183,7 @@ export async function unifiedSearch(query,{product=PRODUCT,catalog=readLibrary()
     searchFmovies(q,{documentary:product==='dahsha'}),searchHdtoday(q,{documentary:product==='dahsha'}),
   ]);
   const rows=results.flatMap(r=>r.status==='fulfilled'?r.value:[]);
-  const {catalog:merged,report}=mergeLibrary(catalog,rows,{product,aliases:readJson(`provider-aliases-${product}.json`,{})});
+  const {catalog:merged,report}=mergeLibrary(catalog,rows,{product,aliases:readJson(`provider-aliases-${product}.json`,{}),onError:skipLiveRow});
   const ids=new Set(rows.map(r=>report.aliases[r.id]||r.id));
   return merged.shows.filter(s=>ids.has(s.id)||matchesSearch(s.title,q)||s.altTitles?.some(title=>matchesSearch(title,q)))
     .sort((a,b)=>Number(matchesSearch(b.title,q))-Number(matchesSearch(a.title,q)));
@@ -174,7 +197,7 @@ export function libraryPage(catalog,{kind,page=1,perPage=24,genre,year,search}={
   return {items:items.slice((page-1)*perPage,page*perPage),page,total:items.length,totalPages:Math.ceil(items.length/perPage)};
 }
 export function libraryHome(catalog=readLibrary()) {
-  const recent={...catalog,shows:[...(catalog.shows||[])].sort((a,b)=>String(b.providerUpdatedAt||b.latestAt||b.publishedAt||'').localeCompare(String(a.providerUpdatedAt||a.latestAt||a.publishedAt||'')))};
+  const recent={...catalog,shows:[...(catalog.shows||[])].sort((a,b)=>recencyKey(b).localeCompare(recencyKey(a)))};
   const trendingMovies=libraryPage(recent,{kind:'film',perPage:16}).items;
   const trendingSeries=libraryPage(recent,{kind:'series',perPage:16}).items;
   return {featured:trendingMovies[0]||trendingSeries[0]||null,trendingMovies,trendingSeries,rails:[
@@ -191,20 +214,21 @@ export async function discoverLibrary({kind='film',page=1,genre,year,latest=fals
   const sources=fetchers || [
     ()=>fetchFmoviesPage({kind,page,genre,year,documentary,...(latest?{sort:kind==='film'?'primary_release_date.desc':'first_air_date.desc'}:{})}),
     ()=>fetchHdtodayPage({kind,page,documentary,genre,latest}),
-    async()=>{const result=await (kind==='film'?fetchMovies:fetchSeries)({page,category:documentary?'documentary':genre,year});return {...result,items:result.items.map(s=>({...s,documentary:s.tags?.includes('documentary')}))};},
+    async()=>{const result=await (kind==='film'?fetchMovies:fetchSeries)({page,category:documentary?'documentary':genre,year});return {...result,items:result.items.map(s=>({...siteDatedRow(s),documentary:s.tags?.includes('documentary')}))};},
   ];
   const results=await Promise.allSettled(sources.map(fetch=>fetch()));
   const names=['fmovies','hdtoday','myflixer'];
   const pages=results.map((result,index)=>{
     if(result.status==='fulfilled')return result.value;
     const cached=(catalog.shows||[]).filter(show=>show.kind===kind&&showOfferings(show).some(o=>o.provider===names[index])&&(!documentary||show.documentary===true||show.tags?.includes('documentary'))&&(!genre||show.tags?.includes(genre))&&(!year||Number(show.year)===Number(year)))
-      .sort((a,b)=>String(b.providerUpdatedAt||b.latestAt||b.publishedAt||'').localeCompare(String(a.providerUpdatedAt||a.latestAt||a.publishedAt||'')));
+      .sort((a,b)=>recencyKey(b).localeCompare(recencyKey(a)));
     return {items:cached.slice((page-1)*24,page*24),totalPages:Math.ceil(cached.length/24),cached:true};
   });
   if(results.every(result=>result.status==='rejected')&&!pages.some(result=>result.items.length))throw new Error('All catalogue providers are temporarily unavailable');
   const rows=pages.flatMap(result=>result.items);
-  const {catalog:merged,report}=mergeLibrary(catalog,rows,{product,aliases:readJson(`provider-aliases-${product}.json`,{})});
-  const ids=new Set(rows.map(row=>report.aliases[row.id]||row.id));
+  const {catalog:merged,report}=mergeLibrary(catalog,rows,{product,aliases:readJson(`provider-aliases-${product}.json`,{}),onError:skipLiveRow});
+  // A row kept as an uncertain version is listed through the card that groups it.
+  const ids=new Set([...rows.map(row=>report.aliases[row.id]||row.id),...report.pending.map(p=>p.candidates?.[0]).filter(Boolean)]);
   const items=merged.shows.filter(s=>ids.has(s.id)&&s.kind===kind&&(!year||Number(s.year)===Number(year))&&(!genre||documentary||s.tags?.includes(genre)));
   const providers=results.map((r,i)=>({provider:names[i],page,totalPages:pages[i].totalPages,ok:r.status==='fulfilled',cached:!!pages[i].cached}));
   return {items,page,totalPages:Math.max(page,...pages.map(result=>Number(result.totalPages)||page)),providers,providerErrors:results.map((r,i)=>r.status==='rejected'?{provider:providers[i].provider,error:r.reason.message}:null).filter(Boolean)};

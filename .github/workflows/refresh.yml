@@ -2,7 +2,7 @@
 # providers, then the static export. The regression check (scripts/check-regression.js) must pass
 # before anything is deployed to Vercel or saved as the "data-snapshot" release asset that makes the
 # next run incremental. poll.yml adds new YouTube uploads hourly in between (same concurrency group,
-# so the two never overlap or race on the snapshot).
+# so the two never overlap or race on the snapshot). keepalive.yml alerts when the live data is stale.
 name: Refresh catalogue & deploy
 
 on:
@@ -15,7 +15,11 @@ on:
         type: boolean
         default: false
       force:
-        description: 'Deploy and save the snapshot even if the regression check fails'
+        description: 'Deploy even if the catalogue regression check fails; the snapshot cache checks still apply'
+        type: boolean
+        default: false
+      allow_snapshot_shrink:
+        description: 'Save the snapshot even if a cache count drops beyond SHRINK_LIMITS'
         type: boolean
         default: false
 
@@ -38,6 +42,8 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       REGRESSION_FORCE: ${{ inputs.force && '1' || '' }}
+      # server/data files the provider step writes: backed up before it, put back if it fails.
+      PROVIDER_CACHE_FILES: providers-dahsha.json provider-aliases-dahsha.json provider-identities-dahsha.json provider-matches-dahsha.json service-metadata-dahsha.json catalog.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,6 +53,13 @@ jobs:
         run: npm ci --prefix server && npm ci --prefix client
       - name: Test
         run: npm test
+      # artwork.js also logs this inside the refresh step; a step of its own always shows up as an
+      # annotation on the run page, whatever the progress output around it.
+      - name: Warn when TMDB is not configured
+        if: env.TMDB_API_KEY == ''
+        run: |
+          echo "::warning title=TMDB enrichment disabled::The TMDB_API_KEY repository secret is not set, so this run looks up artwork with TVmaze, Wikidata and Wikipedia only (no TMDB backdrops, posters or overviews). Add the secret under Settings > Secrets and variables > Actions."
+          printf '### TMDB enrichment disabled\n\nThe `TMDB_API_KEY` repository secret is not set. Artwork comes from TVmaze, Wikidata and Wikipedia only; entries looked up without TMDB are queued again once the key exists.\n' >> "$GITHUB_STEP_SUMMARY"
       - name: Restore data snapshot
         id: restore
         run: node scripts/snapshot.js restore
@@ -57,6 +70,9 @@ jobs:
           # The provider step below scans FMovies/HDToday; the scheduler must not scan them as well.
           SKIP_PROVIDER_SYNC: '1'
           MODE: ${{ inputs.full && 'rebuild' || 'refresh' }}
+          # Artwork lookups per run (artwork.js default 600). ~6.7 min per 600 lookups, and artwork.js
+          # stops at ARTWORK_MAX_MINUTES (default 30), well inside the job's 120 minutes.
+          ARTWORK_MAX_PER_RUN: '1500'
         run: |
           status=0
           node server/src/cli.js "$MODE" || status=$?
@@ -67,12 +83,43 @@ jobs:
           exit "$status"
       - name: Export static data
         run: node server/src/export.js
+      # The provider step writes these caches as it goes. If it fails part-way they are put back, so a
+      # half-written scan or merge never reaches the snapshot. The deploy then ships the export above
+      # (writeCatalog only ever swaps in a complete export, and the restore step undoes a cut-off swap).
+      - name: Back up provider caches
+        run: |
+          backup="$RUNNER_TEMP/provider-backup"
+          [ -n "$PROVIDER_CACHE_FILES" ] || { echo "::error::PROVIDER_CACHE_FILES is empty, nothing would be backed up"; exit 1; }
+          rm -rf "$backup" && mkdir -p "$backup"
+          for file in $PROVIDER_CACHE_FILES; do
+            if [ -f "server/data/$file" ]; then cp -p "server/data/$file" "$backup/$file"; else echo "$file" >> "$backup/.absent"; fi
+          done
+          ls -l "$backup"
       - name: Refresh Dahsha providers
         id: providers
         # Best effort: a provider failure must not hold back this run's YouTube updates. The export
-        # above is complete on its own; this step re-exports only when it succeeds.
+        # above is complete on its own; this step re-exports only when it succeeds. The timeout turns a
+        # hung provider into a step failure instead of using up the job's 120 minutes.
         continue-on-error: true
+        timeout-minutes: 30
         run: node scripts/refresh-providers.js --product dahsha --pages 60 --matches 100
+      - name: Restore provider caches after a failure
+        if: always() && (steps.providers.outcome == 'failure' || steps.providers.outcome == 'cancelled')
+        run: |
+          backup="$RUNNER_TEMP/provider-backup"
+          for file in $PROVIDER_CACHE_FILES; do
+            if [ -f "$backup/$file" ]; then cp -p "$backup/$file" "server/data/$file"; echo "restored $file"
+            elif [ -f "server/data/$file" ] && grep -qx "$file" "$backup/.absent" 2>/dev/null; then rm -f "server/data/$file"; echo "removed $file (absent before the step)"; fi
+          done
+          rm -f server/data/*.tmp
+          # writeCatalog swaps the export in with a rename; a step killed between its two renames
+          # leaves the previous export in data.backup-*. Put it back, and drop half-built stages so
+          # they are not deployed.
+          if [ ! -f client/public/data/status.json ]; then
+            previous=$(ls -d client/public/data.backup-* 2>/dev/null | head -n 1)
+            if [ -n "$previous" ]; then rm -rf client/public/data && mv "$previous" client/public/data && echo "restored the previous export"; fi
+          fi
+          rm -rf client/public/data.stage-* client/public/data.backup-*
       - name: Regression check
         id: guard
         run: node scripts/check-regression.js --restored "$RUNNER_TEMP/restored-counts.json" --write-baseline
@@ -94,12 +141,16 @@ jobs:
         if: success() && env.VERCEL_TOKEN == ''
         run: node scripts/build-static.js
       # Only data that passed the regression check becomes the next run's starting point. A failed
-      # deploy still saves it, so the next run does not repeat the fetches.
+      # deploy still saves it, so the next run does not repeat the fetches. The `force` input does not
+      # reach this step: snapshot.js keeps its own cache shrink checks unless allow_snapshot_shrink is set.
       - name: Save data snapshot
         if: always() && steps.restore.outcome == 'success' && steps.guard.outcome == 'success'
-        run: node scripts/snapshot.js save ${{ inputs.force && '--force' || '' }}
+        run: node scripts/snapshot.js save ${{ inputs.allow_snapshot_shrink && '--allow-shrink' || '' }}
+      # Last step, after the deploy and the snapshot save: a provider failure turns the run red so
+      # GitHub emails the failure (it does not email warnings), without holding back the YouTube update.
       - name: Report provider failure
-        if: always() && steps.providers.outcome == 'failure'
+        if: always() && (steps.providers.outcome == 'failure' || steps.providers.outcome == 'cancelled')
         run: |
-          echo "::warning title=Provider refresh failed::FMovies/HDToday were not refreshed in this run; the YouTube update was exported without them. See the 'Refresh Dahsha providers' step."
-          printf '### Provider refresh failed\n\nFMovies/HDToday were not refreshed in this run. The YouTube/Myflixer export went ahead with the cached provider rows.\n' >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Provider refresh failed::FMovies/HDToday were not refreshed in this run and their caches were put back; the YouTube update was exported without them. See the 'Refresh Dahsha providers' step."
+          printf '### Provider refresh failed\n\nFMovies/HDToday were not refreshed in this run (step outcome: %s). Their caches were restored from before the step, and the YouTube/Myflixer export went ahead with the cached provider rows. This run is marked failed only so the failure is emailed.\n' "${{ steps.providers.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          exit 1

@@ -3,16 +3,23 @@ import { mergeLibrary, titleKey } from './merge-library.js';
 import { getTitleDetails } from './myflixer.js';
 import { searchHdtoday } from './hdtoday.js';
 import { safeRemoteFetch } from './stream-security.js';
+import { providerCache, usableProviderRows, applyCachedArtwork, rekeyIdentities } from './provider-sync.js';
 
 export async function resolveProviderMatches(base,product,{limit=150,log=console.log}={}) {
-  const cache=readJson(`providers-${product}.json`,{items:[]});
-  const identities=readJson(`provider-identities-${product}.json`,{});
+  const cache=providerCache(product);
+  // Identities saved under a show id that a rebuild renamed follow the show (written back below).
+  const identities=rekeyIdentities(readJson(`provider-identities-${product}.json`,{}),base.idAliases);
   const enriched={...base,shows:base.shows.map(s=>({...s,...identities[s.id]?.metadata}))};
-  const {report}=mergeLibrary(enriched,cache.items,{product,aliases:readJson(`provider-aliases-${product}.json`,{})});
+  // Malformed cached rows are skipped (with a warning) instead of failing the whole provider step.
+  // The merge sees the same artwork-filled rows as mergeCachedProviders; the year checks below update the cached rows.
+  const {rows}=usableProviderRows(cache.items,{product,log});
+  const {report}=mergeLibrary(enriched,applyCachedArtwork(rows,{log}).rows,{product,aliases:readJson(`provider-aliases-${product}.json`,{}),onError:(row,error)=>log(`[matches:${product}] could not merge ${row?.id}: ${error.message}`)});
   const existing=new Map(base.shows.map(s=>[s.id,s]));
-  const incoming=new Map(cache.items.map(s=>[s.id,s]));
+  const incoming=new Map(rows.map(s=>[s.id,s]));
   const jobs=[],seen=new Set();
   for(const pending of report.pending){
+    // Both editions already carry a year (one apart): a Myflixer year check cannot settle it.
+    if(pending.nearYear)continue;
     const row=incoming.get(pending.id);
     if(row?.id.startsWith('hd:')&&!row.year)jobs.push({source:row});
     for(const id of pending.candidates){

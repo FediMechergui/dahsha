@@ -1,0 +1,38 @@
+# Runs the node:test suite (npm test: node --test server/test/*.test.js) on every push and pull
+# request, so a change, or a dependency update opened by Dependabot (.github/dependabot.yml), is
+# tested before it reaches main. refresh.yml, poll.yml and android.yml run the same suite before they
+# touch the data, but only on their own schedule. Nothing here reads secrets or the data snapshot.
+name: Tests
+
+on:
+  push:
+    # The monthly empty commit of keepalive.yml (pushed with GITHUB_TOKEN, which starts no workflows anyway).
+    branches-ignore: [keepalive]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+      # The tests import server modules (express, youtubei.js) and client/src helpers.
+      - name: Install
+        run: npm ci --prefix server && npm ci --prefix client
+      - name: Test
+        run: npm test
