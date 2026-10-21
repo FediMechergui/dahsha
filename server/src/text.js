@@ -1513,8 +1513,19 @@ export function cleanDescription(desc = '') {
     /\bfunding for frontline\b[\s\S]*$/i, /\bthis (video|episode|documentary) (was|is) (made|produced|sponsored)\b[\s\S]*$/i, /\bsources?\s*:[\s\S]*$/i, /\bchapters?\s*:[\s\S]*$/i,
   ];
   for (const re of TAILS) text = text.replace(re, '').trim();
-  // Dangling punctuation / conjunctions left behind by the stripping.
-  return text.replace(/(\s*[:：،,\-–—]+|\s+(أو|و|ثم|على|في|من|عن|مع))+\s*$/u, '').trim();
+  // Dangling punctuation / conjunctions left behind by the stripping. One tail at a time: a single
+  // `(\s*[sep]+|\s+word)+$` pattern backtracks exponentially on a run of dashes ("----------" lines),
+  // which stalled the CI refresh for hours on 2026-10-20.
+  return stripDanglingTail(text);
+}
+const DANGLING_TAIL = /(?:[:：،,\-–—]+|\s(?:أو|و|ثم|على|في|من|عن|مع))\s*$/u;
+function stripDanglingTail(text) {
+  let t = String(text).trim();
+  for (;;) {
+    const next = t.replace(DANGLING_TAIL, '').trim();
+    if (next === t) return t;
+    t = next;
+  }
 }
 
 // Score a candidate synopsis: prefers longer Arabic prose, rejects title echoes.

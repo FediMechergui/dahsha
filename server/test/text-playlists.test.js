@@ -473,3 +473,13 @@ test('cleanDescription: entity text and ranks are not hashtags; hashtag lines st
   const out = cleanDescription('Sharks hunt at night.\n#NatGeo #SharkFest\nWatch the full story. #Sharks\nّ#مرسيليا\nOn du, Channel #378\nC# is a language.');
   assert.equal(out, 'Sharks hunt at night.\nC# is a language.');
 });
+
+test('cleanDescription strips dangling tails in linear time (a dash run used to backtrack for hours)', () => {
+  assert.equal(cleanDescription('نص الوصف ، و'), 'نص الوصف');
+  assert.equal(cleanDescription('A sentence - :'), 'A sentence');
+  assert.equal(cleanDescription('كلمة ومعنى'), 'كلمة ومعنى');
+  const t0 = Date.now();
+  assert.equal(cleanDescription(`وصف الحلقة\n${'-'.repeat(400)} x`), `وصف الحلقة\n${'-'.repeat(400)} x`);
+  assert.equal(cleanDescription(`وصف الحلقة ${'-'.repeat(400)}`), 'وصف الحلقة');
+  assert.ok(Date.now() - t0 < 500, 'a 400-dash run must not backtrack');
+});
