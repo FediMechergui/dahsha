@@ -160,13 +160,13 @@ test('Empty episode titles read Episode N / الحلقة N from the number or th
   assert.match(card, /<p class="ep__show ep__show--label" dir="auto">S2 · E3<\/p>/);
 });
 
-test('The status pill turns to a stale state when the data is more than 12 hours old', rendered, () => {
+test('The status pill turns to a stale state when the data is more than 26 hours old', rendered, () => {
   const { createElement: h, Header } = mod;
   const hours = (n) => new Date(Date.now() - n * 3600e3).toISOString();
-  const fresh = render(h(Header), { catalog: catalogStub({ status: { generatedAt: hours(3), static: true } }) });
+  const fresh = render(h(Header), { catalog: catalogStub({ status: { generatedAt: hours(13), static: true } }) });
   assert.match(fresh, /class="pill pill--live"/);
   assert.doesNotMatch(fresh, /Not updated recently/);
-  const stale = render(h(Header), { catalog: catalogStub({ status: { generatedAt: hours(13), static: true } }) });
+  const stale = render(h(Header), { catalog: catalogStub({ status: { generatedAt: hours(27), static: true } }) });
   assert.match(stale, /class="pill pill--stale"/);
   assert.match(text(stale), /Not updated recently/);
   assert.match(stale, /title="Not updated recently · /, 'narrow headers show only the dot, so the tooltip names the state');
