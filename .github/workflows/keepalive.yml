@@ -7,7 +7,7 @@
 # Twice a day it also checks that the live site is being updated: it fails (and GitHub emails the
 # failure, which a disabled or failing refresh workflow cannot do for itself) when
 # https://dahsha.vercel.app/data/status.json cannot be read or its generatedAt is more than
-# MAX_AGE_HOURS old. refresh.yml deploys every 6 hours, so 12 hours means two missed deploys.
+# MAX_AGE_HOURS old. refresh.yml deploys every 12 hours, so 26 hours means two missed deploys.
 name: Keep schedules alive
 
 on:
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 10
     env:
       SITE_URL: https://dahsha.vercel.app
-      MAX_AGE_HOURS: '12'
+      MAX_AGE_HOURS: '26'
     steps:
       - name: Check that the live catalogue is fresh
         run: |
@@ -51,7 +51,7 @@ jobs:
           built=$(curl -fsS --max-time 30 "$SITE_URL/data/deploy.json?ts=$now_s" 2>/dev/null | jq -r '"built \(.builtAt // "?") by \(.builtBy // "?"), data generation \(.dataGeneration // "?")"' 2>/dev/null || echo 'no deploy.json')
           printf '### Live catalogue freshness\n\n- status.json generatedAt: %s (%s ago)\n- deploy.json: %s\n- limit: %s hours\n' "$generated" "$age" "$built" "$MAX_AGE_HOURS" >> "$GITHUB_STEP_SUMMARY"
           if [ "$(( now_s - generated_s ))" -gt "$(( MAX_AGE_HOURS * 3600 ))" ]; then
-            echo "::error title=Live catalogue is stale::$SITE_URL was last updated $age ago ($generated), more than $MAX_AGE_HOURS hours. Check the 'Refresh catalogue & deploy' and 'Poll YouTube feeds' runs, and whether their schedules are still enabled."
+            echo "::error title=Live catalogue is stale::$SITE_URL was last updated $age ago ($generated), more than $MAX_AGE_HOURS hours. Check the 'Refresh catalogue & deploy' runs and whether its schedule is still enabled."
             exit 1
           fi
           echo "Live catalogue updated $age ago ($generated); $built."

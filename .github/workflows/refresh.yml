@@ -1,13 +1,14 @@
-# Full refresh every 6 hours: YouTube playlists/uploads and Myflixer, then the FMovies/HDToday
+# Full refresh every 12 hours: YouTube playlists/uploads and Myflixer, then the FMovies/HDToday
 # providers, then the static export. The regression check (scripts/check-regression.js) must pass
 # before anything is deployed to Vercel or saved as the "data-snapshot" release asset that makes the
-# next run incremental. poll.yml adds new YouTube uploads hourly in between (same concurrency group,
-# so the two never overlap or race on the snapshot). keepalive.yml alerts when the live data is stale.
+# next run incremental. This is the only scheduled deploy: Vercel's Hobby plan blocked the team on
+# 2026-10-21 for fair-use limits, so poll.yml no longer runs on a schedule and git pushes do not
+# deploy (vercel.json). keepalive.yml alerts when the live data is stale.
 name: Refresh catalogue & deploy
 
 on:
   schedule:
-    - cron: '17 */6 * * *'   # every 6 hours
+    - cron: '17 3,15 * * *'   # every 12 hours (03:17 and 15:17 UTC)
   workflow_dispatch:
     inputs:
       full:

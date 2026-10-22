@@ -6,9 +6,7 @@
   "framework": null,
   "trailingSlash": false,
   "git": {
-    "deploymentEnabled": {
-      "keepalive": false
-    }
+    "deploymentEnabled": false
   },
   "headers": [
     {

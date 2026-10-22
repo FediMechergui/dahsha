@@ -1,12 +1,11 @@
-# Hourly fast path between the 6-hourly full refreshes: reads every YouTube channel's RSS feed
+# Manual fast path between the 12-hourly full refreshes (no schedule since 2026-10-22: Vercel blocked
+# the Hobby team for fair-use limits, so deploys are kept to refresh.yml twice a day): reads every YouTube channel's RSS feed
 # (`node server/src/cli.js poll`), fetches details for unseen uploads, re-exports, and redeploys only
 # when the catalogue differs from what production serves (data/deploy.json fingerprint). It shares
 # the "refresh" concurrency group with refresh.yml, so the two never overlap or race on the snapshot.
 name: Poll YouTube feeds
 
 on:
-  schedule:
-    - cron: '47 * * * *'   # hourly, away from refresh.yml's :17 start
   workflow_dispatch:
     inputs:
       force:

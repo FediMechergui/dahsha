@@ -8,7 +8,7 @@ import { api } from '../lib/api.js';
 
 // CI rebuilds and deploys every 6 hours; data older than two missed runs means the updates stopped
 // (a failing or auto-disabled workflow cannot report that itself), so the pill says so.
-const STALE_AFTER_MS = 12 * 3600e3;
+const STALE_AFTER_MS = 26 * 3600e3; // refresh.yml deploys every 12 hours
 
 function StatusPill() {
   const { status, connected, refresh, checking } = useCatalog();

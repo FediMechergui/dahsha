@@ -374,11 +374,14 @@ None of them is a playback catalogue. Two modules call them:
 
 ## Hosted refresh and its safeguards
 
-`.github/workflows/refresh.yml` runs every six hours: restore the data snapshot,
-`cli.js refresh` (YouTube, Myflixer, artwork), `export.js`, the FMovies/HDToday
-provider step (`scripts/refresh-providers.js`), the regression check, the Vercel
-deploy, then the snapshot save. `poll.yml` adds new YouTube uploads hourly in
-between, with the same restore, check and save around it.
+`.github/workflows/refresh.yml` runs every 12 hours (03:17 and 15:17 UTC): restore
+the data snapshot, `cli.js refresh` (YouTube, Myflixer, artwork), `export.js`, the
+FMovies/HDToday provider step (`scripts/refresh-providers.js`), the regression
+check, the Vercel deploy, then the snapshot save. It is the only scheduled deploy:
+Vercel blocked the Hobby team for fair-use limits on 2026-10-21, so `poll.yml`
+(the RSS fast path, with the same restore, check and save around it) now runs only
+by hand, and `vercel.json` turns off deployments from git pushes and Dependabot
+branches. Code changes go live with the next scheduled refresh, or a manual run.
 
 - The provider step is best effort (`continue-on-error`) and has a 30-minute
   timeout. The caches it writes (`providers-dahsha.json`,
