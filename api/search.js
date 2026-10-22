@@ -6,6 +6,9 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
   if (req.method === 'OPTIONS') return res.status(200).end();
+  // Dahsha searches its static catalogue in the browser; a live search parsed the whole catalogue in
+  // the function and counted against Vercel's Hobby CPU limit (team blocked on 2026-10-21).
+  if (PRODUCT !== 'flixer') { res.setHeader('Cache-Control', 'public, s-maxage=86400'); return res.status(404).json({ error: 'Search the static catalogue' }); }
 
   try {
     const q = req.query.q || '';

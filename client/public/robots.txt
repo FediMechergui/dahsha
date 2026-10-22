@@ -1,0 +1,3 @@
+# The serverless API is for the app itself; crawling it counts against the hosting plan's CPU limit.
+User-agent: *
+Disallow: /api/

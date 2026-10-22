@@ -56,11 +56,16 @@ async function req(url, { timeout = 30000, stall = 0, ...opts } = {}) {
   return body;
 }
 
+// A static build answers home, listing and search from the exported catalogue and never calls the
+// serverless API for them: Vercel blocked the Hobby team for function CPU on 2026-10-21. Only
+// provider titles and playback (api.show for provider-backed titles, api.stream) still go live.
+const live = (url) => (STATIC ? Promise.reject(new Error('static build')) : req(url));
+
 export const api = {
   static: STATIC,
 
   // Movies & TV Series endpoints
-  home: () => req(`${API_BASE}/api/home`).catch(() => api.catalog().then((c) => ({
+  home: () => live(`${API_BASE}/api/home`).catch(() => api.catalog().then((c) => ({
     featured: c.shows?.[0] || null,
     trendingMovies: (c.shows || []).filter((s) => s.kind === 'film').slice(0, 16),
     trendingSeries: (c.shows || []).filter((s) => s.kind === 'series').slice(0, 16),
@@ -75,7 +80,7 @@ export const api = {
     if (genre) p.set('category', genre);
     if (year) p.set('year', String(year));
     if (search) p.set('q', search);
-    return req(`${API_BASE}/api/movies?${p.toString()}`).catch(() => api.catalog().then((c) => {
+    return live(`${API_BASE}/api/movies?${p.toString()}`).catch(() => api.catalog().then((c) => {
       let items = (c.shows || []).filter((s) => s.kind === 'film');
       if (genre) items = items.filter((s) => s.tags?.includes(genre.toLowerCase()));
       if (year) items = items.filter((s) => s.year === Number(year));
@@ -89,7 +94,7 @@ export const api = {
     if (genre) p.set('category', genre);
     if (year) p.set('year', String(year));
     if (search) p.set('q', search);
-    return req(`${API_BASE}/api/series?${p.toString()}`).catch(() => api.catalog().then((c) => {
+    return live(`${API_BASE}/api/series?${p.toString()}`).catch(() => api.catalog().then((c) => {
       let items = (c.shows || []).filter((s) => s.kind === 'series');
       if (genre) items = items.filter((s) => s.tags?.includes(genre.toLowerCase()));
       if (year) items = items.filter((s) => s.year === Number(year));
@@ -98,7 +103,7 @@ export const api = {
     }));
   },
 
-  search: (q) => req(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`).catch(() => api.catalog().then((c) => {
+  search: (q) => live(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`).catch(() => api.catalog().then((c) => {
     const items = (c.shows || []).filter((s) => matchesSearch(s.title,q));
     return { items };
   })),
@@ -107,10 +112,11 @@ export const api = {
     const params = new URLSearchParams({kind,page:String(page)});
     if (genre) params.set('genre',genre); if (year) params.set('year',String(year));
     if (latest) params.set('latest','true');
+    if (STATIC) return Promise.resolve({ items: [], page, static: true });
     return req(`${API_BASE}/api/discover?${params}`);
   },
 
-  genres: () => req(`${API_BASE}/api/genres`).catch(() => ({ genres: [] })),
+  genres: () => live(`${API_BASE}/api/genres`).catch(() => ({ genres: [] })),
 
   title: (id) => api.show(id),
   // Static mode: the deployment's shows/<id>.json (versioned by generatedAt) is the record; the live

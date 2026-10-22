@@ -16,10 +16,10 @@ const assets = {
     const assetDir = documentaries ? path.join(root, 'public') : path.resolve(root, '../client-terrarium');
     server.middlewares.use((req, res, next) => {
       const name = (req.url || '').split('?')[0].slice(1);
-      if (!['favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'manifest.webmanifest'].includes(name)) return next();
+      if (!['favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'manifest.webmanifest', 'robots.txt'].includes(name)) return next();
       const file = path.join(assetDir, name);
       if (!fs.existsSync(file)) return next();
-      res.setHeader('Content-Type', name.endsWith('.svg') ? 'image/svg+xml' : name.endsWith('.png') ? 'image/png' : 'application/manifest+json');
+      res.setHeader('Content-Type', name.endsWith('.svg') ? 'image/svg+xml' : name.endsWith('.png') ? 'image/png' : name.endsWith('.txt') ? 'text/plain; charset=utf-8' : 'application/manifest+json');
       fs.createReadStream(file).pipe(res);
     });
   },
@@ -31,7 +31,7 @@ const assets = {
   closeBundle() {
     const out = path.resolve(root, buildConfig.build.outDir);
     const assetDir = documentaries ? path.join(root, 'public') : path.resolve(root, '../client-terrarium');
-    for (const name of ['favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) {
+    for (const name of ['favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'robots.txt']) {
       const source = path.join(assetDir, name);
       if (fs.existsSync(source)) fs.copyFileSync(source, path.join(out, name));
     }
