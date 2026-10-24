@@ -31,7 +31,7 @@ const assets = {
   closeBundle() {
     const out = path.resolve(root, buildConfig.build.outDir);
     const assetDir = documentaries ? path.join(root, 'public') : path.resolve(root, '../client-terrarium');
-    for (const name of ['favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'robots.txt']) {
+    for (const name of ['favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'robots.txt', '_headers', '_redirects']) {
       const source = path.join(assetDir, name);
       if (fs.existsSync(source)) fs.copyFileSync(source, path.join(out, name));
     }

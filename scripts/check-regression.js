@@ -40,7 +40,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const LIVE_BASE = process.env.DAHSHA_LIVE_URL || 'https://dahsha.vercel.app';
+export const LIVE_BASE = process.env.DAHSHA_LIVE_URL || 'https://dahsha.netlify.app';
 export const DEFAULT_THRESHOLD = 0.05;
 // One source may lose this share of its episodes in a run (or below its peak) once it has at least
 // SOURCE_MIN_COUNT of them; smaller sources are reported only. The October outage emptied whole

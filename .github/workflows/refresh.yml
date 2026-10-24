@@ -38,9 +38,8 @@ jobs:
     env:
       APP_PRODUCT: dahsha
       GH_TOKEN: ${{ github.token }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ vars.NETLIFY_SITE_ID || '2b4ce6d4-a0b4-487b-a142-5875429bbd83' }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       REGRESSION_FORCE: ${{ inputs.force && '1' || '' }}
       # server/data files the provider step writes: backed up before it, put back if it fails.
@@ -124,22 +123,20 @@ jobs:
       - name: Regression check
         id: guard
         run: node scripts/check-regression.js --restored "$RUNNER_TEMP/restored-counts.json" --write-baseline
-      # "vercel build" runs the buildCommand from vercel.json (static build with the exported data);
-      # the prebuilt deploy then uploads the result, including the data files that git ignores.
-      - name: Build & deploy to Vercel
-        if: success() && env.VERCEL_TOKEN != ''
+      # vercel-build.js is host-neutral: it builds the static site with the exported data into client/dist
+      # and writes data/deploy.json. Netlify serves the site and data; provider titles and playback still
+      # call the serverless API that stays on Vercel (VITE_API_BASE), which Netlify does not host.
+      - name: Build & deploy to Netlify
+        if: success() && env.NETLIFY_AUTH_TOKEN != ''
         env:
-          REGRESSION_CHECKED: '1'        # the step above already compared with production
+          REGRESSION_CHECKED: '1'        # the regression check step already compared with production
           DEPLOY_SNAPSHOT_PENDING: '1'   # this data becomes the next snapshot generation
+          VITE_API_BASE: https://dahsha.vercel.app
         run: |
-          npm install -g vercel@latest
-          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
-          vercel build --prod --token "$VERCEL_TOKEN"
-          node scripts/prepare-deployment.js dahsha
-          # --archive=tgz: one upload instead of ~13k files (the free plan caps file uploads at 5000/day)
-          vercel deploy --prebuilt --prod --yes --archive=tgz --token "$VERCEL_TOKEN"
-      - name: Build site (no Vercel token configured)
-        if: success() && env.VERCEL_TOKEN == ''
+          node scripts/vercel-build.js
+          npx --yes netlify-cli@27.12.0 deploy --prod --no-build --dir client/dist --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --message "${{ github.workflow }} ${{ github.run_id }}"
+      - name: Build site (no Netlify token configured)
+        if: success() && env.NETLIFY_AUTH_TOKEN == ''
         run: node scripts/build-static.js
       # Only data that passed the regression check becomes the next run's starting point. A failed
       # deploy still saves it, so the next run does not repeat the fetches. The `force` input does not

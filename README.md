@@ -2,7 +2,7 @@
 
 Dahsha is reserved for documentaries, with its original Arabic/English channels, topics, and episode browsing.
 
-- Website: [Dahsha](https://dahsha.vercel.app)
+- Website: [Dahsha](https://dahsha.netlify.app)
 - Repository: [FediMechergui/dahsha](https://github.com/FediMechergui/dahsha)
 - Android downloads: [Releases](https://github.com/FediMechergui/dahsha/releases)
 - Flixer is maintained in its [own repository](https://github.com/FediMechergui/flixer).
@@ -73,7 +73,7 @@ rule changes; classification status, score, reasons, and rule version are includ
 
 ```sh
 npm ci --prefix mobile
-npm run build:mobile -- --data-base https://dahsha.vercel.app
+npm run build:mobile -- --data-base https://dahsha.netlify.app
 npm run sync --prefix mobile
 ```
 
@@ -82,8 +82,8 @@ Release signing uses a private `mobile/keystore.properties` and keystore; neithe
 
 ## Hosting and refresh
 
-`vercel.json` targets Dahsha's own Vercel project and build output. Configure `STREAM_PROXY_SECRET` in Vercel for signed stream proxy URLs. Local development uses an ephemeral key.
+The website and its data are served by Netlify (`https://dahsha.netlify.app`, site `dahsha`); `client/public/_redirects` and `_headers` carry the SPA rewrite and the `/data` CORS and cache headers. The serverless API in `api/` (provider titles and playback) stays on the Vercel project: the web build and the Android app call it at `https://dahsha.vercel.app`. Vercel blocked the Hobby team for serverless CPU on 2026-10-21, so that API answers again only when the block is lifted. Configure `STREAM_PROXY_SECRET` in Vercel for signed stream proxy URLs. Local development uses an ephemeral key.
 
-This repo's refresh workflow updates only Dahsha and stores its cache in this repository's `data-snapshot` release. Android CI builds only Dahsha. Scheduled Vercel deployment uses `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repository secrets. Android signing uses `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Without signing credentials CI produces an unsigned APK.
+This repo's refresh workflow updates only Dahsha and stores its cache in this repository's `data-snapshot` release. Android CI builds only Dahsha. The scheduled deploy (every 12 hours) uploads `client/dist` with the Netlify CLI; it needs the `NETLIFY_AUTH_TOKEN` repository secret (a Netlify personal access token) and uses the `NETLIFY_SITE_ID` variable when set, else the `dahsha` site's id. Android signing uses `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Without signing credentials CI produces an unsigned APK.
 
 Read [Scraper behavior](docs/SCRAPERS.md) and [Provider integration](docs/FMOVIES.md) for parsing, matching, and playback details. Upstream streams and artwork may be unavailable; failed requests retain imported catalogue data.

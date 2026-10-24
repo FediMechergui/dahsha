@@ -35,9 +35,8 @@ jobs:
     env:
       APP_PRODUCT: dahsha
       GH_TOKEN: ${{ github.token }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ vars.NETLIFY_SITE_ID || '2b4ce6d4-a0b4-487b-a142-5875429bbd83' }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       SKIP_PROVIDER_SYNC: '1'   # providers are scanned by refresh.yml only
       REGRESSION_FORCE: ${{ inputs.force && '1' || '' }}
@@ -72,17 +71,18 @@ jobs:
       - name: Compare with production
         id: changes
         run: node scripts/check-regression.js changed
-      - name: Build & deploy to Vercel
-        if: success() && env.VERCEL_TOKEN != '' && (steps.changes.outputs.changed == 'true' || inputs.deploy)
+      # vercel-build.js is host-neutral: it builds the static site with the exported data into client/dist
+      # and writes data/deploy.json. Netlify serves the site and data; provider titles and playback still
+      # call the serverless API that stays on Vercel (VITE_API_BASE), which Netlify does not host.
+      - name: Build & deploy to Netlify
+        if: success() && env.NETLIFY_AUTH_TOKEN != '' && (steps.changes.outputs.changed == 'true' || inputs.deploy)
         env:
-          REGRESSION_CHECKED: '1'
-          DEPLOY_SNAPSHOT_PENDING: '1'
+          REGRESSION_CHECKED: '1'        # the regression check step already compared with production
+          DEPLOY_SNAPSHOT_PENDING: '1'   # this data becomes the next snapshot generation
+          VITE_API_BASE: https://dahsha.vercel.app
         run: |
-          npm install -g vercel@latest
-          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
-          vercel build --prod --token "$VERCEL_TOKEN"
-          node scripts/prepare-deployment.js dahsha
-          vercel deploy --prebuilt --prod --yes --archive=tgz --token "$VERCEL_TOKEN"
+          node scripts/vercel-build.js
+          npx --yes netlify-cli@27.12.0 deploy --prod --no-build --dir client/dist --site "$NETLIFY_SITE_ID" --auth "$NETLIFY_AUTH_TOKEN" --message "${{ github.workflow }} ${{ github.run_id }}"
       - name: Nothing new to deploy
         if: success() && steps.changes.outputs.changed != 'true' && !inputs.deploy
         run: echo "Production already serves this catalogue; deploy skipped." >> "$GITHUB_STEP_SUMMARY"

@@ -28,7 +28,7 @@ jobs:
     env:
       APP_PRODUCT: ${{ matrix.product }}
       VITE_PRODUCT: ${{ matrix.product }}
-      DATA_BASE: ${{ vars.DATA_BASE || 'https://dahsha.vercel.app' }}
+      DATA_BASE: ${{ vars.DATA_BASE || 'https://dahsha.netlify.app' }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
       APP_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}

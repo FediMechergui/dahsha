@@ -6,7 +6,7 @@
 #
 # Twice a day it also checks that the live site is being updated: it fails (and GitHub emails the
 # failure, which a disabled or failing refresh workflow cannot do for itself) when
-# https://dahsha.vercel.app/data/status.json cannot be read or its generatedAt is more than
+# https://dahsha.netlify.app/data/status.json cannot be read or its generatedAt is more than
 # MAX_AGE_HOURS old. refresh.yml deploys every 12 hours, so 26 hours means two missed deploys.
 name: Keep schedules alive
 
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SITE_URL: https://dahsha.vercel.app
+      SITE_URL: https://dahsha.netlify.app
       MAX_AGE_HOURS: '26'
     steps:
       - name: Check that the live catalogue is fresh

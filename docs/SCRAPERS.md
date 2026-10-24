@@ -377,7 +377,7 @@ None of them is a playback catalogue. Two modules call them:
 `.github/workflows/refresh.yml` runs every 12 hours (03:17 and 15:17 UTC): restore
 the data snapshot, `cli.js refresh` (YouTube, Myflixer, artwork), `export.js`, the
 FMovies/HDToday provider step (`scripts/refresh-providers.js`), the regression
-check, the Vercel deploy, then the snapshot save. It is the only scheduled deploy:
+check, the Netlify deploy, then the snapshot save. It is the only scheduled deploy:
 Vercel blocked the Hobby team for fair-use limits on 2026-10-21, so `poll.yml`
 (the RSS fast path, with the same restore, check and save around it) now runs only
 by hand, and `vercel.json` turns off deployments from git pushes and Dependabot
@@ -412,7 +412,7 @@ branches. Code changes go live with the next scheduled refresh, or a manual run.
 - `keepalive.yml` re-enables the scheduled workflows and pushes to the
   `keepalive` branch once a month, so GitHub does not disable them after 60 days
   without activity. Twice a day it also fails when
-  `https://dahsha.vercel.app/data/status.json` cannot be read or its
+  `https://dahsha.netlify.app/data/status.json` cannot be read or its
   `generatedAt` is more than 12 hours old. GitHub emails that failure, which a
   disabled or broken refresh workflow cannot do for itself.
 - `test.yml` runs `npm test` on every push and pull request, including the weekly

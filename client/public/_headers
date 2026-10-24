@@ -1,0 +1,22 @@
+# Netlify headers; the same rules vercel.json used to set.
+/data/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+  Access-Control-Allow-Headers: Content-Type
+/data/catalog.json
+  Cache-Control: public, max-age=600, stale-while-revalidate=3600
+/data/catalog.ar.json
+  Cache-Control: public, max-age=600, stale-while-revalidate=3600
+/data/catalog.en.json
+  Cache-Control: public, max-age=600, stale-while-revalidate=3600
+/data/status.json
+  Cache-Control: public, max-age=300
+/data/deploy.json
+  Cache-Control: public, max-age=60
+/data/shows/*
+  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/*
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff

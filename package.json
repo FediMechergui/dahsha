@@ -14,7 +14,7 @@
     "poll-data": "node server/src/cli.js poll",
     "export": "node scripts/product.js dahsha export",
     "build:static": "node scripts/product.js dahsha build",
-    "publish": "vercel deploy --prod --yes --archive=tgz",
+    "publish": "npx --yes netlify-cli@27.12.0 deploy --prod --no-build --dir client/dist --site 2b4ce6d4-a0b4-487b-a142-5875429bbd83",
     "snapshot:save": "node scripts/snapshot.js save",
     "snapshot:restore": "node scripts/snapshot.js restore",
     "check:regression": "node scripts/check-regression.js",

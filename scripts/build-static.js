@@ -1,15 +1,18 @@
 import { configureMobile } from './configure-mobile.js';
 // Builds the client in static mode (reads /data/*.json instead of the API).
 //   node scripts/build-static.js [--out <dir>] [--data-base <url>] [--mobile]
-// A Dahsha --mobile build reads data and /api from the hosted site (MOBILE_DATA_BASE, default
-// https://dahsha.vercel.app) unless --data-base is given: bundling would copy the whole exported
+// A Dahsha --mobile build reads data from the hosted site (MOBILE_DATA_BASE, default
+// https://dahsha.netlify.app) unless --data-base is given: bundling would copy the whole exported
 // catalogue into the APK, freeze it there, and point /api at a server the phone does not have.
+// The site moved to Netlify after Vercel blocked the Hobby team (2026-10-21); the serverless API
+// (provider titles and playback) stays on Vercel, so the hosted data base gets MOBILE_API_BASE.
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-export const MOBILE_DATA_BASE = 'https://dahsha.vercel.app';
+export const MOBILE_DATA_BASE = 'https://dahsha.netlify.app';
+export const MOBILE_API_BASE = 'https://dahsha.vercel.app';
 
 export function resolveBases(args, env = process.env, product = 'dahsha') {
   const mobile = args.includes('--mobile');
@@ -17,7 +20,8 @@ export function resolveBases(args, env = process.env, product = 'dahsha') {
   let dataBase = i >= 0 ? (args[i + 1] ?? '') : (env.VITE_DATA_BASE || '');
   // An explicit --data-base (even an empty one) is respected; only the implicit default changes.
   if (mobile && product === 'dahsha' && i < 0 && !env.VITE_DATA_BASE) dataBase = env.MOBILE_DATA_BASE || MOBILE_DATA_BASE;
-  return { mobile, dataBase, apiBase: env.VITE_API_BASE || dataBase || '' };
+  const hosted = dataBase.replace(/\/+$/, '') === (env.MOBILE_DATA_BASE || MOBILE_DATA_BASE).replace(/\/+$/, '');
+  return { mobile, dataBase, apiBase: env.VITE_API_BASE || (hosted ? env.MOBILE_API_BASE || MOBILE_API_BASE : dataBase) || '' };
 }
 
 function main() {

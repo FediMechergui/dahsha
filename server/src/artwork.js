@@ -31,7 +31,7 @@ const RETRY_JITTER = 0.5; // up to +50% of the interval, fixed per show id, so o
 const PRUNE_MAX_SHARE = 0.2; // a save never drops more than this share of artwork.json (a partial show list)…
 const PRUNE_MIN = 20; // …unless only a handful of keys are involved
 const SAVE_EVERY = 25;
-const UA = 'Dahsha/1.0 (https://dahsha.vercel.app; documentary catalogue)';
+const UA = 'Dahsha/1.0 (https://dahsha.netlify.app; documentary catalogue)';
 const DAY = 864e5;
 export const ARTWORK_RULES_VERSION = RULES_VERSION;
 

@@ -1,0 +1,38 @@
+{
+ "version": 1,
+ "generation": 143,
+ "savedAt": "2026-10-24T03:38:22.646Z",
+ "restoredGeneration": 142,
+ "restoredAt": "2026-10-24T07:59:04.241Z",
+ "by": "ci",
+ "overrides": [],
+ "workflow": "Refresh catalogue & deploy",
+ "runId": "40058641665",
+ "runUrl": "https://github.com/FediMechergui/dahsha/actions/runs/40058641665",
+ "sha": "9aa3d58348cd824d1bf1423c65175df90048ec92",
+ "counts": {
+  "details": 105752,
+  "seen": 106817,
+  "playlists": 3092,
+  "playlistVideos": 182581,
+  "artworkMatched": 2671,
+  "providerItems": 2594,
+  "catalogShows": 17683,
+  "youtubeShows": 10432,
+  "youtubeEpisodes": 26803
+ },
+ "files": [
+  "playlists.json",
+  "details.json",
+  "seen.json",
+  "catalog.json",
+  "artwork.json",
+  "providers-dahsha.json",
+  "provider-aliases-dahsha.json",
+  "provider-identities-dahsha.json",
+  "provider-matches-dahsha.json",
+  "deploy-baseline.json",
+  "show-ids.json",
+  "service-metadata-dahsha.json"
+ ]
+}
