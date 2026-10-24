@@ -38,3 +38,6 @@ server/data/flixer-catalog.json
 docs/research/hdtoday/
 artifacts/
 server/deployment-*.json
+server/data/deploy-baseline.json
+server/data/snapshot-manifest.json
+server/data/service-metadata-*.json
