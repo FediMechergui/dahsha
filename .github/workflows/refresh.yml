@@ -45,8 +45,8 @@ jobs:
       # server/data files the provider step writes: backed up before it, put back if it fails.
       PROVIDER_CACHE_FILES: providers-dahsha.json provider-aliases-dahsha.json provider-identities-dahsha.json provider-matches-dahsha.json service-metadata-dahsha.json catalog.json
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Install
