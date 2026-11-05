@@ -388,13 +388,20 @@ export function shouldReload({ statusVersion, sectionVersion, attempt, now = Dat
   return true;
 }
 
-/** Episodes present in the next section but not in the previous one, newest first. */
+/** Newly dated episodes, not historical guide imports or alternate IDs of known episodes. */
 export function newEpisodesBetween(prev, next) {
   if (!prev?.shows || !next?.shows) return [];
   const known = new Set();
-  for (const s of prev.shows) for (const e of s.episodes || []) known.add(e.id);
+  const ids = episode => [episode.id, ...(episode.offerings || []).map(offering => offering.id)].filter(Boolean);
+  for (const s of prev.shows) for (const e of s.episodes || []) for (const id of ids(e)) known.add(id);
+  const previousAt = Date.parse(prev.generatedAt), nextAt = Date.parse(next.generatedAt);
   const out = [];
-  for (const s of next.shows) for (const e of s.episodes || []) if (!known.has(e.id)) out.push({ show: s, episode: e, at: episodeRecency(e) || '' });
+  for (const s of next.shows) for (const e of s.episodes || []) {
+    const at = episodeRecency(e), time = Date.parse(at);
+    if (!Number.isFinite(time) || Number.isFinite(previousAt) && time <= previousAt || Number.isFinite(nextAt) && time > nextAt || ids(e).some(id => known.has(id))) continue;
+    out.push({ show: s, episode: e, at });
+    for (const id of ids(e)) known.add(id);
+  }
   return out.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).map(({ show, episode }) => ({ show, episode }));
 }
 

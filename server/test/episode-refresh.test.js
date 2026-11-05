@@ -17,6 +17,7 @@ test('first guide imports real episode links without presenting the historical i
   assert.equal(items[0].episodeCount,2);
   assert.equal(items[0].episodeGuideInitializedAt,new Date(now).toISOString());
   assert.equal(items[0].episodesAddedAt,undefined);
+  assert.ok(items[0].episodes.every(episode => !episode.addedAt));
   assert.equal(items[0].latestEpisode,undefined);
   assert.equal(report.addedEpisodes,2);assert.equal(report.changedShows,0);
   assert.deepEqual(old.episodes,[],'input cache is unchanged');
@@ -31,6 +32,8 @@ test('a later season advances recency, but filling an old gap does not',async()=
   const second=await refreshSeriesEpisodes(first.items,{...options,resolveDetails:async()=>fresh});
   assert.equal(second.items[0].episodesAddedAt,new Date(now).toISOString());
   assert.equal(second.items[0].episodes.length,4);assert.equal(second.report.changedShows,1);
+  assert.equal(second.items[0].episodes.find(episode=>episode.season===3).addedAt,new Date(now).toISOString());
+  assert.ok(second.items[0].episodes.filter(episode=>episode.season<3).every(episode=>!episode.addedAt));
 });
 
 test('guide updates retain episode IDs and metadata when a response is partial',async()=>{

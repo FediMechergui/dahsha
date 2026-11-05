@@ -71,7 +71,7 @@ export default function Player({videoId,episode,startAt=0,onProgress,onEnded,aut
   },[resolutionKey]);
 
   useEffect(()=>{
-    const selected=container.current?.querySelector('.player__server-btn[aria-pressed="true"]'),list=selected?.parentElement;
+    const selected=container.current?.querySelector('.player__server-btn[aria-pressed="true"]'),list=selected?.closest('.player__servers');
     if(!selected||!list)return;const button=selected.getBoundingClientRect(),strip=list.getBoundingClientRect();
     const left=button.left<strip.left?button.left-strip.left:button.right>strip.right?button.right-strip.right:0;
     if(left)list.scrollBy({left,behavior:'smooth'});

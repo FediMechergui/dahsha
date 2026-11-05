@@ -182,7 +182,20 @@ test('Dahsha orders episodes by the later of publishedAt and addedAt',()=>{
   assert.ok(recent.every(x=>Object.keys(x).join()==='show,episode'));
   // New-episode toasts after a static deploy name the newest discovery first.
   const fresh=newEpisodesBetween({shows:[{id:'s_giwba2',episodes:[series.episodes[0]]},{id:'s_yt',episodes:[]}]},{shows:[series,yt]});
-  assert.deepEqual(fresh.map(x=>x.episode.id),['mf:e:final-twist-s2e2','61ODlrzb7Pk','aaaaaaaaaaa','bbbbbbbbbbb']);
+  assert.deepEqual(fresh.map(x=>x.episode.id),['mf:e:final-twist-s2e2','61ODlrzb7Pk']);
+});
+
+test('episode notifications exclude historical guide backfills, future dates and merged alternate IDs',()=>{
+  const prev={generatedAt:'2026-11-05T10:00:00Z',shows:[{id:'show',episodes:[{id:'old',offerings:[{id:'fm:e:1:1:1'}]}]}]};
+  const next={generatedAt:'2026-11-05T11:00:00Z',shows:[{id:'show',episodes:[
+    {id:'undated-guide'},
+    {id:'historical-guide',publishedAt:'2020-01-01T00:00:00Z'},
+    {id:'fm:e:1:1:1',addedAt:'2026-11-05T10:30:00Z'},
+    {id:'future',publishedAt:'2027-01-01T00:00:00Z'},
+    {id:'new',publishedAt:'2026-11-05T10:30:00Z'},
+    {id:'new-alias',offerings:[{id:'new'}],publishedAt:'2026-11-05T10:30:00Z'},
+  ]}]};
+  assert.deepEqual(newEpisodesBetween(prev,next).map(row=>row.episode.id),['new']);
 });
 
 test('Dahsha reads per-provider freshness and falls back to the shared fields of older catalogues',()=>{

@@ -140,6 +140,8 @@ export async function refreshSeriesEpisodes(rows, {
         if (newContent.length) {
           merged.episodesAddedAt = latestDate(row.episodesAddedAt,at);
           merged.providerUpdatedAt = at;
+          const newIds = new Set(newContent.map(episode => episode.id));
+          merged.episodes = merged.episodes.map(episode => newIds.has(episode.id) ? {...episode,addedAt:latestDate(episode.addedAt,at)} : episode);
           report.changedShows++;
         }
         // Listing cursors and guide IDs use different formats. Do not mix them into latestEpisode.
