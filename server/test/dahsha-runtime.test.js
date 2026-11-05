@@ -136,6 +136,19 @@ test('a client can finish an older immutable language index after a new manifest
   assert.equal((await source.part(oldKey)).shows[0].episodes.length, 2);
 });
 
+test('cold pinned indexes load without a mutable manifest dependency and retain hash/language checks', async () => {
+  const bundle = await publication(), key = bundle.manifest.languages.ar.parts[0], file = bundle.manifest.files[key];
+  const { source, requests } = sourceFor(bundle, { fetchImpl: async name => {
+    assert.ok(!name.startsWith('manifest'), 'immutable requests must not contact a manifest');
+    return new Response(bundle.blobs.get(name) || gzipSync('{}'));
+  } });
+  assert.equal((await source.part(key, file.sha256)).shows[0].id, 's_ar');
+  assert.deepEqual(requests, [file.name]);
+  await assert.rejects(source.part(key.replace('-ar-', '-en-'), file.sha256), /Invalid catalogue index/);
+  await assert.rejects(source.part(key, 'a'.repeat(64)), /integrity/);
+  await assert.rejects(source.part(key, '../bad'), /Invalid catalogue hash/);
+});
+
 test('corrupt gzip bodies and mismatched declared sizes are never returned as a catalogue part', async () => {
   const bundle = await publication(), key = bundle.manifest.languages.ar.parts[0];
   const file = bundle.manifest.files[key];

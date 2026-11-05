@@ -108,7 +108,10 @@ export function createRuntimeSource({ fetchImpl = fetch, now = Date.now, pollMs 
   async function part(key, sha) {
     const match = /^index-(ar|en)-\d{4}$/.exec(String(key));
     if (!match) throw Error('Unknown catalogue part');
-    const target = await check(), file = target?.files[key];
+    // A pinned immutable hash already identifies the exact bytes requested. Cold
+    // instances must not wait on two mutable manifest downloads before serving
+    // each index part; the hash, decompression limit and language still validate it.
+    const target = sha ? current() : await check(), file = target?.files[key];
     // Older clients can finish the immutable generation they started even if
     // a newer publication removed this section from the current manifest.
     const hash = sha || file?.sha256;
