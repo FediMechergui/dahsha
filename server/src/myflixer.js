@@ -69,14 +69,16 @@ let yearCache = null;
 /**
  * Load release-year taxonomy.
  */
-export async function loadYearTerms() {
+const requestSignal=(signal,ms)=>signal?AbortSignal.any([signal,AbortSignal.timeout(ms)]):AbortSignal.timeout(ms);
+export async function loadYearTerms({signal}={}) {
+  signal?.throwIfAborted();
   if (yearCache) return yearCache;
   const map = new Map();
   try {
     for (let page = 1; page <= 8; page++) {
       const res = await fetch(`${API}/release-year?per_page=100&page=${page}&_fields=id,name`, {
         headers: { 'User-Agent': DESKTOP_UA },
-        signal: AbortSignal.timeout(6000),
+        signal: requestSignal(signal,6000),
       });
       if (!res.ok) break;
       const rows = await res.json();
@@ -87,6 +89,7 @@ export async function loadYearTerms() {
       if (rows.length < 100) break;
     }
   } catch (e) {
+    signal?.throwIfAborted();
     console.warn('[myflixer] release-year lookup error:', e.message);
   }
   yearCache = map;
@@ -258,12 +261,12 @@ export async function searchContent(query, { perPage = 20 } = {}) {
 /**
  * Parse all seasons & episodes for a TV series from its page.
  */
-export async function fetchSeriesEpisodes(slug) {
+export async function fetchSeriesEpisodes(slug,{signal}={}) {
   const url = `${BASE}/series/${slug}/`;
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': DESKTOP_UA, Referer: BASE },
-      signal: AbortSignal.timeout(8000),
+      signal: requestSignal(signal,8000),
     });
     if (!res.ok) return [];
     const doc = await res.text();
@@ -300,25 +303,25 @@ export async function fetchSeriesEpisodes(slug) {
 /**
  * Get full title details (Movie or TV series, with all seasons and episodes).
  */
-export async function getTitleDetails(rawId) {
+export async function getTitleDetails(rawId,{signal}={}) {
   const id = rawId;
   if (!validMediaId(id)) return null;
   const isSeries = id.startsWith('mf:s:') || (!id.startsWith('mf:m:') && !id.startsWith('mf:e:') && false);
   const isMovie = id.startsWith('mf:m:') || (!isSeries && !id.startsWith('mf:e:'));
   const slug = id.replace(/^mf:[mse]:/, '');
-  const years = await loadYearTerms();
+  const years = await loadYearTerms({signal});
 
   // Try fetching as movie or series
   let item = null;
   if (isSeries) {
     const res = await fetch(`${API}/tvshows?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
-      headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000),
+      headers: { 'User-Agent': DESKTOP_UA }, signal: requestSignal(signal,12000),
     });
     const rows = await res.json().catch(() => []);
     if (rows?.[0]) item = formatItem(rows[0], years, 'series');
   } else {
     const res = await fetch(`${API}/posts?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
-      headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000),
+      headers: { 'User-Agent': DESKTOP_UA }, signal: requestSignal(signal,12000),
     });
     const rows = await res.json().catch(() => []);
     if (rows?.[0]) item = formatItem(rows[0], years, 'movie');
@@ -327,7 +330,7 @@ export async function getTitleDetails(rawId) {
   // If not found as specified, try the opposite
   if (!item) {
     const fallbackRes = await fetch(`${API}/${isSeries ? 'posts' : 'tvshows'}?slug=${slug}&_fields=id,slug,title,date,categories,release-year,content,excerpt`, {
-      headers: { 'User-Agent': DESKTOP_UA }, signal: AbortSignal.timeout(12000),
+      headers: { 'User-Agent': DESKTOP_UA }, signal: requestSignal(signal,12000),
     });
     const fbRows = await fallbackRes.json().catch(() => []);
     if (fbRows?.[0]) item = formatItem(fbRows[0], years, isSeries ? 'movie' : 'series');
@@ -337,7 +340,7 @@ export async function getTitleDetails(rawId) {
 
   // If series, populate episodes
   if (item.kind === 'series') {
-    const episodes = await fetchSeriesEpisodes(slug);
+    const episodes = await fetchSeriesEpisodes(slug,{signal});
     if (episodes.length > 0) {
       item.episodes = episodes.map((ep) => ({
         ...ep,
@@ -662,14 +665,14 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
  * Resolve playback streams and player embed for an episode or film.
  * Extracts all 7 player providers from Myflixer.
  */
-export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
+export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream', {transport='proxy',signal}={}) {
   if (!validMediaId(id)) throw new Error('Invalid stream ID');
   const isMovie = id.startsWith('mf:m:');
   const slug = id.replace(/^mf:[mse]:/, '');
   const url = isMovie ? `${BASE}/${slug}/` : `${BASE}/episodes/${slug}/`;
 
   try {
-    const res = await safeRemoteFetch(url, { headers: { 'User-Agent': DESKTOP_UA, Referer: BASE } });
+    const res = await safeRemoteFetch(url, { signal,headers: { 'User-Agent': DESKTOP_UA, Referer: BASE } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const doc = await res.text();
 
@@ -691,7 +694,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
     let hlsStreams = [];
     if (playerUrl && playerUrl.includes('soap/')) {
       try {
-        const outer = await safeRemoteFetch(playerUrl, { headers: { 'User-Agent': DESKTOP_UA, Referer: url } });
+        const outer = await safeRemoteFetch(playerUrl, { signal,headers: { 'User-Agent': DESKTOP_UA, Referer: url } });
         const outerText = await outer.text();
         const cfgMatch = /const cfg\s*=\s*(\{[\s\S]*?\});/.exec(outerText);
         if (cfgMatch) {
@@ -702,7 +705,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
               .replace('{tmdb_id}', String(cfg.tmdbId))
               .replace('{season}', String(cfg.season ?? 1))
               .replace('{episode}', String(cfg.episode ?? 1));
-            const innerRes = await safeRemoteFetch(inner, { headers: { 'User-Agent': DESKTOP_UA, Referer: playerUrl } });
+            const innerRes = await safeRemoteFetch(inner, { signal,headers: { 'User-Agent': DESKTOP_UA, Referer: playerUrl } });
             const innerDoc = await innerRes.text();
             const listed = JSON.parse(/const sources\s*=\s*(\[[\s\S]*?\]);/.exec(innerDoc)?.[1] ?? '[]');
             hlsStreams = listed.filter((s) => typeof s.file === 'string' && /^https:\/\//.test(s.file)).map((s) => ({
@@ -727,8 +730,9 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
           id: `hls_${idx}`,
           name: `${s.quality || `Server ${idx + 1}`} (HLS)`,
           type: 'hls',
-          streamUrl: proxyUrl(proxyPrefix, s.uri),
+          streamUrl: transport==='direct'?s.uri:proxyUrl(proxyPrefix, s.uri),
           rawStreamUrl: s.uri,
+          headers:s.headers,
         });
       });
     }
@@ -759,7 +763,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
 
     const primaryHls = servers.find((s) => s.type === 'hls')?.streamUrl || null;
     const primaryEmbed = servers.find((s) => s.type === 'embed')?.embedUrl || playerUrl || url;
-    const embedUrl = `${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`;
+    const embedUrl = transport==='direct'?primaryEmbed:`${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`;
 
     return {
       id,
@@ -773,7 +777,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
         ...s,
         id: idx,
         name: s.quality || `Server ${idx + 1}`,
-        proxyUri: proxyUrl(proxyPrefix, s.uri),
+        ...(transport==='direct'?{}:{proxyUri:proxyUrl(proxyPrefix, s.uri)}),
       })),
     };
   } catch (e) {
@@ -781,7 +785,7 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream') {
     return {
       id,
       sourceUrl: url,
-      embedUrl: `${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`,
+      embedUrl: transport==='direct'?null:`${proxyPrefix}?embed=1&id=${encodeURIComponent(id)}`,
       rawEmbedUrl: url,
       streamUrl: null,
       rawStreamUrl: null,

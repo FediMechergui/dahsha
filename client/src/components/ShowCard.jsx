@@ -6,7 +6,7 @@ import { useLang, channelName } from '../lib/i18n.jsx';
 import { episodesLabel, isNew, fmtDuration } from '../lib/format.js';
 import { channelColor, contentLangBadge } from '../lib/channels.js';
 import { cleanTitle } from '../lib/text.js';
-import { discoveredOn, PROVIDER_NAMES, recencyOf } from '../lib/catalog-helpers.js';
+import { discoveredOn, PROVIDER_NAMES, recencyOf, showCardArt } from '../lib/catalog-helpers.js';
 
 // Most thumbnails already carry a printed title or logo, so the card keeps text and badges off the
 // image: title, channel and badges sit below it.
@@ -27,10 +27,11 @@ export default function ShowCard({ show, size = 'md', index, hideChannel = false
     : count ? episodesLabel(count, lang) : t('kind_series_label');
   const channel = !hideChannel && show.channel ? channelName(show.channel, lang) || show.channel.name || show.channel.title : null;
   const title = cleanTitle(show.title);
+  const art = showCardArt(show);
   return (
-    <Link to={`/show/${show.id}${/^(fm|hd):/.test(show.id) && show.sourceUrl ? `?source=${encodeURIComponent(show.sourceUrl)}` : ''}`} className={`card card--${size}`} style={{ '--tag': tag?.color || '#999', '--ch': channelColor(show.channel) }} data-index={index} aria-label={title || undefined}>
+    <Link to={`/show/${show.id}${/^(fm|hd):/.test(show.id) && show.sourceUrl ? `?source=${encodeURIComponent(show.sourceUrl)}` : ''}`} className={`card card--${size}${art.portrait ? ' card--portrait' : ''}`} style={{ '--tag': tag?.color || '#999', '--ch': channelColor(show.channel) }} data-index={index} aria-label={title || undefined}>
       <div className="card__media">
-        <Thumb videoId={show.posterId || show.posterVideoId || show.episodes?.[0]?.id} thumbs={show.poster} alt="" className="card__img" start={size === 'lg' ? 'max' : 'sd'} />
+        <Thumb videoId={art.videoId} thumbs={art.thumbs} fallbackThumbs={art.fallbackThumbs} alt="" className="card__img" start={size === 'lg' ? 'max' : 'sd'} label={title} />
         <i className="card__frame" aria-hidden />
         <span className="card__play" aria-hidden><PlayIcon size={26} /></span>
       </div>

@@ -28,7 +28,7 @@ The repository defaults to **Dahsha**. The default commands do not build or depl
 | `npm run export -- --cached` | Export the restored catalogue |
 | `npm run refresh:providers` | Incrementally refresh this app's providers |
 | `npm run test` | Validate providers, catalogue policy, and media handling |
-| `npm run publish` | Deploy this repository to its linked Vercel project |
+| `npm run publish` | Deploy the built website and API to Dahsha's Netlify site |
 
 ## Project layout
 
@@ -82,8 +82,10 @@ Release signing uses a private `mobile/keystore.properties` and keystore; neithe
 
 ## Hosting and refresh
 
-The website and its data are served by Netlify (`https://dahsha.netlify.app`, site `dahsha`); `client/public/_redirects` and `_headers` carry the SPA rewrite and the `/data` CORS and cache headers. The serverless API in `api/` (provider titles and playback) stays on the Vercel project: the web build and the Android app call it at `https://dahsha.vercel.app`. Vercel blocked the Hobby team for serverless CPU on 2026-10-21, so that API answers again only when the block is lifted. Configure `STREAM_PROXY_SECRET` in Vercel for signed stream proxy URLs. Local development uses an ephemeral key.
+The website and lightweight API share `https://dahsha.netlify.app`. The API serves versioned catalogue chunks and resolves one documentary at a time for playback. Search, browsing and filtering run on the device. Video travels directly from its source to the player; Netlify does not relay video segments. `client/public/_redirects` and `_headers` retain the SPA routing and static fallback headers.
 
-This repo's refresh workflow updates only Dahsha and stores its cache in this repository's `data-snapshot` release. Android CI builds only Dahsha. The scheduled deploy (every 12 hours) uploads `client/dist` with the Netlify CLI; it needs the `NETLIFY_AUTH_TOKEN` repository secret (a Netlify personal access token) and uses the `NETLIFY_SITE_ID` variable when set, else the `dahsha` site's id. Android signing uses `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Without signing credentials CI produces an unsigned APK.
+GitHub's hosted runners check YouTube RSS every 30 minutes and run the deeper channel, playlist and documentary-provider refresh every 12 hours. GitHub can delay scheduled jobs. Each successful refresh publishes immutable, hash-verified data in this repository's `catalogue-runtime` release and saves collection state in `data-snapshot`. Routine updates do not deploy Netlify or rebuild the APK. Failed or incomplete updates retain the previous catalogue. Curated channel and documentary filters still apply.
+
+Deploy website/API code explicitly with `npm run build` followed by `npm run publish` using the Netlify CLI login or `NETLIFY_AUTH_TOKEN`. Android client/player changes require a new APK. Android CI builds only Dahsha and uses `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`; without signing credentials it produces an unsigned APK.
 
 Read [Scraper behavior](docs/SCRAPERS.md) and [Provider integration](docs/FMOVIES.md) for parsing, matching, and playback details. Upstream streams and artwork may be unavailable; failed requests retain imported catalogue data.

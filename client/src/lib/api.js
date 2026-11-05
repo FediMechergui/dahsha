@@ -1,7 +1,8 @@
 import { DOCUMENTARIES, PRODUCT } from './product.js';
 import { matchesSearch } from '../../../shared/search.js';
 import { mergeLiveShow, needsLiveTitle, versionedUrl } from './catalog-helpers.js';
-// Flixer API client. Supports both live API mode and static JSON fallback mode.
+import { createRuntimeCatalogClient, isOlderGeneration } from './runtime-catalog.js';
+// Catalogue browsing stays local; the backend serves independently published data and playback.
 export const STATIC = import.meta.env.VITE_STATIC === '1';
 export const DATA_BASE = (import.meta.env.VITE_DATA_BASE || '').replace(/\/$/, '');
 const defaultBase = '';
@@ -56,9 +57,23 @@ async function req(url, { timeout = 30000, stall = 0, ...opts } = {}) {
   return body;
 }
 
-// A static build answers home, listing and search from the exported catalogue and never calls the
-// serverless API for them: Vercel blocked the Hobby team for function CPU on 2026-10-21. Only
-// provider titles and playback (api.show for provider-backed titles, api.stream) still go live.
+const runtime = createRuntimeCatalogClient({ request: req, base: API_BASE });
+let bootstrapStatus = null, bootstrapStatusAt = 0;
+const readBootstrapStatus = async (force = false) => {
+  if (!force && bootstrapStatus && Date.now() - bootstrapStatusAt < 120000) return bootstrapStatus;
+  const status = await req(`${DATA_BASE}/data/status.json?t=${Date.now()}`, { cache: 'no-store', timeout: 15000 });
+  bootstrapStatus = runtime.acceptBootstrap(status);
+  bootstrapStatusAt = Date.now();
+  return status;
+};
+const allowBootstrap = async version => {
+  const stale = () => Object.assign(new Error('The bundled catalogue is older than the available update'), { code: 'RUNTIME_CATALOG_STALE' });
+  if (bootstrapStatus && isOlderGeneration(bootstrapStatus.generatedAt, runtime.observedVersion)) throw stale();
+  const status = runtime.acceptBootstrap(await readBootstrapStatus());
+  if (isOlderGeneration(status.generatedAt, version)) throw stale();
+};
+
+// Home, listing and search read the downloaded catalogue instead of scanning it in a function.
 const live = (url) => (STATIC ? Promise.reject(new Error('static build')) : req(url));
 
 export const api = {
@@ -119,35 +134,50 @@ export const api = {
   genres: () => live(`${API_BASE}/api/genres`).catch(() => ({ genres: [] })),
 
   title: (id) => api.show(id),
-  // Static mode: the deployment's shows/<id>.json (versioned by generatedAt) is the record; the live
-  // title API only layers provider data on top of it, and only for provider-backed titles.
+  // The independent runtime publication supplies saved details; live provider data is layered on
+  // top. Static files remain an initial fallback, never a way to downgrade a newer runtime snapshot.
   show: (id, { source, sources = [], version } = {}) => {
     source ||= new URLSearchParams(window.location.search).get('source');
     const params = new URLSearchParams({ id });
     for (const url of [...new Set([source, ...sources].filter(Boolean))]) params.append('source',url);
-    const live = () => req(`${API_BASE}/api/title?${params}`);
+    const live = () => req(`${API_BASE}/api/title?${params}`).then(row => STATIC && DOCUMENTARIES ? runtime.acceptTitle(row, { version }) : row);
     if (!STATIC) return live();
-    return req(versionedUrl(`${DATA_BASE}/data/shows/${encodeURIComponent(encodeURIComponent(id))}.json`, version))
-      .then(show => needsLiveTitle(id, show) ? live().then(fresh => mergeLiveShow(show, fresh), () => show) : show, () => live());
+    const saved = DOCUMENTARIES ? runtime.show(id, { version }).catch(async error => {
+      if (error.code === 'RUNTIME_CATALOG_STALE') throw error;
+      await allowBootstrap(version);
+      return req(versionedUrl(`${DATA_BASE}/data/shows/${encodeURIComponent(encodeURIComponent(id))}.json`, version));
+    }) : req(versionedUrl(`${DATA_BASE}/data/shows/${encodeURIComponent(encodeURIComponent(id))}.json`, version));
+    return saved
+      .then(show => needsLiveTitle(id, show) ? live().then(fresh => mergeLiveShow(show, fresh), () => show) : show, error => {
+        if (error.code === 'RUNTIME_CATALOG_STALE') throw error;
+        return live();
+      });
   },
   stream: (id, { showId, source, sources = [] } = {}) => {
-    const params = new URLSearchParams({ id });
+    const params = new URLSearchParams({ id, transport: 'direct' });
     if (showId) params.set('showId', showId);
     for (const url of [...new Set([source,...sources].filter(Boolean))]) params.append('source',url);
     return req(`${API_BASE}/api/stream?${params}`);
   },
 
-  // version: the deployment's status.json generatedAt, so a new deploy never reuses the old cached
-  // file and an unchanged deploy is reused from cache on cold starts. Time bucket only as fallback.
+  // Each language is assembled from immutable parts of one manifest before it can replace the UI.
   catalog: async (lang = 'ar', { version } = {}) => {
+    if (STATIC && DOCUMENTARIES) {
+      try { return await runtime.catalog(lang, { version }); }
+      catch (error) {
+        try { await allowBootstrap(version); }
+        catch { throw error; }
+      }
+    }
     const catalog = await req(STATIC
       ? versionedUrl(`${DATA_BASE}/data/catalog${DOCUMENTARIES ? `.${lang}` : ''}.json`, version || `t${Math.floor(Date.now() / 600000)}`)
       : `${API_BASE}/api/catalog${DOCUMENTARIES ? `?lang=${lang}` : ''}`, { timeout: 10 * 60e3, stall: 45e3 });
     if (catalog.product !== PRODUCT) throw new Error(`Expected ${PRODUCT} catalogue; received ${catalog.product || 'unlabelled data'}. Re-export this app's data.`);
+    if (STATIC && DOCUMENTARIES) runtime.acceptBootstrap(catalog);
     return catalog;
   },
   status: () => (STATIC
-    ? req(`${DATA_BASE}/data/status.json?t=${Date.now()}`, { cache: 'no-store', timeout: 15000 })
+    ? DOCUMENTARIES ? runtime.status().catch(() => readBootstrapStatus(true)) : req(`${DATA_BASE}/data/status.json?t=${Date.now()}`, { cache: 'no-store', timeout: 15000 })
     : req(`${API_BASE}/api/status`)),
   sources: () => STATIC ? api.catalog().then(c => ({ sources: c.sources || [] })) : req(`${API_BASE}/api/sources`),
   addSource: url => req(`${API_BASE}/api/sources`, { method: 'POST', body: JSON.stringify({ url }) }),

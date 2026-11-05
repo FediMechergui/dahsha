@@ -414,18 +414,22 @@ test('workflows: tests run on push and pull_request, the live data is watched, d
   assert.match(tests, /npm ci --prefix server/);
   assert.match(tests, /run: npm test/);
   const keepalive = workflow('keepalive.yml');
-  assert.match(keepalive, /\/data\/status\.json/);
-  assert.match(keepalive, /MAX_AGE_HOURS: '26'/);
+  assert.match(keepalive, /\/api\/catalogue\?part=status/);
+  assert.match(keepalive, /MAX_AGE_HOURS: '6'/);
   const dependabot = fs.readFileSync(path.join(root, '.github', 'dependabot.yml'), 'utf8');
   for (const [ecosystem, directory] of [['npm', '/server'], ['npm', '/client'], ['github-actions', '/']]) {
     assert.match(dependabot, new RegExp(`package-ecosystem: ${ecosystem}\\n\\s+directory: ${directory.replace('/', '\\/')}\\n\\s+schedule:\\n\\s+interval: weekly`));
   }
 });
 
-test('workflows: Vercel is deployed at most twice a day (Hobby fair-use block on 2026-10-21)', () => {
+test('workflows: frequent YouTube data updates do not deploy hosting', () => {
   const refresh = workflow('refresh.yml');
   assert.match(refresh, /cron: '17 3,15 \* \* \*'/);
-  assert.doesNotMatch(workflow('poll.yml'), /^\s*schedule:/m, 'poll.yml runs only by hand');
+  assert.match(workflow('poll.yml'), /cron: '7,37 \* \* \* \*'/);
+  for (const name of ['poll.yml', 'refresh.yml']) {
+    assert.match(workflow(name), /node scripts\/publish-runtime\.js/);
+    assert.doesNotMatch(workflow(name), /netlify-cli|VERCEL_TOKEN|NETLIFY_AUTH_TOKEN|vercel-build\.js/);
+  }
   const vercel = JSON.parse(fs.readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
   assert.equal(vercel.git?.deploymentEnabled, false, 'git pushes and Dependabot branches do not deploy');
 });

@@ -9,6 +9,10 @@ mobile/android/.gradle/
 mobile/android/local.properties
 mobile/android/app/release/
 mobile/android/app/debug/
+mobile/android/app/src/main/assets/public/
+mobile/android/app/src/main/assets/capacitor.config.json
+mobile/android/app/src/main/assets/capacitor.plugins.json
+.netlify/
 mobile/*.keystore
 mobile/keystore.properties
 server/data/playlists.json

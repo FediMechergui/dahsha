@@ -301,7 +301,7 @@ The scheduler reads curated channels and playlists from `sources.json`:
   first among them; the rest wait for the next refreshes, so a channel added
   with thousands of uploads is fetched over several runs. Rows of Shorts lists
   and rows the source's title filters reject get no details request, in the
-  refresh or the hourly poll. Then up to
+  refresh or the 30-minute poll. Then up to
   `DETAILS_STUB_RETRY_PER_RUN` (default 300) stored stubs (no duration, or no title
   and no duration), at most once an hour each, then a rolling re-check of
   `DETAILS_RECHECK_PER_RUN` (default 300) listed videos: unconfirmed removal
@@ -320,7 +320,8 @@ The scheduler reads curated channels and playlists from `sources.json`:
 
 The local Dahsha server starts a refresh immediately, then refreshes every
 15 minutes and polls channel RSS every three minutes by default. Overlapping
-refresh calls are skipped. The hosted static workflow runs every six hours.
+refresh calls are skipped. GitHub's hosted runners poll RSS every 30 minutes
+and run the full source traversal every 12 hours.
 RSS polling accelerates YouTube discovery; it does not discover Myflixer changes.
 Static export by itself reads Dahsha's current cache, without scanning sources.
 
@@ -337,7 +338,7 @@ None of them is a playback catalogue. Two modules call them:
   shown. Results are cached per show id in `server/data/artwork.json`, which the
   data snapshot carries.
 - Artwork lookups run in the scheduler's refresh (`cli.js refresh` or `rebuild`,
-  so in `refresh.yml` only; the hourly poll makes none). `refresh.yml` allows
+  so in `refresh.yml` only; the 30-minute poll makes none). `refresh.yml` allows
   `ARTWORK_MAX_PER_RUN=1500` lookups per run (default 600) and artwork.js stops
   after `ARTWORK_MAX_MINUTES` (default 30). The queue takes matches shown under
   older rules first, then never-checked titles, then the rest; within each tier
@@ -364,7 +365,7 @@ None of them is a playback catalogue. Two modules call them:
   are cached per show id in `server/data/service-metadata-dahsha.json` (also in
   the snapshot) and looked up again after 30 days or when the title changes.
   `mergeCachedProviders` applies the cache on every rebuild and export, so the
-  hourly poll deploys keep `tvm`. The show page displays the network
+  30-minute data publications keep `tvm`. The show page displays the network
   (`networkInfo` in `client/src/lib/text.js`).
 - `server/src/tagger.js` classifies titles locally and makes no external call.
 
@@ -377,11 +378,29 @@ None of them is a playback catalogue. Two modules call them:
 `.github/workflows/refresh.yml` runs every 12 hours (03:17 and 15:17 UTC): restore
 the data snapshot, `cli.js refresh` (YouTube, Myflixer, artwork), `export.js`, the
 FMovies/HDToday provider step (`scripts/refresh-providers.js`), the regression
-check, the Netlify deploy, then the snapshot save. It is the only scheduled deploy:
-Vercel blocked the Hobby team for fair-use limits on 2026-10-21, so `poll.yml`
-(the RSS fast path, with the same restore, check and save around it) now runs only
-by hand, and `vercel.json` turns off deployments from git pushes and Dependabot
-branches. Code changes go live with the next scheduled refresh, or a manual run.
+check, the runtime data publication, then the snapshot save. `poll.yml` runs at
+minutes 7 and 37 of each hour and reads every configured YouTube channel's RSS
+feed, including Arabic channels, with the same restore, check, publication and
+save safeguards. Both workflows share one concurrency group, so a poll cannot
+overwrite a full scan's snapshot. GitHub may delay scheduled jobs.
+
+Neither workflow deploys Netlify or Vercel. `scripts/publish-runtime.js` uploads
+content-addressed gzip JSON files to the `catalogue-runtime` release in
+`FediMechergui/dahsha`, verifies their hashes and sizes, then advances the manifest.
+The Netlify backend reads that manifest at most once per two minutes per active
+function instance. Website/backend code is deployed separately when it changes;
+the website and APK consume new catalogue data without another code deployment.
+
+The runtime manifest contains metadata and separate Arabic/English index parts,
+each no larger than 1 MiB uncompressed, including episode guides. Pinned hashes
+let a client finish one complete generation while the next is being published.
+Title, episode-owner and alias buckets resolve playback using one saved title
+instead of loading the entire catalogue into a function. Full title records are
+limited to 4 MiB; decoded bucket caches are bounded to 16 MiB. A failed manifest
+request retains a previously verified generation for at most six hours. The
+previous published manifest remains available during a publication interruption.
+Transient GitHub upload errors receive at most three verified attempts; denied
+requests are not retried, and only unreferenced generated assets may be retired.
 
 - The provider step is best effort (`continue-on-error`) and has a 30-minute
   timeout. The caches it writes (`providers-dahsha.json`,
@@ -389,11 +408,11 @@ branches. Code changes go live with the next scheduled refresh, or a manual run.
   `service-metadata-dahsha.json` and `catalog.json`) are copied to
   `$RUNNER_TEMP` before it runs. If it fails or times out they are put back, along
   with the previous export if it was interrupted mid-swap. The YouTube update then
-  deploys without that run's provider changes, and a final step fails the run so
+  publishes without that run's provider changes, and a final step fails the run so
   GitHub emails the failure. Provider HTTP errors such as the recurring
   `HDToday HTTP 403` are handled inside the scan and do not fail the step.
-- `scripts/check-regression.js` must pass before the deploy and the snapshot
-  save. It compares the fresh export with the live deploy (or the stored
+- `scripts/check-regression.js` must pass before publication and the snapshot
+  save. It compares the fresh export with the live runtime status (or the stored
   baseline) and with the counts recorded right after the restore. A run fails
   when total or YouTube shows/episodes drop by more than 5%, or when a
   `sources.json` source with at least 20 episodes loses more than 25% of them.
@@ -408,12 +427,14 @@ branches. Code changes go live with the next scheduled refresh, or a manual run.
 - The `force` input of the two workflows overrides the regression check only (it
   also restarts the peak history). The snapshot's own cache checks
   (`scripts/snapshot.js`) are skipped only by the separate
-  `allow_snapshot_shrink` input.
+  `allow_snapshot_shrink` input. The runtime publisher independently rejects an
+  older generation or a drop of more than 5% in either language's title count or
+  total episode count. It never publishes an empty or cross-product catalogue.
 - `keepalive.yml` re-enables the scheduled workflows and pushes to the
   `keepalive` branch once a month, so GitHub does not disable them after 60 days
   without activity. Twice a day it also fails when
-  `https://dahsha.netlify.app/data/status.json` cannot be read or its
-  `generatedAt` is more than 12 hours old. GitHub emails that failure, which a
+  `https://dahsha.netlify.app/api/catalogue?part=status` cannot be read or its
+  `generatedAt` is more than six hours old. GitHub emails that failure, which a
   disabled or broken refresh workflow cannot do for itself.
 - `test.yml` runs `npm test` on every push and pull request, including the weekly
   dependency updates that `.github/dependabot.yml` opens for `/server`, `/client`

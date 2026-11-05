@@ -1,4 +1,3 @@
 # Netlify routing (the site is a single-page app). Files that exist (data/, assets/) are served first.
-# The serverless API stays on Vercel; a relative /api call is sent there.
-/api/*  https://dahsha.vercel.app/api/:splat  302
+# /api/* is handled by the Dahsha Netlify function.
 /*      /index.html  200

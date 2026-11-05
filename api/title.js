@@ -12,9 +12,9 @@ export default async function handler(req, res) {
   if (!id) return res.status(400).json({ error: 'Missing title ID' });
 
   try {
-    const details = await unifiedTitle(id, { source: req.query.source });
+    const details = await unifiedTitle(id, { source: req.query.source, ...(req.catalog?{catalog:req.catalog}:{}) });
     if (!details) return res.status(404).json({ error: 'Title not found' });
-    res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400');
+    res.setHeader('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=300');
     return res.status(200).json(details);
   } catch (err) {
     return res.status(500).json({ error: err.message });

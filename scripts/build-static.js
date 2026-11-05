@@ -4,15 +4,14 @@ import { configureMobile } from './configure-mobile.js';
 // A Dahsha --mobile build reads data from the hosted site (MOBILE_DATA_BASE, default
 // https://dahsha.netlify.app) unless --data-base is given: bundling would copy the whole exported
 // catalogue into the APK, freeze it there, and point /api at a server the phone does not have.
-// The site moved to Netlify after Vercel blocked the Hobby team (2026-10-21); the serverless API
-// (provider titles and playback) stays on Vercel, so the hosted data base gets MOBILE_API_BASE.
+// The website and lightweight playback/catalogue API share the Netlify origin.
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const MOBILE_DATA_BASE = 'https://dahsha.netlify.app';
-export const MOBILE_API_BASE = 'https://dahsha.vercel.app';
+export const MOBILE_API_BASE = 'https://dahsha.netlify.app';
 
 export function resolveBases(args, env = process.env, product = 'dahsha') {
   const mobile = args.includes('--mobile');

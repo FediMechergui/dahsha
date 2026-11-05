@@ -48,17 +48,18 @@ export function parseFmoviesList(html, { kind = 'film', documentary = false, gen
   if (Number(pagination[2]) > 0 && !items.size && !/no (?:movies|results|series|titles)|nothing found/i.test(text(html))) throw new Error('FMovies listing format changed: no poster records');
   return { items:[...items.values()], page:Number(pagination[1]) || page, totalPages:Number(pagination[2]) };
 }
-async function request(path) {
+async function request(path,{signal}={}) {
+  signal?.throwIfAborted();
   const url = new URL(path, FMOVIES_BASE);
   if (url.origin !== FMOVIES_BASE) throw new Error('Invalid FMovies page');
   let error;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await safeRemoteFetch(url.href, { timeoutMs:7000,headers:{'User-Agent':'Mozilla/5.0', Accept:'text/html,application/json'} });
+      const response = await safeRemoteFetch(url.href, { timeoutMs:7000,signal,headers:{'User-Agent':'Mozilla/5.0', Accept:'text/html,application/json'} });
       if (!response.ok) { await response.body?.cancel(); throw new Error(`FMovies HTTP ${response.status}`); }
       if (new URL(response.url).origin !== FMOVIES_BASE) throw new Error('Unexpected FMovies redirect');
       return await response.text();
-    } catch (e) { error = e; if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); }
+    } catch (e) { signal?.throwIfAborted();error = e; if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); }
   }
   throw error;
 }
@@ -109,24 +110,25 @@ export function parseFmoviesDetails(html, sourceUrl) {
   return item;
 }
 const detailCache = new Map();
-export async function getFmoviesDetails(record, { allSeasons = true, season, number } = {}) {
+export async function getFmoviesDetails(record, { allSeasons = true, season, number,signal } = {}) {
   const sourceUrl = typeof record === 'string' ? record : record.sourceUrl;
   if (!sourceUrl) throw new Error('Missing FMovies title URL');
   const key = `${sourceUrl}:${allSeasons}:${season ?? ''}:${number ?? ''}`;
   const cached = detailCache.get(key);
-  if (cached && Date.now()-cached.at < 5*60e3) return cached.promise;
+  if (!signal&&cached && Date.now()-cached.at < 5*60e3) return cached.promise;
   const promise = (async () => {
     const query = season != null ? `?season=${season}&episode=${number || 1}` : '';
-    const item = parseFmoviesDetails(await request(sourceUrl + query), sourceUrl);
+    const item = parseFmoviesDetails(await request(sourceUrl + query,{signal}), sourceUrl);
     if (allSeasons && item.kind === 'series') {
       const collected = new Map(item.episodes.map(e => [e.id,e]));
       const pending = item.seasons.filter(s => !item.episodes.some(e => e.season === s));
       let cursor = 0;
       await Promise.all(Array.from({length:Math.min(3,pending.length)}, async () => {
         while (cursor < pending.length) {
+          signal?.throwIfAborted();
           const s = pending[cursor++];
           try {
-            const part = parseFmoviesDetails(await request(`${sourceUrl}?season=${s}&episode=1`), sourceUrl);
+            const part = parseFmoviesDetails(await request(`${sourceUrl}?season=${s}&episode=1`,{signal}), sourceUrl);
             for (const episode of part.episodes) collected.set(episode.id, episode);
           } catch (error) {
             (item.providerErrors ||= []).push({provider:'fmovies',season:s,error:error.message});
@@ -138,12 +140,12 @@ export async function getFmoviesDetails(record, { allSeasons = true, season, num
     }
     return item;
   })();
-  detailCache.set(key,{at:Date.now(),promise});
+  if(!signal)detailCache.set(key,{at:Date.now(),promise});
   if (detailCache.size > 500) detailCache.delete(detailCache.keys().next().value);
-  try { return await promise; } catch (e) { detailCache.delete(key); throw e; }
+  try { return await promise; } catch (e) { if(!signal)detailCache.delete(key); throw e; }
 }
-export async function searchFmovies(query, { documentary = false, page = 1, limit = 20 } = {}) {
-  const json = JSON.parse(await request(`/api/search?${new URLSearchParams({q:query,page:String(page),limit:String(limit)})}`));
+export async function searchFmovies(query, { documentary = false, page = 1, limit = 20,signal } = {}) {
+  const json = JSON.parse(await request(`/api/search?${new URLSearchParams({q:query,page:String(page),limit:String(limit)})}`,{signal}));
   return (json.results || []).filter(r => ['movie','tv'].includes(r.media_type) && (!documentary || r.genre_ids?.includes(99))).map(r => {
     const kind = r.media_type === 'movie' ? 'film' : 'series';
     const item = baseItem({ id:r.id, kind, title:text(r.title || r.name), year:Number((r.release_date || r.first_air_date || '').slice(0,4)) || null, lang:r.original_language || null,

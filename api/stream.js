@@ -28,7 +28,7 @@ export default async function handler(req, res) {
   const id = req.query.id;
   if (!validPlaybackId(id)) return res.status(400).json({error:'Invalid stream ID'});
   try {
-    const data = await unifiedStream(id, {showId:req.query.showId,source:req.query.source,prefix:streamPrefix});
+    const data = await unifiedStream(id, {showId:req.query.showId,source:req.query.source,prefix:streamPrefix,transport:req.query.transport,...(req.catalog?{catalog:req.catalog}:{})});
     if (!data) return res.status(404).json({error:'Episode not found in this catalogue'});
     res.setHeader('Cache-Control','no-store');
     return res.status(200).json(data);

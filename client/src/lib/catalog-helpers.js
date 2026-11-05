@@ -219,6 +219,18 @@ export function portraitArt(show) {
   if (typeof show?.portrait === 'string' && show.portrait) return show.portrait;
   return isPortraitUrl(show?.poster?.custom) ? show.poster.custom : null;
 }
+/** Provider cards use their poster; channel cards keep their landscape thumbnail. */
+export function showCardArt(show) {
+  const videoId = show?.posterId || show?.posterVideoId || show?.episodes?.[0]?.id;
+  if (!isWebProviderShow(show)) return { portrait: false, thumbs: landscapeArt(show?.poster), videoId };
+  // A matched provider title can also carry a YouTube episode or fallback thumbnail.
+  // Keep those out of its poster frame, including when the provider artwork fails.
+  const isPoster = url => typeof url === 'string' && url.trim() && !/^https?:\/\/(?:[^/]+\.)?(?:ytimg\.com|youtube\.com)\//i.test(url);
+  const supplied = typeof show?.poster === 'string' ? { custom: show.poster } : show?.poster || {};
+  const fallbackThumbs = Object.fromEntries(Object.entries(supplied).filter(([, url]) => isPoster(url)));
+  const portrait = portraitArt(show);
+  return { portrait: true, thumbs: isPoster(portrait) ? { custom: portrait } : fallbackThumbs, fallbackThumbs, videoId: null };
+}
 export const hasLandscapeArt = (show) => {
   const art = landscapeArt(show?.poster);
   return !!art && !isPortraitUrl(art.custom) && Object.values(art).some((v) => typeof v === 'string' && v);

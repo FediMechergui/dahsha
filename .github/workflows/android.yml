@@ -30,9 +30,7 @@ jobs:
       VITE_PRODUCT: ${{ matrix.product }}
       DATA_BASE: ${{ vars.DATA_BASE || 'https://dahsha.netlify.app' }}
       KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
-      APP_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-      APP_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,7 +48,7 @@ jobs:
       - name: Test
         run: npm test
       - name: Set increasing Android version code
-        run: echo "APP_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+        run: node scripts/android-version.js "$RELEASE_TAG"
       - name: Build web (static, pointing at the hosted data)
         run: node scripts/product.js "$APP_PRODUCT" mobile-web --data-base "$DATA_BASE"
       - name: Sync Capacitor

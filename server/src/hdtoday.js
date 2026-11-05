@@ -54,11 +54,11 @@ export function parseHdtodayList(html, {kind,documentary=false,page=1} = {}) {
   return {items:[...items.values()],page,totalPages:Math.max(page,...last,...next),hasNext:next.length>0};
 }
 let retryAt=0;
-async function request(path,{timeoutMs=12000}={}) {
+async function request(path,{timeoutMs=12000,signal}={}) {
   if(Date.now()<retryAt)throw new Error('HDToday rate limited; cached data retained until retry');
   const url=new URL(path,HDTODAY_BASE);
   if(url.origin!==HDTODAY_BASE)throw new Error('Invalid HDToday URL');
-  const r=await safeRemoteFetch(url.href,{timeoutMs,headers:{'User-Agent':'Mozilla/5.0','Referer':HDTODAY_BASE+'/home','Accept':'text/html,application/json;q=0.9,*/*;q=0.8'}});
+  const r=await safeRemoteFetch(url.href,{timeoutMs,signal,headers:{'User-Agent':'Mozilla/5.0','Referer':HDTODAY_BASE+'/home','Accept':'text/html,application/json;q=0.9,*/*;q=0.8'}});
   if(!r.ok){if(r.status===429)retryAt=Date.now()+Math.max(60,Number(r.headers.get('retry-after'))||60)*1000;await r.body?.cancel();throw new Error(`HDToday HTTP ${r.status}`);}
   const html=await r.text();
   if(/<title>\s*Quick check/i.test(html))throw new Error('HDToday requires browser verification; cached data retained');
@@ -99,21 +99,23 @@ export function parseHdtodayDetails(html, sourceUrl) {
   return item;
 }
 const cache=new Map();
-export async function getHdtodayDetails(source) {
+export async function getHdtodayDetails(source,{signal}={}) {
+  signal?.throwIfAborted();
   const url=typeof source==='string'?source:source.sourceUrl;
   const entry=cache.get(url);
   if(entry && Date.now()-entry.at<5*60e3)return entry.value;
-  const value=parseHdtodayDetails(await request(url),url);cache.set(url,{at:Date.now(),value});
+  const value=parseHdtodayDetails(await request(url,{signal}),url);cache.set(url,{at:Date.now(),value});
   if(cache.size>300)cache.delete(cache.keys().next().value);
   return value;
 }
-export async function searchHdtoday(query,{documentary=false}={}) {
-  const rows=JSON.parse(await request(`/api/suggest?q=${encodeURIComponent(query)}`));
+export async function searchHdtoday(query,{documentary=false,signal}={}) {
+  const rows=JSON.parse(await request(`/api/suggest?q=${encodeURIComponent(query)}`,{signal}));
   const items=[];
   for(const r of rows){
+    signal?.throwIfAborted();
     if(!slugPattern.test(r.slug||''))continue;
     let item=record({slug:r.slug,title:text(r.title),year:Number(r.year)||null,poster:r.poster});
-    if(documentary){try{item=await getHdtodayDetails(item);}catch{continue;}if(!item.documentary)continue;}
+    if(documentary){try{item=await getHdtodayDetails(item,{signal});}catch{continue;}if(!item.documentary)continue;}
     items.push(item);
   }
   return items;
@@ -167,7 +169,7 @@ export function hdtodayMovieFallbacks(id,tmdbId) {
     `https://mappletv.uk/embed/movie/${numericId}`,`https://moviesapi.to/movie/${numericId}`];
   return hdtodayServers(id).map((server,index)=>({...server,embedUrl:urls[index],sandbox:null,sourceUrl:server.embedUrl,resolution:'verified-provider-route'}));
 }
-export async function resolveHdtodayServers(id,{tmdbId,fetchPlayer=path=>request(path,{timeoutMs:5000})}={}) {
+export async function resolveHdtodayServers(id,{tmdbId,signal,fetchPlayer=path=>request(path,{timeoutMs:5000,signal})}={}) {
   const fallback=[...hdtodayTvFallbacks(id,tmdbId),...hdtodayMovieFallbacks(id,tmdbId)];
   if(fallback.length)return fallback;
   const cached = playerCache.get(id);
@@ -175,7 +177,7 @@ export async function resolveHdtodayServers(id,{tmdbId,fetchPlayer=path=>request
   const choices = hdtodayServers(id), resolved = [];
   let next = 0, inferred=null;
   await Promise.all(Array.from({length:Math.min(4,choices.length)},async()=>{
-    while (next < choices.length && !inferred) {
+    while (next < choices.length && !inferred && !signal?.aborted) {
       const index=next++, server=choices[index];
       try {
         const target=parseHdtodayPlayer(await fetchPlayer(server.embedUrl));

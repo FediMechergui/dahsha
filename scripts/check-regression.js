@@ -524,7 +524,7 @@ export function parseArgs(argv) {
   return options;
 }
 
-const liveUrl = (options, file) => (options.live === 'none' ? null : `${(options.live || LIVE_BASE).replace(/\/+$/, '')}/data/${file}`);
+const liveUrl = (options, file) => options.live === 'none' ? null : `${(options.live || LIVE_BASE).replace(/\/+$/, '')}${file === 'status.json' ? '/api/catalogue?part=status' : `/data/${file}`}`;
 
 function share(options, flag, envName, fallback) {
   const raw = options[flag] ?? process.env[envName];

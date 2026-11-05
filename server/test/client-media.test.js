@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { thumbnailCandidates } from '../../client/src/lib/thumbnails.js';
 import { playerPolicy } from '../../client/src/lib/player-policy.js';
-import { seasonGroups } from '../../client/src/lib/catalog-helpers.js';
+import { seasonGroups, showCardArt } from '../../client/src/lib/catalog-helpers.js';
 
 test('Dahsha skips missing image sizes and retains YouTube and show artwork fallbacks',()=>{
   assert.deepEqual(thumbnailCandidates({hq:'https://example.com/hq.jpg'},null,'sd'),['https://example.com/hq.jpg']);
@@ -15,6 +15,18 @@ test('Dahsha skips missing image sizes and retains YouTube and show artwork fall
   assert.ok(urls.includes('https://i.ytimg.com/vi/dxroVYk0NKY/hqdefault.jpg'));
   assert.equal(urls.at(-1),'https://example.com/show.jpg');
   assert.deepEqual(thumbnailCandidates(null,'fm:m:123'),[]);
+});
+test('provider posters retain source fallbacks without turning matched YouTube videos into posters', () => {
+  const youtube = 'https://i.ytimg.com/vi/dxroVYk0NKY/hqdefault.jpg';
+  const art = showCardArt({ id: 's_canonical', channelId: 'myflixer', portrait: 'https://example.com/poster.jpg', poster: { custom: 'https://example.com/alternate.jpg', hq: youtube }, posterId: 'dxroVYk0NKY' });
+  assert.equal(art.portrait, true, 'canonical IDs still use their provider channel');
+  assert.deepEqual(thumbnailCandidates(art.thumbs, art.videoId, 'sd', art.fallbackThumbs), ['https://example.com/poster.jpg', 'https://example.com/alternate.jpg']);
+  const missing = showCardArt({ id: 'hd:m:documentary', poster: { custom: youtube }, episodes: [{ id: 'dxroVYk0NKY' }] });
+  assert.equal(missing.portrait, true);
+  assert.deepEqual(thumbnailCandidates(missing.thumbs, missing.videoId, 'sd', missing.fallbackThumbs), []);
+  const channel = showCardArt({ id: 's_youtube', channelId: 'documentary-channel', poster: { hq: youtube }, portrait: 'https://example.com/enriched.jpg', posterId: 'dxroVYk0NKY' });
+  assert.equal(channel.portrait, false);
+  assert.equal(thumbnailCandidates(channel.thumbs, channel.videoId, 'hq')[0], youtube);
 });
 test('Dahsha handles known player iframe requirements while dropping blocked wrappers',()=>{
   assert.equal(playerPolicy({embedUrl:'https://vidsrc.mov/embed/movie/123'}).sandbox,null);
@@ -126,6 +138,22 @@ const providerShow = {
   poster: { custom: 'https://myflixerz.day/wp-content/uploads/posters/1503908_medium.jpg' },
 };
 const providerEpisode = (over) => ({ id: 'mf:e:clarksons-farm-s5e1-episode-5-1', title: 'Episode #5.1', season: 5, number: 1, durationSec: 3000, thumbs: { custom: providerShow.poster.custom }, ...over });
+
+test('provider cards render their portrait artwork and a titled fallback while channel cards stay landscape', rendered, () => {
+  const { createElement: h, ShowCard } = mod;
+  for (const show of [providerShow, { ...providerShow, id: 'fm:m:1', channelId: 'fmovies' }, { ...providerShow, id: 'hd:s:documentary', channelId: 'hdtoday' }]) {
+    const html = render(h(ShowCard, { show }));
+    assert.match(html, /card--portrait/);
+    assert.ok(html.includes(`src="${providerShow.poster.custom}"`));
+  }
+  const missing = render(h(ShowCard, { show: { id: 'hd:m:missing', title: 'A documentary without artwork', kind: 'film' } }));
+  assert.match(missing, /card--portrait/);
+  assert.match(missing, /thumb--empty/);
+  assert.match(missing, /thumb__label[^>]*>A documentary without artwork/);
+  const channel = render(h(ShowCard, { show: { id: 's_youtube', title: 'Arabic documentary', kind: 'film', posterId: 'dxroVYk0NKY' } }), { lang: 'ar' });
+  assert.doesNotMatch(channel, /card--portrait/);
+  assert.match(channel, /i\.ytimg\.com\/vi\/dxroVYk0NKY\//);
+});
 
 test('Episode lists replace IMDb-style placeholders and repeated show posters with numbered tiles', rendered, () => {
   const { createElement: h, EpisodeCard } = mod;

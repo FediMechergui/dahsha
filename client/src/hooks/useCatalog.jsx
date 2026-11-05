@@ -1,10 +1,11 @@
 import { DOCUMENTARIES } from '../lib/product.js';
 // Loads the catalogue section of the active language, keeps it fresh (SSE in server mode; in static
-// mode status.json is checked every 10 min, on tab focus/visibility, on app resume and on demand)
+// mode runtime status is checked every 5 min while visible, on app resume and on demand)
 // and exposes a language-scoped view with localised labels. Sections that were loaded earlier stay
 // cached so switching back is instant.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
+import { isOlderGeneration } from '../lib/runtime-catalog.js';
 import { useLang, channelName } from '../lib/i18n.jsx';
 import { cleanTitle, decodeEntities, isolate, newEpisodeLine } from '../lib/text.js';
 import {
@@ -93,7 +94,7 @@ export function CatalogProvider({ children }) {
   const langRef = useRef(lang);
   const tRef = useRef(t);
   sectionsRef.current = sections; langRef.current = lang; tRef.current = t;
-  const version = useRef({ value: null, at: 0 }); // newest deployment version seen in status.json
+  const version = useRef({ value: null, at: 0 }); // newest published data generation seen
   const reloadAttempt = useRef({ version: null, at: 0 });
   const liveRows = useRef(new Map()); // rows registered from live endpoints, re-merged after reloads
   const checkRef = useRef(null);
@@ -106,9 +107,11 @@ export function CatalogProvider({ children }) {
   const dismissToast = useCallback((id) => setToasts((ts) => ts.filter((x) => x.id !== id)), []);
 
   const applyStatus = useCallback((s) => {
+    if (isOlderGeneration(s?.generatedAt, version.current.value)) return false;
     if (s?.generatedAt) version.current = { value: s.generatedAt, at: Date.now() };
     setStatus({ ...s, refreshing: false, static: true });
     setConnected(true);
+    return true;
   }, []);
 
   // Static mode: the catalogue URL carries the deployment version, so status.json is read first
@@ -116,7 +119,7 @@ export function CatalogProvider({ children }) {
   const knownVersion = useCallback(async () => {
     if (!api.static) return null;
     if (version.current.value && Date.now() - version.current.at < 2 * 60e3) return version.current.value;
-    try { const s = await api.status(); applyStatus(s); return s.generatedAt || null; }
+    try { const s = await api.status(); applyStatus(s); return version.current.value; }
     catch { setConnected(false); return version.current.value; }
   }, [applyStatus]);
 
@@ -142,24 +145,24 @@ export function CatalogProvider({ children }) {
     try {
       const v = wanted || await knownVersion();
       const c = await api.catalog(l, { version: v });
+      const prev = sectionsRef.current[l];
+      if (isOlderGeneration(c.generatedAt, prev?.generatedAt)) return false;
       const norm = normalizeCatalog(c);
       // Keep live discovery/search rows that the fresh catalogue does not contain (canonical wins).
       const ids = new Set();
       for (const s of norm.shows) { ids.add(s.id); for (const o of s.offerings || []) ids.add(o.id); }
       const extra = [...liveRows.current.values()].filter((r) => !ids.has(r.id) && (!DOCUMENTARIES || rowFitsSection(r, l)));
       if (extra.length) norm.shows = [...norm.shows, ...normalizeCatalog({ ...c, shows: extra }).shows];
-      const prev = sectionsRef.current[l];
-      setSections(p => DOCUMENTARIES ? ({ ...p, [l]: norm }) : ({ ...p, ar: norm, en: norm }));
+      setSections(p => isOlderGeneration(norm.generatedAt, p[l]?.generatedAt) ? p : DOCUMENTARIES ? ({ ...p, [l]: norm }) : ({ ...p, ar: norm, en: norm }));
       setError(null);
       setBuilding(false);
       if (api.static && l === langRef.current && prev?.generatedAt && norm.generatedAt && prev.generatedAt !== norm.generatedAt) announce(prev, norm);
       return true;
     } catch (e) {
-      if (e.status === 503) { setStatus(e.body?.status || null); setError(null); setBuilding(true); }
-      else if (e.status === 404 && api.static) { setSections((prev) => ({ ...prev, [l]: { shows: [], channels: [], tags: [], stats: {}, lang: l, generatedAt: null } })); }
+      if (e.status === 503 && !sectionsRef.current[l]) { setError(e.message); setBuilding(true); }
       else if (!sectionsRef.current[l]) setError(e.message); // a failed background reload keeps the loaded data
       return false;
-    } finally { inflight.current.delete(l); setLoading(false); }
+    } finally { inflight.current.delete(l); if (l === langRef.current) setLoading(false); }
   }, [knownVersion, announce]);
 
   // Load the active section whenever the language changes (cached sections are kept).
@@ -170,21 +173,22 @@ export function CatalogProvider({ children }) {
     for (const l of keys.length ? keys : [langRef.current]) load(l, { version: typeof v === 'string' ? v : undefined });
   }, [load]);
 
-  // Server mode: SSE for status + catalogue updates. Static mode: check status.json every 10 min,
+  // Server mode: SSE for status + catalogue updates. Static mode: check status every 5 min,
   // when the tab/app becomes visible again (throttled) and on demand.
   useEffect(() => {
     if (api.static || !DOCUMENTARIES) {
       let stop = false;
       let lastCheck = Date.now(); // the first load already read status.json
       const tick = async (force = false) => {
-        if (stop || (!force && Date.now() - lastCheck < 60e3)) return 'skipped';
+        if (stop || (!force && (document.visibilityState === 'hidden' || Date.now() - lastCheck < 60e3))) return 'skipped';
         lastCheck = Date.now();
         try {
           const s = await api.status();
           if (stop) return 'skipped';
-          applyStatus(s);
+          if (!applyStatus(s)) return 'current';
           const current = sectionsRef.current[langRef.current]?.generatedAt;
-          if (shouldReload({ statusVersion: s.generatedAt, sectionVersion: current, attempt: reloadAttempt.current })) {
+          const initialRetry = !current && s.generatedAt && (reloadAttempt.current.version !== s.generatedAt || Date.now() - reloadAttempt.current.at >= 5 * 60e3);
+          if (initialRetry || (!isOlderGeneration(s.generatedAt, current) && shouldReload({ statusVersion: s.generatedAt, sectionVersion: current, attempt: reloadAttempt.current }))) {
             reloadAttempt.current = { version: s.generatedAt, at: Date.now() };
             reloadAll(s.generatedAt);
             return 'updating';
@@ -196,7 +200,7 @@ export function CatalogProvider({ children }) {
         }
       };
       checkRef.current = tick;
-      const interval = setInterval(() => tick(true), 10 * 60e3);
+      const interval = setInterval(() => tick(), 5 * 60e3);
       const onVisible = () => { if (document.visibilityState !== 'hidden') tick(); };
       document.addEventListener('visibilitychange', onVisible);
       window.addEventListener('focus', onVisible);

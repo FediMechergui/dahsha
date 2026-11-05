@@ -1,0 +1,12 @@
+[build]
+  command = "npm ci --prefix server && npm ci --prefix client && npm run build"
+  publish = "client/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  APP_PRODUCT = "dahsha"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["youtubei.js"]
