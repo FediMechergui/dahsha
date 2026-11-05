@@ -13,8 +13,11 @@ function validateStatus(value,now){
   return value.generatedAt;
 }
 function validateTitle(row,id,generation){
-  if(providerRowProblem(row)||row.id!==id||row.product&&row.product!=='dahsha'||!['ar','en'].includes(row.lang)||!Array.isArray(row.episodes)||!row.episodes.length||
-    row.episodes.some(episode=>!validId(episode.id))||row._catalogueGeneratedAt&&row._catalogueGeneratedAt!==generation)throw Error('Invalid deployed documentary title');
+  if(providerRowProblem(row))throw Error('Invalid deployed documentary title');
+  const wrongProduct=row.product!==undefined&&row.product!=='dahsha';
+  const wrongGeneration=row._catalogueGeneratedAt!==undefined&&row._catalogueGeneratedAt!==generation;
+  if(row.id!==id||wrongProduct||wrongGeneration||!['ar','en'].includes(row.lang)||!Array.isArray(row.episodes)||!row.episodes.length||
+    row.episodes.some(episode=>!validId(episode.id)))throw Error('Invalid deployed documentary title');
   // Legacy Myflixer programme IDs are hashes and carry a documentary tag. Provider-led
   // titles retain the stricter explicit documentary flag used by unifiedStream.
   const providerLed=row.providerMetadata||/^(fm|hd):/.test(row.id);

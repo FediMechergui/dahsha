@@ -55,6 +55,7 @@ export function createNetlifyHandler({handlers={catalogue,title,stream},readMani
           if(saved){manifest={product:'dahsha',generatedAt:saved._catalogueGeneratedAt};headers.set('X-Dahsha-Catalogue-Source','deployment-playback-fallback');}
         }
         if(!manifest||manifest.product!=='dahsha')return reply({error:'Documentary catalogue temporarily unavailable'},503);
+        if(name==='stream'&&!saved)return reply({error:'Episode not found in this catalogue'},404);
         req.catalog={product:'dahsha',generatedAt:saved?._catalogueGeneratedAt||manifest.generatedAt,shows:saved?[saved]:[],channels:[],tags:[],idAliases:saved&&id!==saved.id?{[id]:saved.id}:{}};
       }
       await handler(req,res);
