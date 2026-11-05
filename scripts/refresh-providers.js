@@ -4,6 +4,8 @@ import { writeCatalog } from '../server/src/export-catalog.js';
 import { resolveProviderMatches } from '../server/src/provider-matches.js';
 import { enrichServices } from '../server/src/service-metadata.js';
 import {main as applyReviewedDahshaIdentities} from './apply-reviewed-identities.js';
+import {main as applyReviewedDahshaGuides} from './apply-reviewed-guides.js';
+import {stampCatalogueGeneration} from '../server/src/catalogue-generation.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +31,7 @@ for(const product of requested==='both'?['dahsha','flixer']:[requested]){
   const cache=await refreshProviders({product,full:args.includes('--full'),pageBudget:Number(option('--pages','24'))});
   // Listings can omit a previously verified ID. Restore only reviewed existing
   // documentary identities after scanning, before the merge/export reads disk.
-  if(product==='dahsha')applyReviewedDahshaIdentities(['--apply']);
+  if(product==='dahsha'){applyReviewedDahshaIdentities(['--apply']);applyReviewedDahshaGuides(['--apply']);}
   warnStaleProviders(product,cache);
   const out=path.join(root,'client/public',product==='dahsha'?'data':'data-flixer');
   const file=path.join(out,'catalog.json');
@@ -51,6 +53,7 @@ for(const product of requested==='both'?['dahsha','flixer']:[requested]){
     const services=await enrichServices(merged.catalog,{limit:Number(option('--services','100'))});
     console.log(`[${product}] ${services} series received verified network/service metadata`);
   }catch(error){console.warn(`[${product}] warning: service metadata lookups failed (${error.message}); cached metadata kept`);}
+  merged.catalog=stampCatalogueGeneration(merged.catalog,{previousGeneratedAt:base.generatedAt});
   writeJson(product==='dahsha'?'catalog.json':'flixer-catalog.json',merged.catalog);
   writeCatalog(out,merged.catalog,product);
   const {report}=merged;

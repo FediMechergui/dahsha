@@ -69,6 +69,9 @@ jobs:
       - name: Apply reviewed documentary identities
         timeout-minutes: 2
         run: node scripts/apply-reviewed-identities.js --apply --report "$RUNNER_TEMP/dahsha-identities.json"
+      - name: Apply reviewed documentary episode guides
+        timeout-minutes: 2
+        run: node scripts/apply-reviewed-guides.js --apply --report "$RUNNER_TEMP/dahsha-guides.json"
       - name: Refresh from YouTube
         if: ${{ !inputs.providers_only }}
         env:
