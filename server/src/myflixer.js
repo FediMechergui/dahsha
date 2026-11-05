@@ -1,6 +1,7 @@
 // Comprehensive Myflixer Scraper & Streaming Engine for Movies and TV Series.
 // Supports all genres, full catalog paging, search, trending, episode resolution, and all 7 streaming players.
 import { proxyUrl, verifyProxy, validMediaId, escapeHtml, scriptJson, safeRemoteFetch } from './stream-security.js';
+import { withinPlaybackBudget } from './playback-budget.js';
 
 const BASE = 'https://myflixerz.day';
 const API = `${BASE}/wp-json/wp/v2`;
@@ -665,14 +666,14 @@ export async function handleEmbedPlayer(id, req, res, proxyPrefix = '/api/stream
  * Resolve playback streams and player embed for an episode or film.
  * Extracts all 7 player providers from Myflixer.
  */
-export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream', {transport='proxy',signal}={}) {
+export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream', {transport='proxy',signal,fetchImpl=safeRemoteFetch,extractionTimeoutMs=1500}={}) {
   if (!validMediaId(id)) throw new Error('Invalid stream ID');
   const isMovie = id.startsWith('mf:m:');
   const slug = id.replace(/^mf:[mse]:/, '');
   const url = isMovie ? `${BASE}/${slug}/` : `${BASE}/episodes/${slug}/`;
 
   try {
-    const res = await safeRemoteFetch(url, { signal,headers: { 'User-Agent': DESKTOP_UA, Referer: BASE } });
+    const res = await fetchImpl(url, { signal,headers: { 'User-Agent': DESKTOP_UA, Referer: BASE } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const doc = await res.text();
 
@@ -694,7 +695,11 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream', {tr
     let hlsStreams = [];
     if (playerUrl && playerUrl.includes('soap/')) {
       try {
-        const outer = await safeRemoteFetch(playerUrl, { signal,headers: { 'User-Agent': DESKTOP_UA, Referer: url } });
+        // Tabs are already usable. Optional direct-media discovery must not consume
+        // the whole provider deadline and discard those independently listed players.
+        hlsStreams = await withinPlaybackBudget(async extractionSignal => {
+        const nestedSignal=signal?AbortSignal.any([signal,extractionSignal]):extractionSignal;
+        const outer = await fetchImpl(playerUrl, { signal:nestedSignal,headers: { 'User-Agent': DESKTOP_UA, Referer: url } });
         const outerText = await outer.text();
         const cfgMatch = /const cfg\s*=\s*(\{[\s\S]*?\});/.exec(outerText);
         if (cfgMatch) {
@@ -705,10 +710,10 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream', {tr
               .replace('{tmdb_id}', String(cfg.tmdbId))
               .replace('{season}', String(cfg.season ?? 1))
               .replace('{episode}', String(cfg.episode ?? 1));
-            const innerRes = await safeRemoteFetch(inner, { signal,headers: { 'User-Agent': DESKTOP_UA, Referer: playerUrl } });
+            const innerRes = await fetchImpl(inner, { signal:nestedSignal,headers: { 'User-Agent': DESKTOP_UA, Referer: playerUrl } });
             const innerDoc = await innerRes.text();
             const listed = JSON.parse(/const sources\s*=\s*(\[[\s\S]*?\]);/.exec(innerDoc)?.[1] ?? '[]');
-            hlsStreams = listed.filter((s) => typeof s.file === 'string' && /^https:\/\//.test(s.file)).map((s) => ({
+            return listed.filter((s) => typeof s.file === 'string' && /^https:\/\//.test(s.file)).map((s) => ({
               uri: s.file.replace(/#.*$/, ''),
               mimeType: 'application/x-mpegURL',
               quality: s.html || 'HLS Stream',
@@ -716,6 +721,8 @@ export async function resolveMyflixerStream(id, proxyPrefix = '/api/stream', {tr
             }));
           }
         }
+        return [];
+        },Math.max(1,Math.min(1500,extractionTimeoutMs)));
       } catch (err) {
         console.warn('[myflixer] hls stream extract skipped:', err.message);
       }
