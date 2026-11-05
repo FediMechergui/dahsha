@@ -10,3 +10,5 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
   external_node_modules = ["youtubei.js"]
+  # Playback receives one runtime title; legacy snapshots must never enter Lambda.
+  included_files = ["!server/data/**", "!server/deployment-*.json", "!client/public/data*/**", "!client/dist*/**", "!client-terrarium/data/**"]
