@@ -12,10 +12,18 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PlayerViewPlugin.class);
         registerPlugin(DirectVideoPlugin.class);
         super.onCreate(savedInstanceState);
+        // A player's service worker does not pass through its WebViewClient.
+        // Apply the same narrowly targeted ad rules to that request path.
+        PlayerAdBlock.installServiceWorkerFilter();
         chromeClient = new FullscreenChromeClient(getBridge());
         android.webkit.WebView webView = getBridge().getWebView();
         webView.setWebChromeClient(chromeClient);
         getBridge().setWebViewClient(new PlayerWebViewClient(getBridge()));
+        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            // Includes inline iframe fallbacks, but never the app's localhost document.
+            androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView,
+                PlayerAdBlock.script(this), PlayerViewPlugin.playerOrigins());
+        }
 
         android.webkit.WebSettings settings = webView.getSettings();
         settings.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);

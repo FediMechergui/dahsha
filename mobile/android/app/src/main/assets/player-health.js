@@ -3,7 +3,7 @@
   const send = message => { try { DahshaPlayback.postMessage(message); } catch {} };
   document.addEventListener('timeupdate', event => {
     const video = event.target;
-    if (!playing && video instanceof HTMLVideoElement && video.currentTime > 1 && !video.paused && video.getBoundingClientRect().width > 0) {
+    if (!playing && window.DahshaContentVideo?.observe(video)) {
       playing = true;
       send('playing');
     }

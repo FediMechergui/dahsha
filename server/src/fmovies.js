@@ -1,6 +1,21 @@
 import { safeRemoteFetch } from './stream-security.js';
 
-export const FMOVIES_BASE = 'https://www.f-movies.org';
+// The legacy source redirects here (verified 2026-11-05). Keep old saved links
+// readable, but contact the canonical origin directly instead of chasing mirrors.
+export const FMOVIES_BASE = 'https://www.f-moviess.org';
+const FMOVIES_ORIGINS = new Set([FMOVIES_BASE, 'https://www.f-movies.org']);
+const TITLE_PATH = /^\/(movie|tv)\/[a-z0-9-]+-([1-9]\d*)\/?$/i;
+function pageUrl(value, titleOnly = false) {
+  const url = new URL(value, FMOVIES_BASE);
+  if (!FMOVIES_ORIGINS.has(url.origin) || url.username || url.password || url.hash || !(TITLE_PATH.test(url.pathname) || !titleOnly && /^\/(?:movies|tv-series|api\/search)\/?$/.test(url.pathname))) throw new Error('Invalid FMovies page');
+  url.host = new URL(FMOVIES_BASE).host;
+  url.pathname = url.pathname.replace(/\/$/, '');
+  return url;
+}
+export function canonicalFmoviesTitleUrl(value) {
+  try { const url = pageUrl(value, true); url.search = ''; return url.href; }
+  catch { return null; }
+}
 export const FMOVIES_GENRES = {
   28:'action',12:'adventure',16:'animation',35:'comedy',80:'crime',99:'documentary',18:'drama',10751:'family',14:'fantasy',36:'history',27:'horror',10402:'music',9648:'mystery',10749:'romance',878:'sci-fi',10770:'tv-movie',53:'thriller',10752:'war',37:'western',10759:'action',10762:'kids',10763:'news',10764:'reality',10765:'sci-fi',10766:'soap',10767:'talk',10768:'war',
 };
@@ -34,13 +49,15 @@ export function parseFmoviesList(html, { kind = 'film', documentary = false, gen
   for (const m of html.matchAll(/<a\b[^>]*href="(\/(movie|tv)\/[^"?#]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
     const [, href, type, card] = m;
     if (!card.includes('<article') || (kind === 'film') !== (type === 'movie')) continue;
+    const sourceUrl = canonicalFmoviesTitleUrl(href);
+    if (!sourceUrl) continue;
     const id = /-(\d+)$/.exec(href)?.[1];
     const title = text(/<h3\b[^>]*>([\s\S]*?)<\/h3>/.exec(card)?.[1] || /\balt="([^"]+)"/.exec(card)?.[1]);
     if (!id || !title) continue;
     const year = Number(/<span[^>]*>\s*((?:18|19|20|21)\d{2})\s*<\/span>/.exec(card)?.[1]) || null;
     const lang = /<span[^>]*>\s*([A-Z]{2})\s*<\/span>/.exec(card)?.[1]?.toLowerCase() || null;
     const poster = /<img\b[^>]*src="(https:\/\/image\.tmdb\.org\/[^" ]+)"/.exec(card)?.[1];
-    const item = baseItem({ id, kind, title, year, lang, poster, tags:documentary ? ['documentary'] : genre ? [genre] : [], sourceUrl:FMOVIES_BASE + href });
+    const item = baseItem({ id, kind, title, year, lang, poster, tags:documentary ? ['documentary'] : genre ? [genre] : [], sourceUrl });
     items.set(item.id, item);
   }
   const pagination = /Page\s+(\d+)\s+of\s+(\d+)/i.exec(text(html));
@@ -48,18 +65,18 @@ export function parseFmoviesList(html, { kind = 'film', documentary = false, gen
   if (Number(pagination[2]) > 0 && !items.size && !/no (?:movies|results|series|titles)|nothing found/i.test(text(html))) throw new Error('FMovies listing format changed: no poster records');
   return { items:[...items.values()], page:Number(pagination[1]) || page, totalPages:Number(pagination[2]) };
 }
-async function request(path,{signal}={}) {
+export async function requestFmoviesPage(path,{signal,fetchPage=safeRemoteFetch}={}) {
   signal?.throwIfAborted();
-  const url = new URL(path, FMOVIES_BASE);
-  if (url.origin !== FMOVIES_BASE) throw new Error('Invalid FMovies page');
+  const url = pageUrl(path);
   let error;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await safeRemoteFetch(url.href, { timeoutMs:7000,signal,headers:{'User-Agent':'Mozilla/5.0', Accept:'text/html,application/json'} });
+      const response = await fetchPage(url.href, { redirects:0,timeoutMs:7000,signal,headers:{'User-Agent':'Mozilla/5.0', Accept:'text/html,application/json'} });
       if (!response.ok) { await response.body?.cancel(); throw new Error(`FMovies HTTP ${response.status}`); }
-      if (new URL(response.url).origin !== FMOVIES_BASE) throw new Error('Unexpected FMovies redirect');
+      const final = new URL(response.url);
+      if (final.origin !== FMOVIES_BASE || final.username || final.password || final.pathname !== url.pathname || final.search !== url.search || final.hash) { await response.body?.cancel(); throw new Error('Unexpected FMovies redirect'); }
       return await response.text();
-    } catch (e) { signal?.throwIfAborted();error = e; if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1))); }
+    } catch (e) { signal?.throwIfAborted();error = e; if (/redirect|HTTP (?:401|403|404|429)\b/i.test(e.message)) throw e; if (attempt < 1) await new Promise(resolve => setTimeout(resolve, 500)); }
   }
   throw error;
 }
@@ -70,11 +87,12 @@ export async function fetchFmoviesPage({ kind = 'film', documentary = false, pag
   if (year) params.set('year', String(year));
   if (country) params.set('country', country);
   if (language) params.set('language', language);
-  return parseFmoviesList(await request(`/${kind === 'film' ? 'movies' : 'tv-series'}?${params}`), { kind, documentary, page, genre:typeof genre === 'number' ? FMOVIES_GENRES[genre] : genre });
+  return parseFmoviesList(await requestFmoviesPage(`/${kind === 'film' ? 'movies' : 'tv-series'}?${params}`), { kind, documentary, page, genre:typeof genre === 'number' ? FMOVIES_GENRES[genre] : genre });
 }
 export function parseFmoviesDetails(html, sourceUrl) {
-  const url = new URL(sourceUrl, FMOVIES_BASE);
-  if (url.origin !== FMOVIES_BASE) throw new Error('Invalid title origin');
+  const canonical = canonicalFmoviesTitleUrl(sourceUrl);
+  if (!canonical) throw new Error('Invalid FMovies title URL');
+  const url = new URL(canonical);
   const route = /^\/(movie|tv)\/[^/]+-(\d+)\/?$/.exec(url.pathname);
   if (!route) throw new Error('Invalid FMovies title URL');
   let data;
@@ -111,14 +129,14 @@ export function parseFmoviesDetails(html, sourceUrl) {
 }
 const detailCache = new Map();
 export async function getFmoviesDetails(record, { allSeasons = true, season, number,signal } = {}) {
-  const sourceUrl = typeof record === 'string' ? record : record.sourceUrl;
+  const sourceUrl = canonicalFmoviesTitleUrl(typeof record === 'string' ? record : record.sourceUrl);
   if (!sourceUrl) throw new Error('Missing FMovies title URL');
   const key = `${sourceUrl}:${allSeasons}:${season ?? ''}:${number ?? ''}`;
   const cached = detailCache.get(key);
   if (!signal&&cached && Date.now()-cached.at < 5*60e3) return cached.promise;
   const promise = (async () => {
     const query = season != null ? `?season=${season}&episode=${number || 1}` : '';
-    const item = parseFmoviesDetails(await request(sourceUrl + query,{signal}), sourceUrl);
+    const item = parseFmoviesDetails(await requestFmoviesPage(sourceUrl + query,{signal}), sourceUrl);
     if (allSeasons && item.kind === 'series') {
       const collected = new Map(item.episodes.map(e => [e.id,e]));
       const pending = item.seasons.filter(s => !item.episodes.some(e => e.season === s));
@@ -128,7 +146,7 @@ export async function getFmoviesDetails(record, { allSeasons = true, season, num
           signal?.throwIfAborted();
           const s = pending[cursor++];
           try {
-            const part = parseFmoviesDetails(await request(`${sourceUrl}?season=${s}&episode=1`,{signal}), sourceUrl);
+            const part = parseFmoviesDetails(await requestFmoviesPage(`${sourceUrl}?season=${s}&episode=1`,{signal}), sourceUrl);
             for (const episode of part.episodes) collected.set(episode.id, episode);
           } catch (error) {
             (item.providerErrors ||= []).push({provider:'fmovies',season:s,error:error.message});
@@ -145,12 +163,14 @@ export async function getFmoviesDetails(record, { allSeasons = true, season, num
   try { return await promise; } catch (e) { if(!signal)detailCache.delete(key); throw e; }
 }
 export async function searchFmovies(query, { documentary = false, page = 1, limit = 20,signal } = {}) {
-  const json = JSON.parse(await request(`/api/search?${new URLSearchParams({q:query,page:String(page),limit:String(limit)})}`,{signal}));
-  return (json.results || []).filter(r => ['movie','tv'].includes(r.media_type) && (!documentary || r.genre_ids?.includes(99))).map(r => {
+  const json = JSON.parse(await requestFmoviesPage(`/api/search?${new URLSearchParams({q:query,page:String(page),limit:String(limit)})}`,{signal}));
+  return (json.results || []).filter(r => ['movie','tv'].includes(r.media_type) && (!documentary || r.genre_ids?.includes(99))).flatMap(r => {
     const kind = r.media_type === 'movie' ? 'film' : 'series';
+    const sourceUrl = typeof r.href === 'string' ? canonicalFmoviesTitleUrl(r.href) : null;
+    if (!sourceUrl || !new RegExp(`^/${r.media_type}/[a-z0-9-]+-${Number(r.id)}$`, 'i').test(new URL(sourceUrl).pathname)) return [];
     const item = baseItem({ id:r.id, kind, title:text(r.title || r.name), year:Number((r.release_date || r.first_air_date || '').slice(0,4)) || null, lang:r.original_language || null,
-      poster:r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : null, synopsis:text(r.overview), tags:(r.genre_ids || []).map(id => FMOVIES_GENRES[id]).filter(Boolean), sourceUrl:new URL(r.href,FMOVIES_BASE).href });
-    return item;
+      poster:r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : null, synopsis:text(r.overview), tags:(r.genre_ids || []).map(id => FMOVIES_GENRES[id]).filter(Boolean), sourceUrl });
+    return [item];
   });
 }
 export function fmoviesServers(id) {
@@ -158,7 +178,8 @@ export function fmoviesServers(id) {
   if (!parsed || (parsed.kind === 'series' && parsed.season == null)) return [];
   const {tmdbId,season,number,kind} = parsed;
   return [
-    { id:'fmovies:embos', name:'FMovies · Embos', embedUrl:kind==='film' ? `https://embos.top/movie/?mid=${tmdbId}` : `https://embos.top/tv/?mid=${tmdbId}&s=${season}&e=${number}`, sandbox:null },
+    // Server 1's current public wrapper moved from embos.top to emboser.com.
+    { id:'fmovies:embos', name:'FMovies · Emboser', embedUrl:kind==='film' ? `https://emboser.com/movie/?mid=${tmdbId}` : `https://emboser.com/tv/?mid=${tmdbId}&s=${season}&e=${number}`, sandbox:null },
     { id:'fmovies:vidcore', name:'FMovies · Vidcore', embedUrl:kind==='film' ? `https://vidcore.net/movie/${tmdbId}` : `https://vidcore.net/tv/${tmdbId}/${season}/${number}` },
     { id:'fmovies:vidapi', name:'FMovies · VidAPI', embedUrl:kind==='film' ? `https://vidapi.xyz/embed/movie/${tmdbId}` : `https://vidapi.xyz/embed/tv/${tmdbId}/${season}/${number}` },
   ].map(s => ({...s, sandbox:null, provider:'fmovies', type:'embed', availability:'unverified'}));

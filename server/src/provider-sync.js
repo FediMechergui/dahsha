@@ -1,7 +1,8 @@
 import { readJson, writeJson } from './store.js';
 import { fetchFmoviesPage, FMOVIES_GENRES } from './fmovies.js';
 import { fetchHdtodayPage } from './hdtoday.js';
-import { mergeLibrary, providerRowProblem, latestDate, showUpdatedAt } from './merge-library.js';
+import { mergeLibrary, mergeShow, providerRowProblem, latestDate, showUpdatedAt } from './merge-library.js';
+import { refreshSeriesEpisodes } from './episode-refresh.js';
 import { getArtwork, applyProviderArtwork } from './artwork.js';
 import { applyServiceMetadata, serviceMetadataFile } from './service-metadata.js';
 
@@ -149,22 +150,32 @@ export function putProviderRows(items,rows,{reject=()=>{},discover=false,onAdd=(
     const problem=providerRowProblem(row);
     if(problem){reject(row,problem);continue;}
     const old=items.get(row.id);const now=new Date().toISOString();
-    const newEpisode=!!(old?.latestEpisode && row.latestEpisode && row.latestEpisode!==old.latestEpisode);
+    const oldSlot=/(?:^|:)(\d+):(\d+)$/.exec(old?.latestEpisode||''),nextSlot=/(?:^|:)(\d+):(\d+)$/.exec(row.latestEpisode||'');
+    const newEpisode=!!(oldSlot && nextSlot && (Number(nextSlot[1])>Number(oldSlot[1]) ||
+      Number(nextSlot[1])===Number(oldSlot[1]) && Number(nextSlot[2])>Number(oldSlot[2])));
     // HDToday cards say how long ago the title was updated; that date (never in the future) beats "now".
     const listed=latestDate(row.providerUpdatedAt),episodesAddedAt=newEpisode?(listed && listed<=now?listed:now):old?.episodesAddedAt||null;
     const next={...old,...row,tags:[...new Set([...(old?.tags||[]),...(row.tags||[])])],year:row.year||old?.year||null,firstSeenAt:old?.firstSeenAt||now,providerUpdatedAt:row.latestEpisode && row.latestEpisode!==old?.latestEpisode ? row.providerUpdatedAt||now : old?.providerUpdatedAt||row.providerUpdatedAt||now,
       lastSeenAt:now,discoveredAt:old?old.discoveredAt??null:discover?now:null};
+    // Historical pages can show an older slot than the latest listing. Keep the high-water mark,
+    // otherwise seeing the same latest card next time would be misreported as a new episode.
+    if(oldSlot && nextSlot && !newEpisode){next.latestEpisode=old.latestEpisode;next.providerUpdatedAt=old.providerUpdatedAt||next.providerUpdatedAt;}
+    // Listing cards carry zero/one episode. They must not erase the full saved guide.
+    if(old?.kind==='series' && row.kind==='series' && old.episodes?.length){
+      const guide=mergeShow(old,row);
+      next.episodes=guide.episodes;next.episodeCount=guide.episodeCount;next.seasons=guide.seasons;
+    }
     if(episodesAddedAt)next.episodesAddedAt=episodesAddedAt;else delete next.episodesAddedAt;
     items.set(row.id,next);
     if(!old)onAdd(row,now);
   }
   return items;
 }
-export async function refreshProviders({product='dahsha',full=false,pageBudget=Number(process.env.PROVIDER_SCAN_PAGES||12),log=console.log,fetch=fetchPage,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
+export async function refreshProviders({product='dahsha',full=false,pageBudget=Number(process.env.PROVIDER_SCAN_PAGES||12),episodeOptions={},log=console.log,fetch=fetchPage,sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
   if(running.has(product))return running.get(product);
-  const promise=scan({product,full,pageBudget,log,fetchPage:fetch,sleep}).finally(()=>running.delete(product));running.set(product,promise);return promise;
+  const promise=scan({product,full,pageBudget,episodeOptions,log,fetchPage:fetch,sleep}).finally(()=>running.delete(product));running.set(product,promise);return promise;
 }
-async function scan({product,full,pageBudget,log,fetchPage,sleep}) {
+async function scan({product,full,pageBudget,episodeOptions,log,fetchPage,sleep}) {
   const cache=providerCache(product),items=new Map(),startedAt=new Date().toISOString();
   // Only a provider that already has cached rows can discover titles: its first scan is the bulk import.
   const known=new Set(cache.items.map(row=>providerOf(row?.id)).filter(Boolean));
@@ -220,10 +231,17 @@ async function scan({product,full,pageBudget,log,fetchPage,sleep}) {
     }
     await sleep(500);
   }
+  const guides=await refreshSeriesEpisodes([...items.values()],{
+    limit:Number(process.env.PROVIDER_EPISODE_LIMIT??48),
+    budgetMs:Number(process.env.PROVIDER_EPISODE_BUDGET_MS??120000),
+    ...episodeOptions,skipProviders:new Set(Object.keys(errors)),
+  });
+  cache.episodeRefresh={at:new Date().toISOString(),...guides.report};
+  log(`[episodes:${product}] ${guides.report.checked} series checked; ${guides.report.addedEpisodes} verified episodes added; ${guides.report.changedShows} newer guides; ${guides.report.errors.length} unavailable/partial; ${guides.report.deferred} deferred`);
   const at=new Date().toISOString();
   // A provider that failed in this scan advances neither its own lastSuccessAt nor the shared lastRefreshAt.
   const providers=recordProviderPass(providerStatus(cache),{attempted,errors,added,at});
-  cache.items=[...items.values()];cache.errors=errors;cache.completed=cache.queue.length===0;
+  cache.items=guides.items;cache.errors=errors;cache.completed=cache.queue.length===0;
   cache.providers=providers;cache.lastAttemptAt=at;
   cache.lastRefreshAt=latestDate(...Object.values(providers).map(p=>p.lastSuccessAt));
   if(!cache.baselineAt && cache.items.length)cache.baselineAt=startedAt;

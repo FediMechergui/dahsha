@@ -71,6 +71,32 @@ export async function fetchHdtodayPage({kind='film',documentary=false,page=1,lat
   const route=latest&&kind==='series'?'/new-episodes':documentary?'/genre/documentary':slug?`/genre/${slug}`:kind==='film'?'/movie':'/tv';
   return parseHdtodayList(await request(`${route}?page=${page}`),{kind:documentary?undefined:kind,documentary,page});
 }
+const attribute=(html,name)=>new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`,'i').exec(html)?.[2];
+export function hdtodayTitleContinuation(html,source) {
+  // One ordinary, visible Continue link advertised by the title page. This is
+  // not a browser verification step and does not execute any remote script.
+  if(html.length>12000||/captcha|challenge|just a moment|quick check|access denied/i.test(html))return null;
+  try{
+    const origin=new URL(source);
+    if(origin.origin!==HDTODAY_BASE||origin.username||origin.password||!/^\/watch\/(?:movie|tv)-[a-z0-9-]+$/.test(origin.pathname))return null;
+    const refresh=[...html.matchAll(/<meta\b[^>]*>/gi)].find(match=>attribute(match[0],'http-equiv')?.toLowerCase()==='refresh');
+    const target=/^\s*\d+\s*;\s*url=(.+)$/i.exec(attribute(refresh?.[0]||'','content')||'')?.[1];
+    if(!target)return null;
+    const next=new URL(text(target),origin);
+    if(next.origin!==origin.origin||next.pathname!==origin.pathname||next.username||next.password||next.hash||next.searchParams.get('dv1')!=='1'||origin.searchParams.has('dv1'))return null;
+    for(const [key,value]of next.searchParams)if(key!=='dv1'&&origin.searchParams.get(key)!==value)return null;
+    for(const [key,value]of origin.searchParams)if(next.searchParams.get(key)!==value)return null;
+    const visible=[...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)].some(match=>/\bcontinue\b/i.test(text(match[2]))&&new URL(text(attribute(match[1],'href')||''),origin).href===next.href);
+    return visible?next.href:null;
+  }catch{return null;}
+}
+export async function fetchHdtodayTitleHtml(source,{signal,fetchPage=request}={}) {
+  signal?.throwIfAborted();
+  const html=await fetchPage(source,{signal}),continuation=hdtodayTitleContinuation(html,source);
+  if(!continuation)return html;
+  signal?.throwIfAborted();
+  return fetchPage(continuation,{signal});
+}
 export function parseHdtodayDetails(html, sourceUrl) {
   const url=new URL(sourceUrl,HDTODAY_BASE),slug=/^\/watch\/([^/]+)$/.exec(url.pathname)?.[1];
   if(url.origin!==HDTODAY_BASE||!slugPattern.test(slug || ''))throw new Error('Invalid HDToday title');
@@ -83,19 +109,24 @@ export function parseHdtodayDetails(html, sourceUrl) {
   const item=record({slug,title:text(data.name),year:Number((data.datePublished||'').slice(0,4))||null,poster:data.image,tmdbId,tags:(data.genre||[]).map(tag),synopsis:text(data.description),lang:data.inLanguage || null});
   const duration=/^PT(?:(\d+)H)?(?:(\d+)M)?/.exec(data.duration || '');
   if(duration)item.totalDurationSec=Number(duration[1]||0)*3600+Number(duration[2]||0)*60;
-  const seen=new Map();
-  for(const m of html.matchAll(/href="([^"<>]*(?:\?|&(?:amp;)?)(?:s|season)=\d+[^"<>]*)"/g)){
-    const link=new URL(text(m[1]),url);
+  const seen=new Map(),seasonSources={};
+  for(const m of html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)){
+    let link;try{link=new URL(text(attribute(m[1],'href')||''),url);}catch{continue;}
     if(link.origin!==HDTODAY_BASE||link.pathname!==url.pathname)continue;
-    const season=Number(link.searchParams.get('s')??link.searchParams.get('season'));
-    const number=Number(link.searchParams.get('e')??link.searchParams.get('episode'));
-    if(!Number.isInteger(season)||!Number.isInteger(number)||number<1)continue;
+    const seasonValue=link.searchParams.get('s')??link.searchParams.get('season'),episodeValue=link.searchParams.get('e')??link.searchParams.get('episode');
+    const season=Number(seasonValue),number=Number(episodeValue),className=attribute(m[1],'class')||'';
+    if(seasonValue===null||!Number.isSafeInteger(season)||season<0)continue;
+    if(/\bseason-pill\b/.test(className)||/^\s*(?:Season\s*|S)\d+\s*$/i.test(text(m[2]))){seasonSources[season]=link.href;continue;}
+    if(episodeValue===null||!Number.isSafeInteger(number)||number<1||!(/\b(?:ep-card|episode)\b/.test(className)||/\b(?:Episode|E)\s*\d+\b/i.test(text(m[2]))))continue;
     const id=`${item.id}:${season}:${number}`;
-    seen.set(id,{id,title:`Episode ${number}`,season,number,sourceUrl:link.href,thumbs:item.poster,offerings:[{...item.offerings[0],id,season,number}]});
+    const title=text(/class="ep-card__t"[^>]*>([\s\S]*?)<\//.exec(m[2])?.[1])||`Episode ${number}`;
+    seen.set(id,{id,title,season,number,sourceUrl:link.href,thumbs:item.poster,offerings:[{...item.offerings[0],id,season,number}]});
   }
   if(item.kind==='series'){
     item.episodes=[...seen.values()].sort((a,b)=>a.season-b.season||a.number-b.number);
-    item.episodeCount=item.episodes.length;item.seasons=[...new Set(item.episodes.map(e=>e.season))];
+    item.episodeCount=item.episodes.length;item.seasons=[...new Set([...Object.keys(seasonSources).map(Number),...item.episodes.map(e=>e.season)])].sort((a,b)=>a-b);
+    item.seasonSources=seasonSources;
+    item.episodeGuideComplete=item.seasons.every(season=>item.episodes.some(episode=>episode.season===season));
   }else item.episodes[0].durationSec=item.totalDurationSec;
   return item;
 }
@@ -105,7 +136,7 @@ export async function getHdtodayDetails(source,{signal}={}) {
   const url=typeof source==='string'?source:source.sourceUrl;
   const entry=cache.get(url);
   if(entry && Date.now()-entry.at<5*60e3)return entry.value;
-  const value=parseHdtodayDetails(await request(url,{signal}),url);cache.set(url,{at:Date.now(),value});
+  const value=parseHdtodayDetails(await fetchHdtodayTitleHtml(url,{signal}),url);cache.set(url,{at:Date.now(),value});
   if(cache.size>300)cache.delete(cache.keys().next().value);
   return value;
 }
@@ -142,6 +173,33 @@ export function parseHdtodayPlayer(html) {
   } catch { return null; }
 }
 const playerCache = new Map();
+// Use only numeric movie identities explicitly present in a validated source's
+// player list. Two different known hosts must agree; no title-based guessing.
+export function agreedMovieIdentityFromPlayers(servers=[]) {
+  const identities=new Set(),hosts=new Set();
+  for(const server of servers){
+    try{
+      const url=new URL(server.rawEmbedUrl||server.embedUrl);
+      if(url.protocol!=='https:'||url.username||url.password||(url.port&&url.port!=='443'))continue;
+      const pattern=url.hostname==='balance.medmedia03.wiki'?/^\/embed\/movie\/([1-9]\d*)\/?$/
+        :['moviesapi.to','vidfast.pro','vidfast.vc','vidlink.pro'].includes(url.hostname)?/^\/movie\/([1-9]\d*)\/?$/
+        :url.hostname==='vidsrc.mov'?/^\/embed\/movie\/([1-9]\d*)\/?$/:null;
+      const match=pattern?.exec(url.pathname),id=Number(match?.[1]);
+      if(!Number.isSafeInteger(id)||id<1)continue;
+      identities.add(id);hosts.add(url.hostname.replace(/^vidfast\.vc$/,'vidfast.pro'));
+    }catch{}
+  }
+  return identities.size===1&&hosts.size>=2?[...identities][0]:null;
+}
+export function documentedMovieServers({tmdbId}={}) {
+  if(!Number.isSafeInteger(Number(tmdbId))||Number(tmdbId)<1)return [];
+  const id=Number(tmdbId);
+  return [
+    {id:'vidfast:movie',name:'VidFast',provider:'vidfast',embedUrl:`https://vidfast.pro/movie/${id}?autoPlay=true`},
+    {id:'vidsrc:movie',name:'VidSrc',provider:'vidsrc',embedUrl:`https://vidsrc.mov/embed/movie/${id}`},
+    {id:'vidlink:movie',name:'VidLink',provider:'vidlink',embedUrl:`https://vidlink.pro/movie/${id}?autoplay=true&title=true`},
+  ].map(server=>({...server,type:'embed',sandbox:null,resolution:'documented-provider-route',availability:'unverified'}));
+}
 export function documentedTvServers({tmdbId,season,number}={}) {
   if(!Number.isSafeInteger(Number(tmdbId)) || Number(tmdbId)<1 || !Number.isInteger(season) || season<0 || !Number.isInteger(number) || number<1)return [];
   const slot=`${Number(tmdbId)}/${season}/${number}`;

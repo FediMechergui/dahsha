@@ -173,6 +173,23 @@ test('a cold backend can use the previous manifest during the brief pointer rena
   assert.deepEqual(requests, ['manifest.json', 'manifest.previous.json']);
 });
 
+test('a cold failed manifest retries after fifteen seconds instead of a full successful poll interval',async()=>{
+  const bundle=await publication();let clock=0,failed=true,calls=0;
+  const {source}=sourceFor(bundle,{now:()=>clock,fetchImpl:async()=>{calls++;return new Response(failed?'':JSON.stringify(bundle.manifest),{status:failed?503:200});}});
+  assert.equal(await source.check(),null);assert.equal(calls,2);
+  clock=14999;assert.equal(await source.check(),null);assert.equal(calls,2);
+  clock=15000;failed=false;assert.equal((await source.check()).generatedAt,date);assert.equal(calls,3);
+  clock=30000;await source.check();assert.equal(calls,3,'successful manifests retain the ordinary polling interval');
+});
+
+test('a slow failed manifest starts its retry interval after the requests complete',async()=>{
+  const bundle=await publication();let clock=0,calls=0;
+  const {source}=sourceFor(bundle,{now:()=>clock,fetchImpl:async()=>{calls++;clock+=8000;return new Response('',{status:503});}});
+  assert.equal(await source.check(),null);assert.equal(clock,16000);
+  clock=30000;assert.equal(await source.check(),null);assert.equal(calls,2);
+  clock=31000;assert.equal(await source.check(),null);assert.equal(calls,4);
+});
+
 test('a title fallback reports its actual older generation so clients cannot regress a fresh episode guide', async () => {
   const old = await publication(), value = catalog();
   value.generatedAt = '2026-11-05T09:00:00Z'; value.shows[0].episodes.push({ id: 'lmnopqrstuv', title: 'Fresh episode' });

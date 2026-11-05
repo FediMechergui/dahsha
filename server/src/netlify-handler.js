@@ -2,10 +2,17 @@ import catalogue from '../../api/catalogue.js';
 import title from '../../api/title.js';
 import stream from '../../api/stream.js';
 import {checkRuntimeManifest, getRuntimeTitle} from './dahsha-runtime-source.js';
+import {readPlaybackTitleFallback} from './playback-title-fallback.js';
+
+async function withinHydrationBudget(work,milliseconds){
+  let timer;
+  const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Live documentary lookup timed out')),milliseconds);});
+  try{return await Promise.race([Promise.resolve().then(work),deadline]);}finally{clearTimeout(timer);}
+}
 
 // Browsing/search remain on the device. Playback hydrates a single documentary,
 // never the complete catalogue, and media bytes travel directly to the player.
-export function createNetlifyHandler({handlers={catalogue,title,stream},readManifest=checkRuntimeManifest,readTitle=getRuntimeTitle}={}) {
+export function createNetlifyHandler({handlers={catalogue,title,stream},readManifest=checkRuntimeManifest,readTitle=getRuntimeTitle,readPlaybackFallback=readPlaybackTitleFallback,hydrationTimeoutMs=5000}={}) {
   return async request => {
     const url=new URL(request.url);
     const headers=new Headers({'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, HEAD, OPTIONS','Access-Control-Allow-Headers':'*','X-Content-Type-Options':'nosniff'});
@@ -32,9 +39,22 @@ export function createNetlifyHandler({handlers={catalogue,title,stream},readMani
       if(name==='title'||name==='stream') {
         const id=name==='stream'?query.showId||query.id:query.id;
         if(typeof id!=='string'||!id||id.length>350)return reply({error:'Invalid title or episode ID'},400);
-        const manifest=await readManifest();
+        let manifest,saved,unavailable=false;
+        try{
+          const lookup=async()=>{const value=await readManifest();return {manifest:value,saved:value?.product==='dahsha'?await readTitle(id):null};};
+          ({manifest,saved}=name==='stream'?await withinHydrationBudget(lookup,Math.max(1,Math.min(5000,hydrationTimeoutMs))):await lookup());
+          unavailable=!manifest;
+        }catch(error){
+          // A real authorization/not-found result is not permission to use another catalogue.
+          if(name!=='stream'||/\b(?:401|403|404)\b|access denied|unauthori[sz]ed|forbidden/i.test(error.message))throw error;
+          unavailable=true;
+          console.warn('[dahsha-api] Live playback title unavailable:',error.message);
+        }
+        if(name==='stream'&&unavailable){
+          try{saved=await readPlaybackFallback(id,query.id);}catch(error){console.warn('[dahsha-api] Playback recovery unavailable:',error.message);}
+          if(saved){manifest={product:'dahsha',generatedAt:saved._catalogueGeneratedAt};headers.set('X-Dahsha-Catalogue-Source','deployment-playback-fallback');}
+        }
         if(!manifest||manifest.product!=='dahsha')return reply({error:'Documentary catalogue temporarily unavailable'},503);
-        const saved=await readTitle(id);
         req.catalog={product:'dahsha',generatedAt:saved?._catalogueGeneratedAt||manifest.generatedAt,shows:saved?[saved]:[],channels:[],tags:[],idAliases:saved&&id!==saved.id?{[id]:saved.id}:{}};
       }
       await handler(req,res);

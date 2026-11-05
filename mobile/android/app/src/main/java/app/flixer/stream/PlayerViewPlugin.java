@@ -34,7 +34,7 @@ public class PlayerViewPlugin extends Plugin {
         "vidsrc.sh", "vsembed.ru", "sv2.nontongo.stream", "www.animegg.org", "abysscdn.com", "rozgarlelo.modiplay.xyz", "streams.iqsmartgames.com", "embed.vidrift.net", "vidout.pages.dev", "embed.filmu.in", "vidbolt.xyz", "youtube.com", "www.youtube.com", "www.youtube-nocookie.com", "embos.top", "mxdrop.click", "mixdrop.top", "hgcloud.to", "vkvideo.ru", "www.ok.ru", "ok.ru", "s1.hdup400.com", "vidzy.cc", "vidzy.org", "rufiiguta.com", "engifuosi.com", "kitraskimisi.com", "tukipasti.com", "player.mediadelivery.net", "playmogo.com", "watch.easyvidplayer.com", "vidcore.io", "vidcore.net", "vidsrc.mov", "vidsrc.fyi", "embed.vidsrc.si", "vidfast.pro", "vidup.to", "vidrock.net", "vidnest.fun", "vidlink.pro", "111movies.net", "multiembed.mov", "mappletv.uk", "moviesapi.to", "vidapi.xyz", "player.vidlove.cc", "mixdrop.ps", "cybervynx.com", "1vid.xyz", "vidmoly.org", "vidspeed.org", "www.mp4upload.com", "bysesukior.com", "bysetayico.com", "doodstream.com", "cima.easyvidplayer.com", "zumivids.com", "cimatnwatchingg.blogspot.com", "embedmaster.link", "fsvid.lol", "kokoflix.lol", "trakx.lol", "uqload.vc", "voe.sx", "doodstream.com", "player.vimeo.com", "www.dailymotion.com", "geo.dailymotion.com", "audinifer.com", "morencius.com", "watch.strp2p.site", "app.videas.fr", "www.vidspeed.org", "uqload.net", "movearnpre.com", "dingtezuni.com", "q7v3k8m2p1.top"
     ));
     // Observed HTTPS destinations of existing provider player redirects.
-    static { HOSTS.add("vidfast.vc"); HOSTS.add("streamingnow.mov"); HOSTS.add("sv4.nontongo.day"); HOSTS.add("hglamioz.com"); HOSTS.add("hgplaycdn.com"); HOSTS.add("derricknationtop.com"); }
+    static { HOSTS.add("vidfast.vc"); HOSTS.add("streamingnow.mov"); HOSTS.add("sv4.nontongo.day"); HOSTS.add("hglamioz.com"); HOSTS.add("hgplaycdn.com"); HOSTS.add("derricknationtop.com"); HOSTS.add("emboser.com"); }
     static Set<String> playerOrigins(){Set<String> origins=new HashSet<>();for(String host:HOSTS)origins.add("https://"+host);origins.add("https://*.medmedia03.wiki");
         // Observed VidSrc content frame. Telemetry only: this does not authorize
         // new top-level navigation or expose the app's Capacitor bridge.
@@ -56,6 +56,8 @@ public class PlayerViewPlugin extends Plugin {
             ||"watch.strp2p.site".equals(source.getHost());
         String session=call.getString("session","");double requestedStart=call.getDouble("startAt",0.0);
         double startAt=Double.isFinite(requestedStart)&&requestedStart>0?requestedStart:0;
+        double requestedDuration=call.getDouble("expectedDurationSec",0.0);
+        double expectedDuration=Double.isFinite(requestedDuration)&&requestedDuration>0?requestedDuration:0;
         getActivity().runOnUiThread(() -> {
             if (playerDialog != null) { call.reject("A player is already open"); return; }
             NativePlayerSurface dialog = new NativePlayerSurface((com.getcapacitor.BridgeActivity)getActivity(),getBridge().getWebView(),call.getObject("bounds"));
@@ -93,6 +95,8 @@ public class PlayerViewPlugin extends Plugin {
             // Health messages only; remote pages never receive Capacitor's app bridge.
             if(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)&&WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)){
                 Set<String> origins=new HashSet<>(sessionOrigins);
+                WebViewCompat.addDocumentStartJavaScript(web,
+                    PlayerAdBlock.script(getContext(),"player-content.js").replace("/*DAHSHA_EXPECTED_DURATION*/0",Double.toString(expectedDuration)),origins);
                 WebViewCompat.addWebMessageListener(web,"DahshaPlayback",origins,(view,message,origin,main,reply)->{
                     if(playerDialog!=dialog)return;
                     if("playing".equals(message.getData())){diagnostics.clear();played[0]=true;watchdog.removeCallbacks(startupTimeout);}

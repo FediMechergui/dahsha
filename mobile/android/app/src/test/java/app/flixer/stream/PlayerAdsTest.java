@@ -33,4 +33,20 @@ public class PlayerAdsTest {
         assertFalse(PlayerAds.blocked("https://player.example/js/player.js"));
         assertFalse(PlayerAds.blocked("https://player.example/download/movie.mp4"));
     }
+
+    @Test public void preservesAppCatalogueVerificationConsentAndPlayerServiceWorkers(){
+        for(String url:new String[]{
+                "https://localhost/assets/index.js", "https://localhost/watch/documentary/episode",
+                "https://dahsha.netlify.app/api/catalogue?part=manifest",
+                "https://vidlink.pro/service-worker.js", "https://vidapi.xyz/sw.js",
+                "https://player.example/cdn-cgi/challenge-platform/scripts/jsd/main.js",
+                "https://challenges.cloudflare.com/turnstile/v0/api.js",
+                "https://player.example/account/login", "https://player.example/consent.js",
+                "https://cdn.example/documentary/master.m3u8", "https://cdn.example/captions/ar.vtt"})
+            assertFalse(url,PlayerAds.blocked(url));
+        // The request initiator (document, iframe or worker) does not weaken a
+        // known advertising destination rule; generic workers are kept above.
+        assertTrue(PlayerAds.blocked("https://ads.popads.net/service-worker.js"));
+        assertTrue(PlayerAds.blocked("https://player.example/popunder.js?via=worker"));
+    }
 }

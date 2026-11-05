@@ -6,8 +6,8 @@ import { PRODUCT } from './product.js';
 import { matchesSearch } from '../../shared/search.js';
 import { DATA_DIR, readJson } from './store.js';
 import { mergeLibrary, mergeShow, episodeOfferings, showOfferings } from './merge-library.js';
-import { getFmoviesDetails, parseFmoviesId, searchFmovies, fmoviesServers, FMOVIES_BASE, fetchFmoviesPage } from './fmovies.js';
-import { documentedTvServers, getHdtodayDetails, parseHdtodayId, searchHdtoday, resolveHdtodayServers, HDTODAY_BASE, fetchHdtodayPage } from './hdtoday.js';
+import { getFmoviesDetails, parseFmoviesId, searchFmovies, fmoviesServers, canonicalFmoviesTitleUrl, fetchFmoviesPage } from './fmovies.js';
+import { agreedMovieIdentityFromPlayers, documentedMovieServers, documentedTvServers, getHdtodayDetails, parseHdtodayId, searchHdtoday, resolveHdtodayServers, HDTODAY_BASE, fetchHdtodayPage } from './hdtoday.js';
 import { getTitleDetails, searchContent, resolveMyflixerStream, fetchMovies, fetchSeries } from './myflixer.js';
 import { siteDate } from './documentaries.js';
 import {withinPlaybackBudget} from './playback-budget.js';
@@ -58,7 +58,7 @@ function trustedSource(id,source) {
   try{
     const url=new URL(source);
     const fm=parseFmoviesId(id),hd=parseHdtodayId(id);
-    if(fm && url.origin===FMOVIES_BASE && new RegExp(`^/${fm.kind==='film'?'movie':'tv'}/[a-z0-9-]+-${fm.tmdbId}/?$`,'i').test(url.pathname))return url.origin+url.pathname;
+    if(fm && canonicalFmoviesTitleUrl(source) && new RegExp(`^/${fm.kind==='film'?'movie':'tv'}/[a-z0-9-]+-${fm.tmdbId}/?$`,'i').test(url.pathname))return canonicalFmoviesTitleUrl(source);
     if(hd && url.origin===HDTODAY_BASE && url.pathname===`/watch/${hd.slug}`)return url.origin+url.pathname;
   }catch{}
   return null;
@@ -105,7 +105,7 @@ export async function unifiedTitle(id,{source, catalog=readLibrary(), product=PR
     if(base && !result.offerings?.some(o=>o.sourceUrl===sourceUrl)){
       try{
         const url=new URL(sourceUrl);let extra;
-        if(url.origin===FMOVIES_BASE && /^\/(movie|tv)\/[a-z0-9-]+-\d+\/?$/i.test(url.pathname))extra=await getFmoviesDetails(url.origin+url.pathname,{signal});
+        if(canonicalFmoviesTitleUrl(sourceUrl))extra=await getFmoviesDetails(canonicalFmoviesTitleUrl(sourceUrl),{signal});
         else if(url.origin===HDTODAY_BASE && /^\/watch\/(movie|tv)-[a-z0-9-]+$/.test(url.pathname)){
           try{extra=await getHdtodayDetails(url.origin+url.pathname,{signal});}
           catch{
@@ -297,7 +297,12 @@ export async function unifiedStream(id,{showId,source,prefix='/api/stream',trans
     if(server.requiresBrowserVerification || /^https?:\/\/hdtoday\.sx(?:[/:?#]|$)/i.test(server.embedUrl || ''))continue;
     const identity=server.streamUrl||server.embedUrl||`youtube:${server.videoId}`;if(!seen.has(identity)){seen.add(identity);servers.push(server);}
   }
-  if(title.kind==='series')for(const server of documentedTvServers({tmdbId:title.tmdbId || title.offerings?.find(o=>o.provider==='fmovies')?.tmdbId,season:episode.season,number:episode.number})){
+  const documentaryFilm=title.kind==='film'&&(title.documentary===true||title.documentary!==false&&base&&!title.providerMetadata&&title.tags?.includes('documentary'));
+  const tmdbId=title.tmdbId || title.offerings?.find(offering=>offering.provider==='fmovies')?.tmdbId
+    ||(documentaryFilm?agreedMovieIdentityFromPlayers(servers):null);
+  const alternatives=title.kind==='series'?documentedTvServers({tmdbId,season:episode.season,number:episode.number})
+    :documentaryFilm?documentedMovieServers({tmdbId}):[];
+  for(const server of alternatives){
     if(!seen.has(server.embedUrl)){seen.add(server.embedUrl);servers.push(server);}
   }
   const providerErrors=[...(title.providerErrors||[]),...results.flatMap((result,index)=>result.status==='rejected'?[{provider:offers[index].provider,error:result.reason?.message||'Playback source unavailable'}]:[])];

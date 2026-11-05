@@ -7,6 +7,10 @@ on:
     - cron: '17 3,15 * * *'   # every 12 hours (03:17 and 15:17 UTC)
   workflow_dispatch:
     inputs:
+      providers_only:
+        description: 'Refresh documentary providers and episode guides using the latest saved YouTube catalogue'
+        type: boolean
+        default: false
       full:
         description: 'Full rebuild (re-fetch every playlist)'
         type: boolean
@@ -35,6 +39,9 @@ jobs:
       APP_PRODUCT: dahsha
       GH_TOKEN: ${{ github.token }}
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      # Rotate bounded episode-guide work on GitHub, never during app requests.
+      PROVIDER_EPISODE_LIMIT: '120'
+      PROVIDER_EPISODE_BUDGET_MS: '120000'
       REGRESSION_FORCE: ${{ inputs.force && '1' || '' }}
       # server/data files the provider step writes: backed up before it, put back if it fails.
       PROVIDER_CACHE_FILES: providers-dahsha.json provider-aliases-dahsha.json provider-identities-dahsha.json provider-matches-dahsha.json service-metadata-dahsha.json catalog.json
@@ -63,6 +70,7 @@ jobs:
         timeout-minutes: 2
         run: node scripts/apply-reviewed-identities.js --apply --report "$RUNNER_TEMP/dahsha-identities.json"
       - name: Refresh from YouTube
+        if: ${{ !inputs.providers_only }}
         env:
           # The provider step below scans FMovies/HDToday; the scheduler must not scan them as well.
           SKIP_PROVIDER_SYNC: '1'
@@ -79,6 +87,7 @@ jobs:
           fi
           exit "$status"
       - name: Export static data
+        if: ${{ !inputs.providers_only }}
         run: node server/src/export.js
       # The provider step writes these caches as it goes. If it fails part-way they are put back, so a
       # half-written scan or merge never reaches the snapshot. The deploy then ships the export above

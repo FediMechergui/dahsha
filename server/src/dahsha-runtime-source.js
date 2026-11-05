@@ -46,7 +46,7 @@ async function boundedBody(response, limit) {
   return Buffer.concat(chunks);
 }
 
-export function createRuntimeSource({ fetchImpl = fetch, now = Date.now, pollMs = 120000, staleMs = 6 * 3600e3, root = RUNTIME_ROOT, log = console.warn } = {}) {
+export function createRuntimeSource({ fetchImpl = fetch, now = Date.now, pollMs = 120000, retryMs = 15000, staleMs = 6 * 3600e3, root = RUNTIME_ROOT, log = console.warn } = {}) {
   let manifest = null, previous = null, checkedAt = -Infinity, confirmedAt = -Infinity, checking = null;
   const cache = new Map(), loading = new Map(), waiters = [];
   let cacheBytes = 0, downloads = 0;
@@ -60,7 +60,10 @@ export function createRuntimeSource({ fetchImpl = fetch, now = Date.now, pollMs 
 
   async function check() {
     if (checking) return checking;
-    if (now() - checkedAt < pollMs) return current();
+    // A cold instance without a usable manifest must recover promptly after a
+    // transient GitHub failure. Successful manifests keep the normal poll cadence.
+    const interval=current()?pollMs:Math.min(pollMs,Math.max(1,Math.min(15000,retryMs)));
+    if (now() - checkedAt < interval) return current();
     checkedAt = now();
     checking = (async () => {
       try {
@@ -71,7 +74,7 @@ export function createRuntimeSource({ fetchImpl = fetch, now = Date.now, pollMs 
         if (next.generatedAt === manifest.generatedAt) confirmedAt = now();
       } catch (error) { log(`[dahsha-runtime] Keeping the last complete manifest: ${error.message}`); }
       return current();
-    })().finally(() => { checking = null; });
+    })().finally(() => { checkedAt = now(); checking = null; });
     return checking;
   }
 
