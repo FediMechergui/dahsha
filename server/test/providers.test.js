@@ -5,6 +5,7 @@ import { parseHdtodayList, parseHdtodayDetails, parseHdtodayId, hdtodayServers, 
 import { mergeLibrary, mergeShow } from '../src/merge-library.js';
 import { unifiedStream, unifiedTitle } from '../src/library-service.js';
 import { leanCatalog } from '../src/export-catalog.js';
+import { HDTODAY_PLAYER_ROUTES, isHdtodayPlayerRoute } from '../../shared/hdtoday-player-routes.js';
 
 const fm = (overrides={}) => ({id:'fm:m:77',tmdbId:77,kind:'film',title:'A Shared Film',year:2024,documentary:true,tags:['documentary'],episodes:[{id:'fm:m:77',title:'A Shared Film',season:1,number:1,offerings:[{provider:'fmovies',id:'fm:m:77'}]}],offerings:[{provider:'fmovies',id:'fm:m:77',tmdbId:77,kind:'film',documentary:true}],...overrides});
 const base = () => ({product:'flixer',shows:[{id:'mf:m:shared-film',title:'A Shared Film',year:2024,kind:'film',tags:['documentary'],episodes:[{id:'mf:m:shared-film',title:'A Shared Film',season:1,number:1}]}],tags:[],channels:[]});
@@ -20,22 +21,24 @@ test('blocked HDToday TV routes use documented players only with a verified nume
   assert.deepEqual(hdtodayTvFallbacks(id,null),[]);
   assert.deepEqual(hdtodayTvFallbacks(id,'https://private'),[]);
   const options=hdtodayTvFallbacks(id,108978);
-  assert.equal(options.length,3);
-  assert.equal(options.filter(s=>s.resolution==='documented-provider-route').length,3);
+  assert.equal(options.length,HDTODAY_PLAYER_ROUTES.length);
+  assert.equal(options.filter(s=>s.resolution==='documented-provider-route').length,HDTODAY_PLAYER_ROUTES.length);
   assert.equal(options[0].embedUrl,'https://vidsrc.mov/embed/tv/108978/2/3');
-  assert.equal(options[2].embedUrl,'https://vidlink.pro/tv/108978/2/3');
+  assert.equal(options[7].embedUrl,'https://vidlink.pro/tv/108978/2/3?autoplay=true&title=true');
+  assert.ok(options.some(server=>server.embedUrl==='https://vidcore.io/tv/108978/2/3'));
+  assert.ok(options.every(server=>isHdtodayPlayerRoute(server.embedUrl)&&server.availability==='unverified'));
 });
 
 test('HDToday movie players resolve directly without exposing blocked wrappers',async()=>{
   const id='hd:m:movie-happy-gay-3s131e2c';
   const options=await resolveHdtodayServers(id,{tmdbId:1503719,fetchPlayer:async()=>{throw new Error('Must not fetch a wrapper when the identity is known');}});
-  assert.equal(options.length,12);
+  assert.equal(options.length,HDTODAY_PLAYER_ROUTES.length);
   assert.equal(options[0].embedUrl,'https://vidsrc.mov/embed/movie/1503719');
   assert.ok(options.every(s=>!s.embedUrl.startsWith('https://hdtoday.sx/')));
   assert.ok(options.every(s=>s.sandbox===null));
   assert.deepEqual(hdtodayMovieFallbacks(id,'invalid'),[]);
   const inferred=await resolveHdtodayServers('hd:m:movie-redirect-fixture-abc12345',{fetchPlayer:async()=>'<meta http-equiv="refresh" content="0;url=https://vidsrc.mov/embed/movie/1503719">'});
-  assert.equal(inferred.length,12);
+  assert.equal(inferred.length,HDTODAY_PLAYER_ROUTES.length);
   const unavailable=await resolveHdtodayServers('hd:m:movie-blocked-fixture-abc12345',{fetchPlayer:async()=>'<title>Quick check</title>'});
   assert.deepEqual(unavailable,[]);
 });
@@ -87,7 +90,20 @@ test('provider IDs and generated server URLs reject arbitrary URLs and preserve 
   assert.equal(parseFmoviesId('fm:m:../private'),null);assert.equal(fmoviesServers('fm:s:77').length,0);
   assert.equal(parseHdtodayId('hd:m:movie-a-film-abc12345').kind,'film');
   assert.equal(parseHdtodayId('hd:m:tv-a-film-abc12345'),null);
-  const hd=hdtodayServers('hd:s:tv-example-abc12345:2:3');assert.equal(hd.length,12);assert.match(hd[0].embedUrl,/s=2&e=3/);
+  const hd=hdtodayServers('hd:s:tv-example-abc12345:2:3');assert.equal(hd.length,HDTODAY_PLAYER_ROUTES.length);assert.match(hd[0].embedUrl,/s=2&e=3/);
+  assert.equal(parseHdtodayId('hd:m:movie-a-film-abc12345:1:1'),null);
+  assert.equal(parseHdtodayId('hd:s:tv-example-abc12345:999999999999999999999:1'),null);
+});
+
+test('new HDToday hosts require exact observed player paths and denied hosts are not repeatedly probed',async()=>{
+  const allowed='https://vidcore.io/tv/108978/2/3';
+  assert.equal(parseHdtodayPlayer(`<meta http-equiv="refresh" content="0;url=${allowed}">`),allowed);
+  for(const url of ['https://vidcore.io/account',allowed+'?redirect=https://evil.example',allowed.replace('vidcore.io','vidcore.io.evil.example')]){
+    assert.equal(isHdtodayPlayerRoute(url),false);assert.equal(parseHdtodayPlayer(`<meta http-equiv="refresh" content="0;url=${url}">`),null);
+  }
+  let requests=0;
+  const result=await resolveHdtodayServers('hd:m:movie-denied-fixture-12345678',{fetchPlayer:async()=>{requests++;throw Error('HDToday HTTP 403');}});
+  assert.deepEqual(result,[]);assert.ok(requests<=4);
 });
 
 test('matching films keep existing show/episode IDs and append offerings without duplicates',()=>{
@@ -161,9 +177,10 @@ test('unified playback returns existing and both new providers in one server lis
   show=mergeShow(show,{...fm(),id:'hd:m:movie-shared-film-abc12345',offerings:[{provider:'hdtoday',id:'hd:m:movie-shared-film-abc12345'}],episodes:[{id:'hd:m:movie-shared-film-abc12345',season:1,number:1,offerings:[{provider:'hdtoday',id:'hd:m:movie-shared-film-abc12345'}]}]});
   const catalog={product:'flixer',shows:[show]};
   const result=await unifiedStream(show.episodes[0].id,{catalog,product:'flixer',resolveTitle:async()=>show,resolveHdtoday:async id=>hdtodayMovieFallbacks(id,77),resolveMyflixer:async()=>({servers:[{id:'p2',name:'Player 2',type:'embed',embedUrl:'https://existing.example/player'}]})});
-  assert.equal(result.servers.length,16);assert.ok(result.servers.some(s=>s.provider==='myflixer'));assert.ok(result.servers.some(s=>s.provider==='fmovies'));assert.ok(result.servers.some(s=>s.provider==='hdtoday'));
+  const expected=new Set(['https://existing.example/player',...fmoviesServers('fm:m:77').map(server=>server.embedUrl),...hdtodayMovieFallbacks('hd:m:movie-shared-film-abc12345',77).map(server=>server.embedUrl)]);
+  assert.deepEqual(new Set(result.servers.map(server=>server.embedUrl)),expected);assert.equal(result.servers.length,expected.size);assert.ok(result.servers.some(s=>s.provider==='myflixer'));assert.ok(result.servers.some(s=>s.provider==='fmovies'));assert.ok(result.servers.some(s=>s.provider==='hdtoday'));
   const fallback=await unifiedStream(show.episodes[0].id,{catalog,product:'flixer',resolveTitle:async()=>show,resolveHdtoday:async id=>hdtodayMovieFallbacks(id,77),resolveMyflixer:async()=>{throw new Error('Offline');}});
-  assert.equal(fallback.servers.length,15);
+  assert.equal(fallback.servers.length,expected.size-1);
   const blocked=await unifiedStream(show.episodes[0].id,{catalog,product:'flixer',resolveTitle:async()=>show,resolveHdtoday:async id=>hdtodayServers(id),resolveMyflixer:async()=>({servers:[]})});
   assert.ok(blocked.servers.every(server=>server.provider!=='hdtoday'));
   assert.equal(await unifiedStream('fm:e:77:999:999',{showId:show.id,catalog,product:'flixer',resolveTitle:async()=>show}),null);

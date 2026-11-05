@@ -86,6 +86,8 @@ The website and lightweight API share `https://dahsha.netlify.app`. The API serv
 
 GitHub's hosted runners check YouTube RSS every 30 minutes and run the deeper channel, playlist and documentary-provider refresh every 12 hours. GitHub can delay scheduled jobs. Each successful refresh publishes immutable, hash-verified data in this repository's `catalogue-runtime` release and saves collection state in `data-snapshot`. Routine updates do not deploy Netlify or rebuild the APK. Failed or incomplete updates retain the previous catalogue. Curated channel and documentary filters still apply.
 
+Reviewed HDToday identities in `server/config/dahsha-reviewed-identities.json` enrich only existing documentaries with an exact source ID, title, year and type match. `node scripts/apply-reviewed-identities.js` previews the changes; `--apply` writes them. Conflicts are skipped, and episode lists and update dates are preserved. The scheduled workflows apply these facts automatically.
+
 Deploy website/API code explicitly with `npm run build` followed by `npm run publish` using the Netlify CLI login or `NETLIFY_AUTH_TOKEN`. Android client/player changes require a new APK. Android CI builds only Dahsha and uses `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`; without signing credentials it produces an unsigned APK.
 
 Read [Scraper behavior](docs/SCRAPERS.md) and [Provider integration](docs/FMOVIES.md) for parsing, matching, and playback details. Upstream streams and artwork may be unavailable; failed requests retain imported catalogue data.

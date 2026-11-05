@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {playbackServers,preferredServer,nextServer,validProgress} from '../../client/src/lib/player-policy.js';
 import {unifiedStream} from '../src/library-service.js';
+import {hdtodayMovieFallbacks} from '../src/hdtoday.js';
 
 test('Dahsha preserves direct MP4, DASH and HLS links and source headers, preferring direct over named embeds',()=>{
   const servers=playbackServers({servers:[
@@ -44,4 +45,28 @@ test('a stalled source cannot hold up verified cached FMovies alternatives or tr
 test('missing episodes have a bounded hydration deadline and are never fabricated from caller coordinates',async()=>{
   let signal;const show={id:'fm:s:77',kind:'series',title:'Documentary',documentary:true,episodes:[]};
   await assert.rejects(unifiedStream('fm:e:77:99:99',{showId:show.id,catalog:{product:'dahsha',shows:[show]},product:'dahsha',titleTimeoutMs:20,resolveTitle:(_id,options)=>{signal=options.signal;return new Promise(()=>{});}}),/timed out/);assert.equal(signal.aborted,true);
+});
+
+const hdtodayDocumentary=()=>({id:'hd:m:movie-documentary-12345678',kind:'film',title:'Documentary',documentary:true,providerMetadata:true,offerings:[{provider:'hdtoday',id:'hd:m:movie-documentary-12345678'}],episodes:[{id:'hd:m:movie-documentary-12345678',season:1,number:1}]});
+
+test('saved HDToday episodes without a numeric identity hydrate before resolving public routes',async()=>{
+  const show=hdtodayDocumentary();let hydrated=0,resolvedId;
+  const options={showId:show.id,catalog:{product:'dahsha',shows:[show]},product:'dahsha',resolveTitle:async(id,{signal})=>{assert.equal(id,show.id);assert.equal(signal.aborted,false);hydrated++;return {...show,tmdbId:77};},resolveHdtoday:async(id,{tmdbId})=>{resolvedId=tmdbId;return hdtodayMovieFallbacks(id,tmdbId);}};
+  const result=await unifiedStream(show.id,options);
+  assert.equal(hydrated,1);assert.equal(resolvedId,77);assert.ok(result.servers.length>0);assert.ok(result.servers.every(server=>!server.embedUrl.startsWith('https://hdtoday.sx/')));assert.deepEqual(result.providerErrors,[]);
+  const identified={...show,tmdbId:77};
+  await unifiedStream(show.id,{...options,catalog:{product:'dahsha',shows:[identified]},resolveTitle:()=>{throw Error('Known numeric identities must remain immediate');}});
+  assert.equal(hydrated,1);
+});
+
+test('failed HDToday identity enrichment is bounded and keeps existing provider routes with honest errors',async()=>{
+  const show=hdtodayDocumentary();show.offerings.push({provider:'myflixer',id:'mf:m:documentary'});let signal;
+  const result=await unifiedStream(show.id,{showId:show.id,catalog:{product:'dahsha',shows:[show]},product:'dahsha',titleTimeoutMs:20,resolveTitle:(_id,options)=>{signal=options.signal;return new Promise(()=>{});},resolveHdtoday:async()=>[],resolveMyflixer:async()=>({servers:[{id:'existing',type:'embed',embedUrl:'https://player.example/documentary'}]})});
+  assert.equal(signal.aborted,true);assert.equal(result.showId,show.id);assert.equal(result.servers.length,1);assert.equal(result.servers[0].provider,'myflixer');assert.ok(result.providerErrors.some(error=>/identity enrichment unavailable.*timed out/.test(error.error)));assert.ok(result.providerErrors.some(error=>/HDToday returned no playable routes/.test(error.error)));
+});
+
+test('HDToday identity hydration cannot revive a rejected non-documentary',async()=>{
+  const show=hdtodayDocumentary(),options={showId:show.id,catalog:{product:'dahsha',shows:[show]},product:'dahsha',resolveHdtoday:()=>{throw Error('Rejected titles must not resolve players');}};
+  assert.equal(await unifiedStream(show.id,{...options,resolveTitle:async()=>null}),null);
+  assert.equal(await unifiedStream(show.id,{...options,resolveTitle:async()=>({...show,documentary:false,tmdbId:77})}),null);
 });

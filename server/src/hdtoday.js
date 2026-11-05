@@ -1,12 +1,13 @@
 import { safeRemoteFetch } from './stream-security.js';
 import { text } from './fmovies.js';
+import { HDTODAY_PLAYER_ROUTES, isHdtodayPlayerRoute } from '../../shared/hdtoday-player-routes.js';
 
 export const HDTODAY_BASE = 'https://hdtoday.sx';
-const servers = ['vidsrc.mov','vidsrc.fyi','VIP','vidfast','vidup','vidrock','vidnest','vidlink','111movies','multiembed','mappletv','moviesapi'];
 const slugPattern = /^(movie|tv)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export function parseHdtodayId(id) {
   const m = /^hd:([ms]):([a-z0-9]+(?:-[a-z0-9]+)*)(?::(\d+):([1-9]\d*))?$/.exec(String(id));
   if (!m || !slugPattern.test(m[2]) || (m[1] === 'm') !== m[2].startsWith('movie-')) return null;
+  if(m[3]!=null&&(m[1]==='m'||!Number.isSafeInteger(Number(m[3]))||!Number.isSafeInteger(Number(m[4]))))return null;
   return {id,kind:m[1] === 'm' ? 'film':'series',slug:m[2],season:m[3] == null ? null:Number(m[3]),number:m[4] == null ? null:Number(m[4])};
 }
 const tag = label => ({'Science Fiction':'sci-fi','Sci-Fi & Fantasy':'sci-fi','Action & Adventure':'action','War & Politics':'war'}[label] || label.toLowerCase().replace(/[^a-z0-9]+/g,'-'));
@@ -123,7 +124,7 @@ export async function searchHdtoday(query,{documentary=false,signal}={}) {
 export function hdtodayServers(id) {
   const p=parseHdtodayId(id);
   if(!p||(p.kind==='series' && p.season==null))return [];
-  return servers.map((name,index)=>{
+  return HDTODAY_PLAYER_ROUTES.map(({name},index)=>{
     const params=new URLSearchParams({t:p.kind==='film'?'movie':'tv',slug:p.slug,x:String(index)});
     if(p.kind==='series'){params.set('s',String(p.season));params.set('e',String(p.number));}
     return {id:`hdtoday:${index}`,name:`HDToday · ${name}`,provider:'hdtoday',type:'embed',embedUrl:`${HDTODAY_BASE}/api/go?${params}`,availability:'unverified'};
@@ -137,7 +138,7 @@ export function parseHdtodayPlayer(html) {
   if (!target) return null;
   try {
     const url = new URL(text(target));
-    return url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443') && playerHosts.has(url.hostname) ? url.href : null;
+    return url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443') && (playerHosts.has(url.hostname)||isHdtodayPlayerRoute(url.href)) ? url.href : null;
   } catch { return null; }
 }
 const playerCache = new Map();
@@ -153,31 +154,27 @@ export function documentedTvServers({tmdbId,season,number}={}) {
 export function hdtodayTvFallbacks(id,tmdbId) {
   const parsed=parseHdtodayId(id), numericId=Number(tmdbId);
   if(!parsed || parsed.kind!=='series' || parsed.season==null || !Number.isSafeInteger(numericId) || numericId<1)return [];
-  const slot=`${numericId}/${parsed.season}/${parsed.number}`;
-  const urls={0:`https://vidsrc.mov/embed/tv/${slot}`,3:`https://vidfast.pro/tv/${slot}?autoPlay=true`,7:`https://vidlink.pro/tv/${slot}`};
-  return hdtodayServers(id).flatMap((server,index)=>urls[index] ? [{...server,embedUrl:urls[index],sandbox:null,sourceUrl:server.embedUrl,resolution:'documented-provider-route'}] : []);
+  return hdtodayServers(id).map((server,index)=>({...server,
+    embedUrl:HDTODAY_PLAYER_ROUTES[index].tv.replaceAll('{id}',String(numericId)).replaceAll('{season}',String(parsed.season)).replaceAll('{episode}',String(parsed.number)),
+    sandbox:null,sourceUrl:server.embedUrl,resolution:'documented-provider-route',availability:'unverified'}));
 }
 export function hdtodayMovieFallbacks(id,tmdbId) {
   const parsed=parseHdtodayId(id), numericId=Number(tmdbId);
   if(!parsed || parsed.kind!=='film' || !Number.isSafeInteger(numericId) || numericId<1)return [];
-  // Routes observed in HDToday's public movie redirect responses.
-  const urls=[`https://vidsrc.mov/embed/movie/${numericId}`,`https://vidsrc.fyi/embed/movie/${numericId}`,
-    `https://embed.vidsrc.si/embed/movie/${numericId}?autoplay=1&ds_lang=en`,
-    `https://vidfast.pro/movie/${numericId}?autoPlay=true`,`https://vidup.to/movie/${numericId}?autoPlay=true`,
-    `https://vidrock.net/movie/${numericId}`,`https://vidnest.fun/movie/${numericId}`,`https://vidlink.pro/movie/${numericId}?autoplay=true&title=true`,
-    `https://111movies.net/movie/${numericId}`,`https://multiembed.mov/?video_id=${numericId}&tmdb=1`,
-    `https://mappletv.uk/embed/movie/${numericId}`,`https://moviesapi.to/movie/${numericId}`];
-  return hdtodayServers(id).map((server,index)=>({...server,embedUrl:urls[index],sandbox:null,sourceUrl:server.embedUrl,resolution:'verified-provider-route'}));
+  return hdtodayServers(id).map((server,index)=>({...server,embedUrl:HDTODAY_PLAYER_ROUTES[index].movie.replaceAll('{id}',String(numericId)),sandbox:null,sourceUrl:server.embedUrl,resolution:'documented-provider-route',availability:'unverified'}));
 }
 export async function resolveHdtodayServers(id,{tmdbId,signal,fetchPlayer=path=>request(path,{timeoutMs:5000,signal})}={}) {
   const fallback=[...hdtodayTvFallbacks(id,tmdbId),...hdtodayMovieFallbacks(id,tmdbId)];
-  if(fallback.length)return fallback;
+  // This public TV host was observed advancing in Flixer's Android player;
+  // individual titles remain unverified until their media actually starts.
+  const prioritize=rows=>rows.toSorted((a,b)=>Number(b.embedUrl.startsWith('https://vidcore.io/tv/'))-Number(a.embedUrl.startsWith('https://vidcore.io/tv/')));
+  if(fallback.length)return prioritize(fallback);
   const cached = playerCache.get(id);
   if (cached && Date.now()-cached.at < 10*60e3) return cached.value;
   const choices = hdtodayServers(id), resolved = [];
-  let next = 0, inferred=null;
+  let next = 0, inferred=null, denied=false;
   await Promise.all(Array.from({length:Math.min(4,choices.length)},async()=>{
-    while (next < choices.length && !inferred && !signal?.aborted) {
+    while (next < choices.length && !inferred && !denied && !signal?.aborted) {
       const index=next++, server=choices[index];
       try {
         const target=parseHdtodayPlayer(await fetchPlayer(server.embedUrl));
@@ -187,10 +184,14 @@ export async function resolveHdtodayServers(id,{tmdbId,signal,fetchPlayer=path=>
           if(movieId)inferred=hdtodayMovieFallbacks(id,Number(movieId));
           if(!inferred?.length)inferred=null;
         }
-      } catch { /* Never return HDToday wrapper pages as iframe players. */ }
+      } catch(error) {
+        // A host-wide refusal applies to every wrapper. Do not try all 44
+        // indices after it has already denied this environment.
+        if(/HTTP (?:401|403|429)|browser verification|rate limited/i.test(error.message))denied=true;
+      }
     }
   }));
-  const result=inferred || resolved.filter(Boolean);
+  const result=prioritize(inferred || resolved.filter(Boolean));
   if(result.length)playerCache.set(id,{at:Date.now(),value:result});
   if(playerCache.size>300)playerCache.delete(playerCache.keys().next().value);
   return result;

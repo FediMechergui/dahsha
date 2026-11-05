@@ -3,6 +3,7 @@ import { readJson, writeJson } from '../server/src/store.js';
 import { writeCatalog } from '../server/src/export-catalog.js';
 import { resolveProviderMatches } from '../server/src/provider-matches.js';
 import { enrichServices } from '../server/src/service-metadata.js';
+import {main as applyReviewedDahshaIdentities} from './apply-reviewed-identities.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +27,9 @@ function warnStaleProviders(product,cache,now=Date.now()){
 }
 for(const product of requested==='both'?['dahsha','flixer']:[requested]){
   const cache=await refreshProviders({product,full:args.includes('--full'),pageBudget:Number(option('--pages','24'))});
+  // Listings can omit a previously verified ID. Restore only reviewed existing
+  // documentary identities after scanning, before the merge/export reads disk.
+  if(product==='dahsha')applyReviewedDahshaIdentities(['--apply']);
   warnStaleProviders(product,cache);
   const out=path.join(root,'client/public',product==='dahsha'?'data':'data-flixer');
   const file=path.join(out,'catalog.json');

@@ -2,6 +2,7 @@ import { DOCUMENTARIES, PRODUCT } from './product.js';
 import { matchesSearch } from '../../../shared/search.js';
 import { mergeLiveShow, needsLiveTitle, versionedUrl } from './catalog-helpers.js';
 import { createRuntimeCatalogClient, isOlderGeneration } from './runtime-catalog.js';
+import { fetchWithCatalogueTransport } from './catalogue-fetch.js';
 // Catalogue browsing stays local; the backend serves independently published data and playback.
 export const STATIC = import.meta.env.VITE_STATIC === '1';
 export const DATA_BASE = (import.meta.env.VITE_DATA_BASE || '').replace(/\/$/, '');
@@ -38,7 +39,7 @@ async function req(url, { timeout = 30000, stall = 0, ...opts } = {}) {
   arm?.();
   let res, text;
   try {
-    res = await fetch(url, { ...opts, headers, signal: controller.signal });
+    res = await fetchWithCatalogueTransport(url, { ...opts, headers, signal: controller.signal }, { apiBase: API_BASE, enabled: DOCUMENTARIES });
     arm?.();
     text = await readText(res, arm);
   } catch (e) {

@@ -248,7 +248,21 @@ export async function unifiedStream(id,{showId,source,prefix='/api/stream',trans
     ||(base?.kind==='film'&&(base.id===id||base.offerings?.some(offering=>offering.id===id))?base.episodes?.[0]:null);
   // Published episode guides already passed documentary/identity validation.
   // Opening one must not re-fetch every provider's full show before playback.
-  const title=savedEpisode?base:await withinPlaybackBudget(signal=>resolveTitle(targetId,{source,catalog,product,signal}),Math.min(8000,Math.max(1,titleTimeoutMs)));
+  // HDToday needs a verified numeric identity for its public player routes,
+  // though: an imported episode with only a slug still requires enrichment.
+  const missingHdtodayIdentity=savedEpisode
+    && [...episodeOfferings(savedEpisode),...showOfferings(base)].some(offering=>offering.provider==='hdtoday')
+    && !base.tmdbId && !base.offerings?.some(offering=>offering.provider==='fmovies'&&offering.tmdbId);
+  let title=base;
+  if(!savedEpisode||missingHdtodayIdentity){
+    try{title=await withinPlaybackBudget(signal=>resolveTitle(targetId,{source,catalog,product,signal}),Math.min(8000,Math.max(1,titleTimeoutMs)));}
+    catch(error){
+      if(!savedEpisode)throw error;
+      // Failed optional enrichment must not discard the verified episode or
+      // its other providers. A null result still fails the documentary gate.
+      title={...base,providerErrors:[...(base.providerErrors||[]),{provider:'hdtoday',error:`Title identity enrichment unavailable: ${error.message}`}]};
+    }
+  }
   let episode=title?.episodes?.find(e=>e.id===id||e.offerings?.some(o=>o.id===id));
   if(!episode && title?.kind==='film' && (id===title.id||title.offerings?.some(o=>o.id===id)))episode=title.episodes[0];
   // Never authorize arbitrary episode slots from caller-supplied offering descriptors.
@@ -265,7 +279,11 @@ export async function unifiedStream(id,{showId,source,prefix='/api/stream',trans
   }
   const results=await Promise.allSettled(offers.map(o=>withinPlaybackBudget(async signal=>{
     if(o.provider==='fmovies')return fmoviesServers(o.id);
-    if(o.provider==='hdtoday')return resolveHdtoday(o.id,{tmdbId:title.tmdbId || title.offerings?.find(provider=>provider.provider==='fmovies')?.tmdbId,signal});
+    if(o.provider==='hdtoday'){
+      const routes=await resolveHdtoday(o.id,{tmdbId:title.tmdbId || title.offerings?.find(provider=>provider.provider==='fmovies')?.tmdbId,signal});
+      if(!routes?.length)throw new Error('HDToday returned no playable routes; source access or title identity is unavailable');
+      return routes;
+    }
     if(o.provider==='youtube')return [{id:`youtube:${o.id}`,name:'YouTube',provider:'youtube',type:'youtube',videoId:o.id}];
     if(o.provider==='myflixer'){
       const resolved=await resolveMyflixer(o.id,prefix,{transport:transport==='direct'?'direct':'proxy',signal});

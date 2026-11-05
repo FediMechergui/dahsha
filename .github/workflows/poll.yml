@@ -47,6 +47,9 @@ jobs:
         run: node scripts/snapshot.js restore
       - name: Record restored catalogue counts
         run: node scripts/check-regression.js record --out "$RUNNER_TEMP/restored-counts.json"
+      - name: Apply reviewed documentary identities
+        timeout-minutes: 2
+        run: node scripts/apply-reviewed-identities.js --apply --report "$RUNNER_TEMP/dahsha-identities.json"
       - name: Poll YouTube RSS feeds
         run: |
           status=0
