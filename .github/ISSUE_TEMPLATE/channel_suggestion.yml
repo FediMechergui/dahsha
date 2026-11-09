@@ -1,0 +1,19 @@
+name: 🎬 Suggest a channel or documentary
+description: Recommend a documentary channel, playlist or title for the catalogue.
+labels: [suggestion]
+body:
+  - type: input
+    id: link
+    attributes:
+      label: Channel, playlist or video link
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options: [Arabic, English, Other]
+  - type: textarea
+    id: why
+    attributes:
+      label: Why should it be included?

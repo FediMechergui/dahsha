@@ -2,6 +2,13 @@
   "name": "dahsha",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://dahsha.netlify.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FediMechergui/dahsha.git"
+  },
+  "keywords": ["documentaries", "arabic", "react", "nodejs", "android", "capacitor", "pwa", "streaming"],
   "type": "module",
   "description": "Dahsha: documentaries in Arabic and English.",
   "scripts": {
