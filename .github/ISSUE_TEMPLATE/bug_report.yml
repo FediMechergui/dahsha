@@ -1,0 +1,27 @@
+name: 🐞 Bug report
+description: Something in Dahsha does not work as expected.
+labels: [bug]
+body:
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where did it happen?
+      options: [Website, Android app]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include the documentary or episode link if playback failed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+  - type: input
+    id: version
+    attributes:
+      label: App version / browser
+      placeholder: e.g. Android APK v1.2, Chrome 140

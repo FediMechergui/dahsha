@@ -1,11 +1,51 @@
-# Dahsha
+<div align="center">
 
-Dahsha is reserved for documentaries, with its original Arabic/English channels, topics, and episode browsing.
+<img src="docs/screenshots/logo.png" alt="Dahsha logo" width="96" height="96">
 
-- Website: [Dahsha](https://dahsha.netlify.app)
-- Repository: [FediMechergui/dahsha](https://github.com/FediMechergui/dahsha)
-- Android downloads: [Releases](https://github.com/FediMechergui/dahsha/releases)
-- Flixer is maintained in its [own repository](https://github.com/FediMechergui/flixer).
+# Dahsha · دهشة
+
+**Free documentaries in Arabic and English — channels, topics and full episodes in one place.**
+
+[![Try Dahsha](https://img.shields.io/badge/▶_Try_Dahsha-dahsha.netlify.app-FFD400?style=for-the-badge&labelColor=111111)](https://dahsha.netlify.app)
+[![Download for Android](https://img.shields.io/badge/Android-Download_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white&labelColor=111111)](https://github.com/FediMechergui/dahsha/releases)
+
+[![Tests](https://github.com/FediMechergui/dahsha/actions/workflows/test.yml/badge.svg)](https://github.com/FediMechergui/dahsha/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/FediMechergui/dahsha?style=social)](https://github.com/FediMechergui/dahsha/stargazers)
+
+<img src="docs/screenshots/home.jpg" alt="Dahsha home screen with a featured documentary" width="270">&nbsp;&nbsp;
+<img src="docs/screenshots/watch.jpg" alt="Dahsha player with episode details" width="270">
+
+</div>
+
+## Why Dahsha?
+
+Great Arabic documentaries are scattered across dozens of YouTube channels and playlists. Dahsha gathers them into a single, fast, ad-filtered catalogue you can browse like a streaming service.
+
+- 🎬 **Thousands of documentaries** — about 900 series, 2,400 films and 7,000 full episodes (4,400+ hours) from curated channels.
+- 🌍 **Arabic & English** — a fully right-to-left Arabic interface with a one-tap English switch.
+- 🗂️ **Browse by topic** — history & war, science, nature, and more, with channel and topic filters.
+- 🔎 **Instant search** — search, browsing and filtering run on your device.
+- ▶️ **Continue watching & My list** — progress and favourites are saved locally, no account needed.
+- ⏭️ **Auto-play next episode** with an episode picker for every series.
+- 🔄 **Always fresh** — GitHub Actions check for new uploads every 30 minutes.
+- 📱 **Web + Android** — installable PWA and a native Capacitor app with inline playback and ad/popup filtering.
+
+> ⭐ **Enjoying Dahsha?** Star the repository — it helps more people discover Arabic documentaries.
+
+**Tech stack:** React 19 · Vite · Node.js 22 · Netlify Functions · Capacitor 7 (Android) · GitHub Actions
+
+The sister project Flixer is maintained in its [own repository](https://github.com/FediMechergui/flixer).
+
+## Contents
+
+- [Run locally](#run-locally)
+- [Project layout](#project-layout)
+- [Uploads without playlists](#uploads-without-playlists)
+- [Android builds](#android-builds)
+- [Hosting and refresh](#hosting-and-refresh)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Run locally
 
@@ -95,3 +135,15 @@ Android playback stays inline by default, filters known ad requests and popups (
 Deploy website/API code explicitly with `npm run build` followed by `npm run publish` using the Netlify CLI login or `NETLIFY_AUTH_TOKEN`. Android client/player changes require a new APK. Android CI builds only Dahsha and uses `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`; without signing credentials it produces an unsigned APK.
 
 Read [Scraper behavior](docs/SCRAPERS.md) and [Provider integration](docs/FMOVIES.md) for parsing, matching, and playback details. Upstream streams and artwork may be unavailable; failed requests retain imported catalogue data.
+
+## Contributing
+
+Feedback, bug reports and channel suggestions are welcome:
+
+- 💬 Ask questions or share ideas in [Discussions](https://github.com/FediMechergui/dahsha/discussions).
+- 🐞 Report a bug or suggest a documentary channel through [Issues](https://github.com/FediMechergui/dahsha/issues/new/choose).
+- 🛠️ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+The source code is released under the [MIT License](LICENSE). Documentaries, artwork and trademarks shown in the app belong to their respective owners; Dahsha is an unofficial index and does not host video.
