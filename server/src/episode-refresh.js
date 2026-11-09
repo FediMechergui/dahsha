@@ -111,14 +111,17 @@ export async function refreshSeriesEpisodes(rows, {
     if (!added) break;
   }
   const updates = new Map(), blocked = new Set(skipProviders);
-  let cursor = 0;
+  let cursor = 0, budgetSpent = false;
   await Promise.all(Array.from({length:Math.min(concurrency,jobs.length)}, async () => {
-    while (cursor < jobs.length) {
+    while (cursor < jobs.length && !budgetSpent) {
       const remaining = budgetMs - (performance.now() - started);
       if (remaining <= 0) break;
       const row = jobs[cursor++], provider = providerOf(row);
       if (blocked.has(provider)) continue;
       report.checked++;
+      // A timer can fire a fraction of a millisecond before performance.now() reaches the deadline, so a
+      // request cut off by the remaining budget ends the run instead of starting another with ~0 ms left.
+      const budgetCapped = remaining <= timeoutMs;
       try {
         const fresh = await withinBudget(signal => resolveDetails(row, {signal,at}), Math.min(timeoutMs,remaining));
         if (providerRowProblem(fresh) || fresh.id !== row.id || fresh.kind !== 'series' || fresh.documentary !== true) {
@@ -158,6 +161,7 @@ export async function refreshSeriesEpisodes(rows, {
         report.succeeded++;
       } catch (error) {
         const message = String(error.message || error);
+        if (budgetCapped && message === 'Episode guide request timed out') budgetSpent = true;
         updates.set(row.id,{...row,episodesCheckedAt:at,episodesLastError:message});
         report.errors.push({id:row.id,provider,error:message});
         if (denied(message)) blocked.add(provider);
