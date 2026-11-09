@@ -13,8 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/FediMechergui/dahsha?style=social)](https://github.com/FediMechergui/dahsha/stargazers)
 
-<img src="docs/screenshots/home.jpg" alt="Dahsha home screen with a featured documentary" width="270">&nbsp;&nbsp;
-<img src="docs/screenshots/watch.jpg" alt="Dahsha player with episode details" width="270">
+<a href="https://dahsha.netlify.app"><img src="docs/screenshots/promo.jpg" alt="Dahsha: Arabic and English documentaries in one free app, shown on the home screen and the player" width="800"></a>
 
 </div>
 
